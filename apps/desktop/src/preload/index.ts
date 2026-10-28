@@ -1,4 +1,9 @@
 import {
+  clipboardChannels,
+  type ClipboardReadResult,
+  type ClipboardWriteResult,
+} from '../shared/clipboard.js';
+import {
   terminalChannels as channels,
   type TerminalEvent,
   type TerminalOpenResult,
@@ -9,6 +14,15 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 
 const api: DesktopApi = {
+  readClipboardText: async () => {
+    const result: ClipboardReadResult = await ipcRenderer.invoke(clipboardChannels.read);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.text;
+  },
+  writeClipboardText: async (text) => {
+    const result: ClipboardWriteResult = await ipcRenderer.invoke(clipboardChannels.write, text);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
   getShells: () => ipcRenderer.invoke(channels.shells),
   openTerminal: async (id, size) => {
     const result: TerminalOpenResult = await ipcRenderer.invoke(channels.open, id, size);

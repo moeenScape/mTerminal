@@ -1,3 +1,4 @@
+import { attachClipboard } from './clipboard.js';
 import { validateShellOverride } from './terminal/shells.js';
 import { attachTerminal } from './terminal/ipc.js';
 import { AppFailure, failureCode } from './failures.js';
@@ -53,6 +54,7 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
     },
   });
 
+  attachClipboard(window, rendererUrl, diagnostics);
   attachTerminal(window, rendererUrl, () => store.preferences.defaultShell, diagnostics);
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');

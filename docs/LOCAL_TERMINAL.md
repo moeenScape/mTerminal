@@ -1,4 +1,4 @@
-# Local terminal: F07–F11
+# Local terminal: F07–F12
 
 ## Run and use
 
@@ -243,4 +243,63 @@ cancellation; and desktop creation, output separation, rename, reorder, keyboard
 navigation, dialog behavior and close confirmation. They are written/type-checked
 but not run until Phase 1 completion. Pointer drag behavior, native focus,
 concurrent interactive sessions, visual layout and Windows/macOS remain unverified.
-F12 clipboard handling is next.
+F12 clipboard handling is implemented below; native verification remains pending.
+
+## Clipboard (F12)
+
+Select terminal output with xterm's normal mouse selection, then choose **Copy
+selection**. The button is disabled without a selection. **Select all** selects
+the terminal buffer, including available scrollback. Copy also works after a
+shell exits, while its tab/output is retained. Copying does not remove output.
+Only plain text is copied; HTML/images/formats and clipboard history are not added.
+
+Use **Paste**, native Edit-menu Paste, or Ctrl+Shift+V on Linux/Windows and
+Command+V on macOS. Copy uses Ctrl+Shift+C or Command+C. Ctrl+C remains shell input.
+Native copy/cut/paste events are handled inside the terminal container; other
+application inputs keep their normal editing behavior. Terminal Cut copies its
+selection without deleting terminal output. Toolbar controls provide accessible
+alternatives to the shortcuts. Linux primary-selection/middle-click behavior is
+not a separately implemented or verified feature.
+
+### Paste review and binding
+
+An empty clipboard sends nothing. Single-line ordinary text is passed to
+`xterm.paste`; it does not append an Enter key. CRLF and lone CR normalize to LF
+before xterm performs terminal newline conversion and bracketed-paste wrapping
+when the receiving application has enabled that mode. No automatic fallback to
+a different session or replay occurs.
+
+A newline anywhere, even at the end, or a control character requires confirmation.
+The native modal names the destination tab and warns that commands may run. Its
+preview escapes nonprinting controls and shows at most 8 Ki source UTF-16 units,
+without splitting an emoji. A truncated preview explicitly says that the full
+text would be pasted. Cancel/Escape sends nothing. The full text remains transient
+only while pending; it is not saved as a snippet, database record, or log.
+
+Both asynchronous reads and confirmation retain the captured terminal/session.
+The session must still be ready, visible and the same instance when text is sent.
+An exited/replaced target discards the request. Paste before shell readiness is
+refused. App navigation shortcuts cannot bypass the open modal. Paste review is
+required even when bracketed-paste mode is enabled; that mode depends on the shell
+or application and is not treated as a reason to skip review.
+
+### Boundaries and verification
+
+Clipboard IPC validates the owning main frame and focused window. OS reads are
+revalidated after their asynchronous completion. Text transfers are limited to
+1 Mi UTF-16 units. Empty selection does not issue an app clipboard write. Errors
+use fixed messages/codes; no clipboard data or previews enter diagnostics. OSC 52
+requests in terminal output are consumed without invoking clipboard APIs. Commands
+run by the user may still use OS utilities directly; this is not a shell sandbox.
+The OS controls the clipboard after a user copy; the app does not clear it on quit.
+
+The new unit tests mock OS IO and cover limits, previews, newline/control handling,
+IPC identity, asynchronous focus loss and sanitized failures. Desktop tests use
+mock clipboard methods/synthetic paste events rather than the real OS clipboard,
+and cover selection copy, cancel/confirm, and rejecting an exited destination.
+They are written and type-checked but not executed until Phase 1 completion.
+Native shortcuts, real OS clipboard permissions, platform focus, rendering and
+Windows/macOS compatibility remain unverified. F13 search/scrollback is next.
+
+References: [Electron clipboard API](https://www.electronjs.org/docs/latest/api/clipboard),
+[xterm paste](https://xtermjs.org/docs/api/terminal/classes/terminal/#paste).

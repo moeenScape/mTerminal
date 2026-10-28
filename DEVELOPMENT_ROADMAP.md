@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F11 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F12 — Clipboard; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F11 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, and independent terminal tabs; desktop verification pending |
+| Active feature | F12 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F13 — Search and scrollback; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F12 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, and clipboard controls; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -88,7 +88,7 @@ Dependencies: Phase 0.
 - [x] **F09 — Input and output:** Unicode 11 width handling, surrogate-safe bounded text input, validated binary terminal input, raw VT/control output streaming, terminal-friendly native accelerators, and composition/AltGr-safe navigation. Build/static checks pass; tests written and deferred; interactive/IME/platform verification pending.
 - [x] **F10 — Resizing:** One renderer sizing controller measures, clamps, and applies the same grid to xterm and the PTY. Frame-coalesced layout/font/scale updates, hidden-workspace handling, startup resize retention and duplicate suppression are implemented. Static/build checks pass; tests written and deferred; native/visual verification pending.
 - [x] **F11 — Tabs:** Independent PTYs and mounted terminal panes with create, rename, drag/button/keyboard reorder, switch, status and close actions. Running/starting tab closure names the tab in a confirmation. UI and backend enforce 16 terminals. Build/static checks pass; tests written, deferred; runtime/visual verification pending.
-- [ ] **F12 — Clipboard:** Selection, copy/paste, shortcuts, and multiline-paste handling.
+- [x] **F12 — Clipboard:** xterm selection/copy/select-all controls, plain-text paste via toolbar and native copy/paste events, bounded validated clipboard IPC, newline/control-character preview and confirmation, session-bound paste cancellation, and OSC 52 blocking. Static/build checks pass; tests written, deferred; native clipboard/keyboard verification pending.
 - [ ] **F13 — Search and scrollback:** Searchable output and bounded history.
 - [ ] **F14 — Appearance:** Themes, fonts, cursor, zoom, and per-session settings.
 - [ ] **F15 — Session lifecycle:** Shell exit, process cleanup, and orphan prevention.
@@ -265,6 +265,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | F11 | Implementation complete | `apps/desktop/src/main/terminal/registry.ts`, `apps/desktop/src/renderer/src/features/workspace/` | Type/lint/format/build/diff pass; registry/tab/E2E regressions written, not run | Visual, native focus/drag and multi-process verification pending; F12 next |
 
+| F12 | Implementation complete | `apps/desktop/src/main/clipboard.ts`, `apps/desktop/src/renderer/src/features/workspace/use-terminal-clipboard.ts` | Type/lint/format/build/diff pass; policy/IPC and desktop paste regressions written, not run | Native OS clipboard/keyboard/visual checks pending; F13 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -435,3 +437,31 @@ updated for confirmation. Test code is written and type-checked but not executed
 until Phase 1 completion. Native multi-process, focus, drag, visual and platform
 checks remain pending, alongside Phase 0's sandbox verification. Next: F12;
 commit without pushing.
+
+### F12 implementation update
+
+Added plain-text OS clipboard operations through a narrow main-process API using
+Electron's asynchronous readText/writeText methods. Requests validate the owning
+main frame and focused window; reads revalidate after awaiting the OS. Transfers
+are limited to 1 Mi UTF-16 units, and failures expose fixed codes only. Diagnostic
+logs never contain clipboard payloads or previews.
+
+Each pane now offers Copy selection, Paste and Select all. Native copy/cut/paste
+events are intercepted within the terminal container, leaving other app inputs
+unchanged. Copy uses only the xterm selection; cut copies without deleting output.
+Paste normalizes CRLF/CR and uses xterm.paste to honor bracketed-paste mode.
+Newlines (including trailing newlines) and control characters require a modal
+preview naming the target tab. Control characters are displayed as escapes and
+previews are bounded to 8 Ki source units. Cancel sends nothing. Confirmation
+checks the exact captured terminal instance/session and visibility/readiness;
+an ended/replaced/hidden target cannot receive the text. OSC 52 is consumed
+without clipboard access. No raw clipboard content is persisted by the app.
+
+Static/build/diff checks pass. New tests cover Unicode/newline/control previews,
+limits, IPC owner/focus checks, async focus loss and sanitized errors, copy and
+multiline cancel/confirm, native paste interception and exited-target rejection.
+Desktop fixtures stub clipboard IO or synthesize ClipboardEvents rather than read
+or replace the user's actual OS clipboard. Tests are written/type-checked but not
+executed until Phase 1 completion. Native keyboard, OS clipboard, focus, visual
+and Windows/macOS verification remain pending; Phase 0's sandbox blocker remains.
+Next: F13; commit without pushing.

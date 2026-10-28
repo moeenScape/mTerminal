@@ -307,6 +307,7 @@ export function WorkspaceView({
               <TerminalPane
                 key={tab.id}
                 id={tab.id}
+                title={tab.title}
                 active={active && state.activeId === tab.id}
                 appearance={appearance}
                 navigationShortcuts={navigationShortcuts}

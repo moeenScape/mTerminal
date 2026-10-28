@@ -1,4 +1,7 @@
 export const failureMessages = {
+  'clipboard-unavailable': 'Clipboard access failed. Focus mTerminal and try Copy or Paste again.',
+  'clipboard-too-large':
+    'Clipboard text exceeds the limit. Copy a smaller selection (up to 1 Mi characters) and try again.',
   'terminal-limit':
     'The maximum of 16 local terminals is open. Close an existing terminal tab before creating another.',
   'shell-invalid':

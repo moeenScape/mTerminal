@@ -28,6 +28,8 @@ location. Raw exceptions are never placed in those dialogs or diagnostic files.
 | `preferences-invalid` | Quit, back up `preferences.json`, then repair or move it aside. Moving it aside resets preferences, not the SQLite database. |
 | `shell-invalid` | Correct or clear the absolute default shell path in Settings. The prior preference is retained when a save is rejected. |
 | `shell-missing` | Install a usable shell or set its absolute executable path in Settings. |
+| `clipboard-unavailable` | Focus mTerminal and retry the copy/paste action. Clipboard contents are excluded from logs. |
+| `clipboard-too-large` | Copy a smaller text selection; transfers are capped at 1 Mi UTF-16 units. |
 | `preferences-save` | Unsaved values remain in the form. Fix directory access or disk space, then retry Save. |
 | `permission-denied` / `disk-full` | Correct access or free space, then retry; do not remove application records. |
 | `backup-unsupported` | Use a filesystem supporting hard links for the data/backup directory. |

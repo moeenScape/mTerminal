@@ -57,6 +57,8 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'readClipboardText',
+      'writeClipboardText',
       'getShells',
       'openTerminal',
       'writeTerminal',
@@ -417,4 +419,97 @@ test('supports terminal tab keyboard navigation, rename, and reorder', async () 
   await expect(hostsView).toBeFocused();
   await hostsView.press('ArrowRight');
   await expect(workspaceView).toBeFocused();
+});
+
+test('copies selection and confirms/cancels multiline paste without touching the real OS clipboard', async () => {
+  // Replace clipboard IO only inside this isolated Electron test process.
+  await application.evaluate(({ clipboard }) => {
+    clipboard.readText = async () => 'echo CLIP_SINGLE';
+    clipboard.writeText = async (text) => {
+      Reflect.set(globalThis, '__copiedFixtureText', text);
+    };
+  });
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy selection', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Text pasted.' })).toBeVisible();
+  const textarea = page.locator('.terminal-pane:not([hidden]) textarea');
+  await textarea.press('Enter');
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).toContainText('CLIP_SINGLE');
+  await page.getByRole('button', { name: 'Select all', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy selection', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Selection copied.' })).toBeVisible();
+  const copied = await application.evaluate(
+    () => Reflect.get(globalThis, '__copiedFixtureText') as string,
+  );
+  expect(copied).toContain('CLIP_SINGLE');
+  await application.evaluate(({ clipboard }) => {
+    clipboard.readText = async () => 'echo MULTI_ONE\necho MULTI_TWO\n';
+  });
+  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  const preview = page.getByRole('dialog', { name: 'Paste into “Terminal 1”?' });
+  await expect(preview.getByLabel('Paste preview')).toContainText('echo MULTI_ONE');
+  const tree = page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree');
+  await expect(tree).not.toContainText('MULTI_ONE');
+  await preview.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(tree).not.toContainText('MULTI_ONE');
+  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Paste into terminal', exact: true })
+    .click();
+  await textarea.press('Enter');
+  await expect(tree).toContainText('MULTI_TWO');
+});
+
+test('intercepts native paste events and refuses a confirmed paste into an exited session', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(
+    info.platform === 'win32',
+    'The exit fixture is verified with a Unix shell at the phase gate.',
+  );
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.on('terminal:ack', (_event, id: string) => {
+      Reflect.set(globalThis, '__fixtureSession', id);
+    });
+  });
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.locator('.terminal-pane:not([hidden]) textarea').evaluate((element) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', 'echo STALE_PASTE\n');
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+  });
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect
+    .poll(() => application.evaluate(() => Reflect.get(globalThis, '__fixtureSession')))
+    .toBeTruthy();
+  const sessionId = await application.evaluate(
+    () => Reflect.get(globalThis, '__fixtureSession') as string,
+  );
+  expect(sessionId).toBeTruthy();
+  await page.evaluate(
+    (id) => window.mterminal.writeTerminal(id, { kind: 'text', data: 'exit\r' }),
+    sessionId,
+  );
+  await expect(page.getByRole('status').filter({ hasText: 'Shell exited' })).toBeVisible();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Paste into terminal', exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'Paste cancelled: the target session is no longer active.' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).not.toContainText('STALE_PASTE');
 });

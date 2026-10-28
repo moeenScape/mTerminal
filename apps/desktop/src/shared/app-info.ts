@@ -8,6 +8,8 @@ export interface AppInfo {
 }
 
 export interface DesktopApi extends TerminalApi {
+  readClipboardText: () => Promise<string>;
+  writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
   getPreferences: () => Promise<import('./preferences.js').Preferences>;
   savePreferences: (

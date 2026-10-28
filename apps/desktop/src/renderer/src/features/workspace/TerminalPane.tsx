@@ -1,3 +1,5 @@
+import { useTerminalClipboard } from './use-terminal-clipboard';
+import { PasteDialog } from './PasteDialog';
 import type { TabPhase } from './tabs';
 import { TerminalSizing } from './terminal-sizing';
 import { isWorkspaceShortcut } from '../../components/keyboard';
@@ -11,6 +13,7 @@ import { failureMessages } from '../../../../shared/failures';
 
 export function TerminalPane({
   id,
+  title,
   onRequestClose,
   active,
   appearance,
@@ -18,6 +21,7 @@ export function TerminalPane({
   onPhaseChange,
 }: {
   id: string;
+  title: string;
   onRequestClose: (id: string) => void;
   active: boolean;
   appearance: 'dark' | 'light';
@@ -27,12 +31,19 @@ export function TerminalPane({
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const sizing = useRef<TerminalSizing | null>(null);
+  const inputReady = useRef(false);
   const autoStarted = useRef(false);
   const session = useRef<string | null>(null);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState('No active session');
   const [shells, setShells] = useState<string[]>([]);
+  const { attach: attachClipboard, ...clipboard } = useTerminalClipboard(
+    terminal,
+    session,
+    container,
+    inputReady,
+  );
 
   useEffect(() => {
     const host = container.current;
@@ -51,6 +62,7 @@ export function TerminalPane({
     term.unicode.activeVersion = '11';
     term.open(host);
     terminal.current = term;
+    const disposeClipboard = attachClipboard(term, host);
 
     let disposed = false;
     void window.mterminal
@@ -99,6 +111,7 @@ export function TerminalPane({
             window.mterminal.ackTerminal(event.id, event.data.length);
         });
       } else {
+        inputReady.current = false;
         session.current = null;
         setRunning(false);
         setStarting(false);
@@ -112,6 +125,7 @@ export function TerminalPane({
     });
     return () => {
       disposed = true;
+      disposeClipboard();
       observer.disconnect();
       window.removeEventListener('resize', resize);
       document.fonts.removeEventListener('loadingdone', resize);
@@ -121,12 +135,13 @@ export function TerminalPane({
       binary.dispose();
       unsubscribe();
       if (session.current) window.mterminal.closeTerminal(session.current);
+      inputReady.current = false;
       session.current = null;
       terminal.current = null;
       sizing.current = null;
       term.dispose();
     };
-  }, [id, onPhaseChange]);
+  }, [id, onPhaseChange, attachClipboard]);
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
@@ -157,6 +172,7 @@ export function TerminalPane({
       onPhaseChange(id, 'error');
       return;
     }
+    inputReady.current = false;
     term.reset();
     const sessionId = crypto.randomUUID();
     session.current = sessionId;
@@ -167,6 +183,7 @@ export function TerminalPane({
       await window.mterminal.openTerminal(sessionId, size);
       if (session.current !== sessionId) return;
       sizing.current?.fitNow(true);
+      inputReady.current = true;
       setRunning(true);
       setStarting(false);
       onPhaseChange(id, 'running');
@@ -175,6 +192,7 @@ export function TerminalPane({
       if (panel?.clientWidth && panel.contains(document.activeElement)) term.focus();
     } catch (error) {
       if (session.current !== sessionId) return;
+      inputReady.current = false;
       session.current = null;
       setStarting(false);
       onPhaseChange(id, 'error');
@@ -207,6 +225,25 @@ export function TerminalPane({
         <p className="terminal-status" role="status">
           {status}
         </p>
+        <div className="terminal-clipboard-tools">
+          <button
+            type="button"
+            disabled={!clipboard.selected}
+            onClick={() => void clipboard.copy()}
+          >
+            Copy selection
+          </button>
+          <button
+            type="button"
+            disabled={!running || clipboard.busy}
+            onClick={() => void clipboard.paste()}
+          >
+            Paste
+          </button>
+          <button type="button" onClick={() => terminal.current?.selectAll()}>
+            Select all
+          </button>
+        </div>
         {running || starting ? (
           <button type="button" className="secondary-button" onClick={() => onRequestClose(id)}>
             {starting ? 'Cancel' : 'Close session'}
@@ -217,6 +254,11 @@ export function TerminalPane({
           </button>
         )}
       </header>
+      {clipboard.notice && (
+        <p className="clipboard-notice" role="status">
+          {clipboard.notice}
+        </p>
+      )}
       {!running && !starting && (
         <p className="shell-help">
           Installed shells: {shells.join(', ') || 'None discovered'}. The saved default shell is
@@ -224,6 +266,14 @@ export function TerminalPane({
         </p>
       )}
       <div className="terminal-container" ref={container} aria-label="Local terminal" />
+      {clipboard.pending && (
+        <PasteDialog
+          title={title}
+          paste={clipboard.pending}
+          onConfirm={clipboard.confirm}
+          onCancel={clipboard.cancel}
+        />
+      )}
     </div>
   );
 }

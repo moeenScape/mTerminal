@@ -757,3 +757,47 @@ h2 {
   background: var(--raised);
   color: var(--text);
 }
+
+.terminal-clipboard-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.terminal-clipboard-tools button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.clipboard-notice {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.paste-dialog {
+  width: min(640px, calc(100vw - 48px));
+}
+.paste-preview {
+  padding: 12px;
+  max-height: 35vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+  tab-size: 4;
+}
+
+.terminal-pane > .terminal-toolbar {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.terminal-pane > .terminal-toolbar > .terminal-status {
+  flex: 1 1 140px;
+}
