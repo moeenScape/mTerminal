@@ -1,3 +1,4 @@
+import type { SshChallenge } from '../shared/ssh.js';
 import { hostChannels } from '../shared/hosts.js';
 import {
   clipboardChannels,
@@ -15,6 +16,15 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 
 const api: DesktopApi = {
+  answerSshChallenge: (id, token, answers) =>
+    ipcRenderer.send(channels.sshAnswer, id, token, answers),
+  onSshChallenge: (listener) => {
+    const receive = (_event: unknown, challenge: SshChallenge) => listener(challenge);
+    ipcRenderer.on(channels.sshChallenge, receive);
+    return () => {
+      ipcRenderer.removeListener(channels.sshChallenge, receive);
+    };
+  },
   openSshTerminal: async (id, size, hostId, credentials) => {
     const result: TerminalOpenResult = await ipcRenderer.invoke(
       channels.ssh,

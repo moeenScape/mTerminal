@@ -1,5 +1,5 @@
 import { generateKeyPairSync, createHash } from 'node:crypto';
-import { Server, utils, type Connection } from 'ssh2';
+import { Server, utils, type Connection, type AuthContext } from 'ssh2';
 import { describe, expect, it } from 'vitest';
 import { openSsh, fingerprintMatches } from '../../src/main/terminal/ssh.js';
 import { validateSshCredentials } from '../../src/shared/ssh.js';
@@ -19,6 +19,7 @@ async function fixture(
     authCount: () => number,
     windows: number[][],
   ) => Promise<void>,
+  authenticate?: (context: AuthContext) => void,
 ) {
   const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({
     type: 'pkcs1',
@@ -38,6 +39,10 @@ async function fixture(
     connection.on('close', () => connections.delete(connection));
     connection.on('authentication', (context) => {
       authCount++;
+      if (authenticate) {
+        authenticate(context);
+        return;
+      }
       if (
         context.method === 'password' &&
         context.username === 'user' &&
@@ -168,5 +173,90 @@ describe('SSH terminal transport', () => {
         ),
       ).rejects.toMatchObject({ code: 'ssh-failed' });
     });
+  });
+  it('authenticates with an encrypted private key and rejects an incorrect passphrase', async () => {
+    const key = generateKeyPairSync('rsa', { modulusLength: 2048 })
+      .privateKey.export({
+        type: 'pkcs1',
+        format: 'pem',
+        cipher: 'aes-256-cbc',
+        passphrase: 'key-passphrase',
+      })
+      .toString();
+    const parsed = utils.parseKey(key, 'key-passphrase');
+    if (parsed instanceof Error || Array.isArray(parsed)) throw new Error('Invalid fixture key');
+    await fixture(
+      async (port, fingerprint) => {
+        const credentials = {
+          username: 'user',
+          method: 'privateKey' as const,
+          privateKey: key,
+          passphrase: 'key-passphrase',
+          fingerprint,
+        };
+        const transport = await openSsh(
+          { ...host, port },
+          credentials,
+          size,
+          new AbortController().signal,
+        );
+        transport.kill();
+        await expect(
+          openSsh(
+            { ...host, port },
+            { ...credentials, passphrase: 'wrong' },
+            size,
+            new AbortController().signal,
+          ),
+        ).rejects.toMatchObject({ code: 'ssh-failed' });
+      },
+      (context) => {
+        if (context.method !== 'publickey' || !context.key.data.equals(parsed.getPublicSSH())) {
+          context.reject();
+          return;
+        }
+        if (
+          !context.signature ||
+          (context.blob && parsed.verify(context.blob, context.signature, context.hashAlgo))
+        )
+          context.accept();
+        else context.reject();
+      },
+    );
+  });
+  it('answers multiple keyboard-interactive rounds with echo metadata', async () => {
+    const questions: { prompts: { prompt: string; echo: boolean }[] }[] = [];
+    await fixture(
+      async (port, fingerprint) => {
+        const transport = await openSsh(
+          { ...host, port },
+          { username: 'user', method: 'keyboard-interactive', fingerprint },
+          size,
+          new AbortController().signal,
+          async (question) => {
+            questions.push(question);
+            return questions.length === 1 ? ['123456'] : ['confirm'];
+          },
+        );
+        transport.kill();
+        expect(questions.map((q) => q.prompts[0]?.echo)).toEqual([false, true]);
+      },
+      (context) => {
+        if (context.method !== 'keyboard-interactive') {
+          context.reject(['keyboard-interactive']);
+          return;
+        }
+        context.prompt([{ prompt: 'OTP', echo: false }], (answers) => {
+          if (answers[0] !== '123456') {
+            context.reject();
+            return;
+          }
+          context.prompt([{ prompt: 'Confirmation', echo: true }], (answers) => {
+            if (answers[0] === 'confirm') context.accept();
+            else context.reject();
+          });
+        });
+      },
+    );
   });
 });

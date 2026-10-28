@@ -6,6 +6,8 @@ export const terminalChannels = {
   shells: 'terminal:shells',
   open: 'terminal:open',
   ssh: 'terminal:ssh',
+  sshChallenge: 'terminal:ssh-challenge',
+  sshAnswer: 'terminal:ssh-answer',
   write: 'terminal:write',
   resize: 'terminal:resize',
   ack: 'terminal:ack',
@@ -27,6 +29,8 @@ export interface TerminalSize {
   rows: number;
 }
 export interface TerminalApi {
+  onSshChallenge: (listener: (challenge: import('./ssh.js').SshChallenge) => void) => () => void;
+  answerSshChallenge: (id: string, token: string, answers: string[]) => void;
   openSshTerminal: (
     id: string,
     size: TerminalSize,

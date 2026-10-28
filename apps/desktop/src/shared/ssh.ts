@@ -1,6 +1,10 @@
 export interface SshCredentials {
   username: string;
-  password: string;
+  method?: 'password' | 'privateKey' | 'keyboard-interactive';
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+  keyboardInteractive?: boolean;
   fingerprint: string;
 }
 export function validateSshCredentials(value: unknown): SshCredentials {
@@ -13,11 +17,66 @@ export function validateSshCredentials(value: unknown): SshCredentials {
     /\s/.test(c.username) ||
     Array.from(c.username).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
     c.username.startsWith('-') ||
-    typeof c.password !== 'string' ||
-    c.password.length > 4096 ||
     typeof c.fingerprint !== 'string' ||
     !/^SHA256:[A-Za-z0-9+/]{43}$/.test(c.fingerprint)
   )
     throw new Error('Invalid SSH credentials.');
-  return { username: c.username, password: c.password, fingerprint: c.fingerprint };
+  const method = c.method ?? 'password';
+  if (
+    !['password', 'privateKey', 'keyboard-interactive'].includes(method) ||
+    (c.keyboardInteractive !== undefined && typeof c.keyboardInteractive !== 'boolean')
+  )
+    throw new Error('Invalid authentication method.');
+  const base = {
+    username: c.username,
+    fingerprint: c.fingerprint,
+    method,
+    keyboardInteractive: c.keyboardInteractive === true,
+  };
+  if (method === 'password') {
+    if (typeof c.password !== 'string' || c.password.length > 4096)
+      throw new Error('Invalid password.');
+    return { ...base, password: c.password };
+  }
+  if (method === 'privateKey') {
+    if (
+      typeof c.privateKey !== 'string' ||
+      !c.privateKey.trim() ||
+      c.privateKey.length > 256 * 1024 ||
+      (c.passphrase !== undefined &&
+        (typeof c.passphrase !== 'string' || c.passphrase.length > 4096))
+    )
+      throw new Error('Invalid key.');
+    return { ...base, privateKey: c.privateKey, passphrase: c.passphrase ?? '' };
+  }
+  return base;
+}
+
+export interface SshQuestion {
+  title: string;
+  instructions: string;
+  prompts: { prompt: string; echo: boolean }[];
+}
+export interface SshChallenge extends SshQuestion {
+  id: string;
+  token: string;
+}
+export function validateSshQuestion(value: SshQuestion): SshQuestion {
+  if (
+    typeof value.title !== 'string' ||
+    value.title.length > 256 ||
+    typeof value.instructions !== 'string' ||
+    value.instructions.length > 2048 ||
+    !Array.isArray(value.prompts) ||
+    value.prompts.length > 8 ||
+    value.prompts.some(
+      (p) => typeof p.prompt !== 'string' || p.prompt.length > 1024 || typeof p.echo !== 'boolean',
+    )
+  )
+    throw new Error('Invalid server prompts.');
+  return {
+    title: value.title,
+    instructions: value.instructions,
+    prompts: value.prompts.map((p) => ({ prompt: p.prompt, echo: p.echo })),
+  };
 }

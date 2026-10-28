@@ -1,5 +1,6 @@
+import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
-import type { SshCredentials } from '../../../../shared/ssh';
+import type { SshCredentials, SshChallenge } from '../../../../shared/ssh';
 import {
   defaultTerminalAppearance,
   terminalOptions,
@@ -77,6 +78,14 @@ export function TerminalPane({
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState('No active session');
   const [sshPrompt, setSshPrompt] = useState(false);
+  const [sshChallenge, setSshChallenge] = useState<SshChallenge | null>(null);
+  useEffect(
+    () =>
+      window.mterminal.onSshChallenge((challenge) => {
+        if (challenge.id === session.current) setSshChallenge(challenge);
+      }),
+    [],
+  );
   const [shells, setShells] = useState<string[]>([]);
   const { attach: attachClipboard, ...clipboard } = useTerminalClipboard(
     terminal,
@@ -155,6 +164,7 @@ export function TerminalPane({
             window.mterminal.ackTerminal(event.id, event.data.length);
         });
       } else {
+        setSshChallenge(null);
         inputReady.current = false;
         session.current = null;
         setRunning(false);
@@ -280,6 +290,7 @@ export function TerminalPane({
           term.focus();
       } catch (error) {
         if (session.current !== sessionId) return;
+        setSshChallenge(null);
         inputReady.current = false;
         session.current = null;
         setStarting(false);
@@ -311,6 +322,23 @@ export function TerminalPane({
       id={`terminal-panel-${id}`}
       aria-labelledby={`terminal-tab-${id}`}
     >
+      {sshChallenge && (
+        <SshChallengeDialog
+          key={sshChallenge.token}
+          title={title}
+          challenge={sshChallenge}
+          onAnswer={(answers) => {
+            if (session.current === sshChallenge.id)
+              window.mterminal.answerSshChallenge(sshChallenge.id, sshChallenge.token, answers);
+            setSshChallenge(null);
+          }}
+          onCancel={() => {
+            if (session.current === sshChallenge.id)
+              window.mterminal.closeTerminal(sshChallenge.id);
+            setSshChallenge(null);
+          }}
+        />
+      )}
       {sshPrompt && (
         <SshPrompt
           title={title}

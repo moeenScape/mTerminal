@@ -97,6 +97,18 @@ describe('local terminal lifecycle', () => {
       vi.useRealTimers();
     }
   });
+  it('aborts startup resources when the transport factory fails', async () => {
+    const terminal = new TerminalSession(() => {});
+    let signal!: AbortSignal;
+    await expect(
+      terminal.open(id, size, async (value) => {
+        signal = value;
+        throw new Error('failed');
+      }),
+    ).rejects.toThrow('failed');
+    expect(signal.aborted).toBe(true);
+    terminal.dispose();
+  });
   it('writes text controls unchanged and preserves eight-bit binary input', async () => {
     const fake = fakePty();
     const terminal = new TerminalSession(() => {});

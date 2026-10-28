@@ -3,7 +3,7 @@ import { Client } from 'ssh2';
 import type { ClientChannel } from 'ssh2';
 import type { TerminalTransport } from './transport.js';
 import type { HostDraft } from '../../shared/hosts.js';
-import type { SshCredentials } from '../../shared/ssh.js';
+import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../../shared/ssh.js';
 import type { TerminalSize } from '../../shared/terminal.js';
 import { AppFailure } from '../failures.js';
 
@@ -18,6 +18,7 @@ export function openSsh(
   credentials: SshCredentials,
   size: TerminalSize,
   signal: AbortSignal,
+  ask?: (question: SshQuestion) => Promise<string[]>,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const client = new Client();
@@ -51,13 +52,35 @@ export function openSsh(
       client.destroy();
     };
     const abort = () => finish();
-    const timer = setTimeout(finish, 20000);
+    const interactive =
+      credentials.method === 'keyboard-interactive' || credentials.keyboardInteractive === true;
+    const timer = setTimeout(finish, interactive ? 120000 : 20000);
     client.on('error', finish).on('close', finish);
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) {
       finish();
       return;
     }
+    client.on('keyboard-interactive', (title, instructions, _language, prompts, respond) => {
+      if (ended || !ask) {
+        finish();
+        return;
+      }
+      try {
+        const question = validateSshQuestion({
+          title,
+          instructions,
+          prompts: prompts.map((p) => ({ prompt: p.prompt, echo: p.echo === true })),
+        });
+        void ask(question)
+          .then((answers) => {
+            if (!ended) respond(answers);
+          })
+          .catch(finish);
+      } catch {
+        finish();
+      }
+    });
     client.once('ready', () => {
       if (ended) return;
       client.shell(
@@ -130,8 +153,23 @@ export function openSsh(
         host: host.address,
         port: host.port,
         username: credentials.username,
-        password: credentials.password,
-        readyTimeout: 15000,
+        ...(credentials.method === 'privateKey'
+          ? { privateKey: credentials.privateKey!, passphrase: credentials.passphrase! }
+          : credentials.method === 'keyboard-interactive'
+            ? {}
+            : { password: credentials.password! }),
+        tryKeyboard: interactive,
+        authHandler:
+          credentials.method === 'keyboard-interactive'
+            ? ['keyboard-interactive']
+            : credentials.method === 'privateKey'
+              ? interactive
+                ? ['publickey', 'keyboard-interactive']
+                : ['publickey']
+              : interactive
+                ? ['password', 'keyboard-interactive']
+                : ['password'],
+        readyTimeout: interactive ? 120000 : 15000,
         hostVerifier: (key: Buffer) => {
           const match = fingerprintMatches(key, credentials.fingerprint);
           if (!match) mismatch = true;

@@ -29,6 +29,7 @@
     "src/renderer/src/features/workspace/terminal-search.ts",
     "src/renderer/src/features/workspace/appearance.ts",
     "src/main/terminal/transport.ts",
-    "src/main/terminal/ssh.ts"
+    "src/main/terminal/ssh.ts",
+    "src/main/terminal/ssh-challenges.ts"
   ]
 }

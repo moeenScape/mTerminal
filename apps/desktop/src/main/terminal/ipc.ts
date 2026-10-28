@@ -1,3 +1,4 @@
+import { SshChallenges } from './ssh-challenges.js';
 import { openSsh } from './ssh.js';
 import { validateSshCredentials } from '../../shared/ssh.js';
 import { validHostId, resolveHost } from '../../shared/hosts.js';
@@ -28,6 +29,21 @@ export function attachTerminal(
   const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
     if (!window.webContents.isDestroyed()) window.webContents.send(channels.event, event);
+  });
+  const challenges = new SshChallenges((challenge) => {
+    if (window.webContents.isDestroyed()) throw new Error('Window closed.');
+    window.webContents.send(channels.sshChallenge, challenge);
+  });
+  ipcMain.on(channels.sshAnswer, (event, ...args: unknown[]) => {
+    try {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const [id, token, answers] = args;
+      if (args.length !== 3 || !validTerminalId(id) || !validTerminalId(token))
+        throw new Error('Invalid authentication reply.');
+      challenges.answer(id, token, answers);
+    } catch {
+      diagnostics.record('terminal-operation-failed', 'ssh-failed');
+    }
   });
   ipcMain.handle(channels.shells, async (event, ...args: unknown[]) => {
     validateAppInfoRequest(event, window.webContents, rendererUrl, args);
@@ -85,7 +101,11 @@ export function attachTerminal(
       const host = database.listHosts().find((item) => item.id === hostId);
       if (!host) throw new Error('Host missing.');
       const effective = resolveHost(host, database.listHostGroups());
-      await terminal.open(id, size, (signal) => openSsh(effective, credentials, size, signal));
+      await terminal.open(id, size, (signal) =>
+        openSsh(effective, credentials, size, signal, (question) =>
+          challenges.ask(id, question, signal),
+        ),
+      );
       return { ok: true };
     } catch (error) {
       const code = failureCode(error, 'ssh-failed');
@@ -137,6 +157,7 @@ export function attachTerminal(
     terminal.dispose();
     ipcMain.removeHandler(channels.open);
     ipcMain.removeHandler(channels.ssh);
+    ipcMain.removeAllListeners(channels.sshAnswer);
     ipcMain.removeHandler(channels.shells);
     for (const channel of operations) ipcMain.removeAllListeners(channel);
   });

@@ -83,6 +83,7 @@ export class TerminalSession {
         }),
       );
     } catch (error) {
+      opening.controller.abort();
       if (started && this.session === started) this.release(started, true);
       throw error;
     } finally {

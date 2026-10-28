@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F19 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F20 — Authentication methods; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F19 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags and SSH terminal sessions; desktop verification pending |
+| Active feature | F20 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F21 — Known hosts; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F20 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions and password/key/interactive authentication; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -103,7 +103,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 - [x] **F17 — Saved hosts (implementation):** Create/edit/delete SSH profiles with names, addresses, ports and usernames; searchable host list, confirmation before deletion, schema v2 persistence and validated IPC. Tests written and deferred to the Phase 2 gate; visual/runtime verification pending.
 - [x] **F18 — Groups and tags (implementation):** Nested groups with port/username defaults, field-level inheritance and host overrides, normalized tags, descendant-aware group and exact tag filtering, and search across profile, effective username, group and tags. Tests written; Phase 2 execution and runtime verification pending.
 - [x] **F19 — SSH sessions (implementation):** Saved-host Connect opens a remote PTY through ssh2 with session-only password and explicitly pinned SHA256 fingerprint, input/output, resizing, backpressure, cancellation and cleanup. Tests written; execution deferred to Phase 2 gate.
-- [ ] **F20 — Authentication:** Passwords, private keys, passphrases, and keyboard-interactive prompts.
+- [x] **F20 — Authentication (implementation):** Session-only passwords, selected private-key files with optional passphrases, multi-round keyboard-interactive prompts and optional challenge continuation after password/key authentication. Bounded, session/token-scoped replies; cancellation and expiry. Tests written; execution deferred to Phase 2 gate.
 - [ ] **F21 — Known hosts:** Trusted fingerprints, unknown-key confirmation, and changed-key handling.
 - [ ] **F22 — Connection state:** Connecting, authenticating, connected, disconnected, and failed.
 - [ ] **F23 — Keepalive and reconnect:** Detect connection loss and allow explicit reconnection.
@@ -601,3 +601,30 @@ host-key mismatch before authentication and cancelled startup. A desktop test
 covers opening/cancelling the prompt. Tests are written/type-checked but deferred
 to the Phase 2 gate. No live SSH, visual or cross-platform verification is claimed;
 the desktop sandbox blocker remains. Next: F20.
+
+
+### F20 implementation update
+
+Connect offers password, private-key file and keyboard-interactive methods. Key
+files are explicitly selected, limited to 256 KiB and held only in modal/session
+memory; optional passphrases use masked fields. Validation forwards only the
+selected method's fields. Host fingerprint verification remains mandatory before
+authentication. No new credential storage or logging is introduced.
+
+Password/key authentication can continue into keyboard-interactive for servers
+requiring a second factor. Dialogs name the target tab and render server text
+plainly, respect prompt echo flags, and bind answers to an opaque session/request
+token. Bounds: eight prompts per round, 256-character title, 2,048-character
+instructions, 1,024-character prompts and 4,096-character answers. Zero-prompt
+rounds are acknowledged without a dialog. Stale replies are ignored; invalid
+answers, cancellation, startup failure, tab/window close and round expiry clear
+pending requests. Interactive setup has a 120-second overall/handshake limit,
+with 60 seconds per round. Noninteractive limits remain unchanged.
+
+Build, type, lint, format and diff checks pass. Tests are written/type-checked for
+encrypted private-key authentication, incorrect passphrases, multi-round
+interactive authentication, prompt echo metadata, reply ownership/staleness,
+expiry, cancellation, field exclusion and credential-method UI switching. Tests
+are deferred until the Phase 2 gate. Live OpenSSH, visual and cross-platform
+verification remain pending under the recorded desktop sandbox blocker. Agents,
+hardware keys and stored credentials are not part of F20. Next: F21.

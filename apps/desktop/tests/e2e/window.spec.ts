@@ -62,6 +62,8 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'answerSshChallenge',
+      'onSshChallenge',
       'openSshTerminal',
       'listHostGroups',
       'saveHostGroup',
@@ -740,4 +742,38 @@ test('opens an SSH credential prompt and cancels without starting a session', as
   await expect(dialog.getByLabel('Session password')).toHaveAttribute('type', 'password');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'No active session' })).toBeVisible();
+});
+
+test('offers session-only private-key and keyboard-interactive authentication', async () => {
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Authentication fixture',
+      address: '127.0.0.1',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to Authentication fixture' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Authentication method').selectOption('privateKey');
+  await expect(dialog.getByLabel('Session password')).toHaveCount(0);
+  await dialog.getByLabel('Private key file').setInputFiles({
+    name: 'synthetic-key',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('synthetic fixture; not a real key'),
+  });
+  await dialog.getByLabel('Key passphrase (if encrypted)').fill('fixture passphrase');
+  await expect(dialog.getByLabel('Key passphrase (if encrypted)')).toHaveAttribute(
+    'type',
+    'password',
+  );
+  await dialog.getByLabel('Authentication method').selectOption('keyboard-interactive');
+  await expect(dialog.getByLabel('Private key file')).toHaveCount(0);
+  await expect(dialog.getByLabel('Key passphrase (if encrypted)')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const profiles = await page.evaluate(() => window.mterminal.listHosts());
+  expect(profiles[0]).not.toHaveProperty('privateKey');
+  expect(profiles[0]).not.toHaveProperty('passphrase');
 });
