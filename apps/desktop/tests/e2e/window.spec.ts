@@ -513,3 +513,29 @@ test('intercepts native paste events and refuses a confirmed paste into an exite
     page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
   ).not.toContainText('STALE_PASTE');
 });
+
+test('searches retained terminal output and keeps searches isolated by tab', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(info.platform === 'win32', 'This fixture uses a Unix shell.');
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type('echo SEARCH_F13_MARKER');
+  await page.keyboard.press('Enter');
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).toContainText('SEARCH_F13_MARKER');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const search = page.getByRole('search', { name: 'Search Terminal 1' });
+  await search.getByLabel('Find output').fill('SEARCH_F13_MARKER');
+  await expect(search.getByRole('status')).not.toHaveText('No matches');
+  await search.getByRole('button', { name: 'Next match' }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const second = page.getByRole('search', { name: 'Search Terminal 2' });
+  await second.getByLabel('Find output').fill('SEARCH_F13_MARKER');
+  await expect(second.getByRole('status')).toHaveText('No matches');
+  await page.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
+  await expect(search.getByLabel('Find output')).toHaveValue('SEARCH_F13_MARKER');
+});

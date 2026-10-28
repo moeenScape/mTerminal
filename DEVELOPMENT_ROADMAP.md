@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F12 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F13 — Search and scrollback; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F12 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, and clipboard controls; desktop verification pending |
+| Active feature | F13 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F14 — Appearance; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F13 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, and clipboard controls; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -89,7 +89,7 @@ Dependencies: Phase 0.
 - [x] **F10 — Resizing:** One renderer sizing controller measures, clamps, and applies the same grid to xterm and the PTY. Frame-coalesced layout/font/scale updates, hidden-workspace handling, startup resize retention and duplicate suppression are implemented. Static/build checks pass; tests written and deferred; native/visual verification pending.
 - [x] **F11 — Tabs:** Independent PTYs and mounted terminal panes with create, rename, drag/button/keyboard reorder, switch, status and close actions. Running/starting tab closure names the tab in a confirmation. UI and backend enforce 16 terminals. Build/static checks pass; tests written, deferred; runtime/visual verification pending.
 - [x] **F12 — Clipboard:** xterm selection/copy/select-all controls, plain-text paste via toolbar and native copy/paste events, bounded validated clipboard IPC, newline/control-character preview and confirmation, session-bound paste cancellation, and OSC 52 blocking. Static/build checks pass; tests written, deferred; native clipboard/keyboard verification pending.
-- [ ] **F13 — Search and scrollback:** Searchable output and bounded history.
+- [x] **F13 — Search and scrollback:** Per-tab literal search with case option, match navigation, capped highlights and counts; 3,000-line scrollback and return-to-bottom control. Static/build checks pass; tests written and deferred; interactive verification pending.
 - [ ] **F14 — Appearance:** Themes, fonts, cursor, zoom, and per-session settings.
 - [ ] **F15 — Session lifecycle:** Shell exit, process cleanup, and orphan prevention.
 - [ ] **F16 — Performance:** Batched rendering and backpressure under heavy output.
@@ -465,3 +465,7 @@ or replace the user's actual OS clipboard. Tests are written/type-checked but no
 executed until Phase 1 completion. Native keyboard, OS clipboard, focus, visual
 and Windows/macOS verification remain pending; Phase 0's sandbox blocker remains.
 Next: F13; commit without pushing.
+
+### F13 implementation update
+
+Added per-tab xterm search with case matching, previous/next navigation, keyboard shortcuts, capped match highlights and a return-to-bottom action. Search is limited to 256 UTF-16 units and the existing 3,000-line scrollback; queries and output are not persisted. Build, type, lint, format and diff checks pass. Unit and desktop tests are written and type-checked but not run until the Phase 1 gate. Visual and cross-platform verification remain pending. Next: F14.

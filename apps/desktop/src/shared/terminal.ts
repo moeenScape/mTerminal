@@ -1,5 +1,6 @@
 import type { TerminalInput } from './terminal-input.js';
 import type { FailureCode } from './failures.js';
+export const TERMINAL_SCROLLBACK_LINES = 3000;
 export const MAX_TERMINAL_TABS = 16;
 export const terminalChannels = {
   shells: 'terminal:shells',

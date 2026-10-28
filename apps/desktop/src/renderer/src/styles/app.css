@@ -801,3 +801,40 @@ h2 {
 .terminal-pane > .terminal-toolbar > .terminal-status {
   flex: 1 1 140px;
 }
+
+.terminal-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.terminal-search > input {
+  flex: 1 1 160px;
+  min-width: 100px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+}
+.search-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.terminal-search button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+}
+.terminal-search [role='status'] {
+  color: var(--muted);
+}
