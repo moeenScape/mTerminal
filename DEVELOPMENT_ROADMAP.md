@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F08 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F09 — Input and output; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F08 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, and platform shell defaults; desktop verification pending |
+| Active feature | F09 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F10 — Resizing; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F09 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, and Unicode/text/binary terminal input/output; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -85,7 +85,7 @@ Dependencies: Phase 0.
 
 - [x] **F07 — Local shell:** xterm.js connected to an owned node-pty session, executable shell discovery and configured override, bounded streamed output with acknowledgements, initial input/resize/exit/close support, and persistence across navigation. Static/build/native-load checks passed on Linux x64; feature tests and interactive runtime verification pending.
 - [x] **F08 — Platform defaults:** Valid Unix login-shell preference, Bash-first Linux and Zsh-first macOS fallback; PowerShell 7/Windows PowerShell before cmd on Windows. Override availability is validated before save and at launch; specific missing/invalid-shell failures are shown without exposing raw exceptions. Static/build checks passed; tests written, not executed; platform runtime checks pending.
-- [ ] **F09 — Input and output:** Unicode, control sequences, keyboard input, and streamed output.
+- [x] **F09 — Input and output:** Unicode 11 width handling, surrogate-safe bounded text input, validated binary terminal input, raw VT/control output streaming, terminal-friendly native accelerators, and composition/AltGr-safe navigation. Build/static checks pass; tests written and deferred; interactive/IME/platform verification pending.
 - [ ] **F10 — Resizing:** Synchronize terminal rows/columns with the PTY.
 - [ ] **F11 — Tabs:** Create, rename, reorder, switch, and close.
 - [ ] **F12 — Clipboard:** Selection, copy/paste, shortcuts, and multiline-paste handling.
@@ -259,6 +259,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | F08 | Implementation complete | `apps/desktop/src/main/terminal/shells.ts` | Type/lint/format/build pass; policy/availability and invalid-override E2E tests written, not run | Linux/macOS/Windows runtime verification pending; F09 next |
 
+| F09 | Implementation complete | `apps/desktop/src/shared/terminal-input.ts`, `apps/desktop/src/main/menus.ts` | Type/lint/format/build/diff pass; transport/menu/keyboard tests written, not run | Interactive/IME/Windows/macOS verification pending; F10 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -357,3 +359,25 @@ Type checking, lint, formatting, build and diff checks pass. Tests are written a
 type-checked but not executed until the Phase 1 gate. Runtime and Windows/macOS
 verification remain pending; Phase 0's sandbox blocker remains recorded. Next:
 F09. Commit as Phase 1 / F08 without pushing.
+
+### F09 implementation update
+
+Added a tagged text/binary input contract, validated at the main-process IPC
+boundary. Text chunks preserve surrogate pairs at the 64 Ki-character boundary;
+xterm binary events are converted to Latin-1 byte buffers rather than UTF-8
+re-encoding. Existing output batches remain raw VT text, parsed by xterm across
+writes; neither input nor output enters React state or diagnostic logs. Activated
+the pinned Unicode 11 width provider through xterm's proposed Unicode API.
+
+Moved native menu construction into a focused module. On Linux/Windows, conflicting
+menu accelerators use Ctrl+Shift so shell Ctrl keys reach xterm; macOS retains
+Command-based native roles. Reserved Ctrl+Alt+1/2/3 navigation is not also written
+to the shell, and composition/AltGr input is not treated as navigation. Fixed the
+bridge declaration import so NodeNext E2E type checking resolves the actual API.
+
+Static/build/diff checks pass. Added transport, byte-preservation, Unicode boundary,
+stream ordering, menu and composition tests plus a Bash desktop regression for
+Unicode/ANSI output, Ctrl+W/Ctrl+R, and Ctrl+C interruption. Tests are written and
+type-checked, not executed until Phase 1 completion. Native IME, font rendering,
+modern grapheme clusters and Windows/macOS compatibility remain unverified.
+Phase 0's sandbox blocker remains unchanged. Next: F10; commit without pushing.

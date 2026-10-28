@@ -1,3 +1,4 @@
+import { isWorkspaceShortcut } from './components/keyboard';
 import { defaultPreferences, type Preferences } from '../../shared/preferences';
 import { useEffect, useState } from 'react';
 import type { AppInfo } from '../../shared/app-info';
@@ -57,7 +58,7 @@ export function App() {
     document.documentElement.dataset.appearance = preferences.appearance;
     if (!preferences.navigationShortcuts) return;
     function navigate(event: KeyboardEvent) {
-      if (!event.altKey || !event.ctrlKey || event.shiftKey || event.metaKey) return;
+      if (!isWorkspaceShortcut(event)) return;
       const view = viewItems[Number(event.key) - 1];
       if (view) {
         event.preventDefault();
@@ -124,6 +125,7 @@ export function App() {
             />
           )}
           <WorkspaceView
+            navigationShortcuts={preferences.navigationShortcuts}
             active={activeView === 'workspace'}
             appearance={preferences.appearance}
             onRunningChange={setTerminalRunning}

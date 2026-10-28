@@ -1,3 +1,6 @@
+import { isWorkspaceShortcut } from '../../components/keyboard';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { terminalInputChunks, type TerminalInput } from '../../../../shared/terminal-input';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -7,10 +10,12 @@ import { failureMessages } from '../../../../shared/failures';
 export function WorkspaceView({
   active,
   appearance,
+  navigationShortcuts,
   onRunningChange,
 }: {
   active: boolean;
   appearance: 'dark' | 'light';
+  navigationShortcuts: boolean;
   onRunningChange: (running: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -26,6 +31,7 @@ export function WorkspaceView({
     const host = container.current;
     if (!host) return;
     const term = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       fontFamily: '"DejaVu Sans Mono", Consolas, monospace',
       fontSize: 14,
@@ -34,6 +40,8 @@ export function WorkspaceView({
     });
     const addon = new FitAddon();
     term.loadAddon(addon);
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
     term.open(host);
     terminal.current = term;
     fit.current = addon;
@@ -55,17 +63,14 @@ export function WorkspaceView({
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
-    const input = term.onData((data) => {
+    const sendInput = (data: string, kind: TerminalInput['kind']) => {
       if (!session.current) return;
-      let offset = 0;
-      while (offset < data.length) {
-        let end = Math.min(offset + 65536, data.length);
-        const last = data.charCodeAt(end - 1);
-        if (end < data.length && last >= 0xd800 && last <= 0xdbff) end--;
-        window.mterminal.writeTerminal(session.current, data.slice(offset, end));
-        offset = end;
-      }
-    });
+      for (const input of terminalInputChunks(data, kind))
+        window.mterminal.writeTerminal(session.current, input);
+    };
+    // xterm generates control/escape sequences and commits composed text through onData.
+    const input = term.onData((data) => sendInput(data, 'text'));
+    const binary = term.onBinary((data) => sendInput(data, 'binary'));
     const unsubscribe = window.mterminal.onTerminalEvent((event) => {
       if (event.id !== session.current) return;
       if (event.kind === 'data') {
@@ -89,6 +94,7 @@ export function WorkspaceView({
       disposed = true;
       observer.disconnect();
       input.dispose();
+      binary.dispose();
       unsubscribe();
       if (session.current) window.mterminal.closeTerminal(session.current);
       session.current = null;
@@ -105,6 +111,11 @@ export function WorkspaceView({
         ? { background: '#f5f6fa', foreground: '#182230', cursor: '#136c56' }
         : { background: '#141620', foreground: '#edf0f7', cursor: '#8bd8c0' };
   }, [appearance]);
+  useEffect(() => {
+    terminal.current?.attachCustomKeyEventHandler(
+      (event) => !(navigationShortcuts && isWorkspaceShortcut(event)),
+    );
+  }, [navigationShortcuts]);
   useEffect(() => {
     if (active && terminal.current && session.current) {
       fit.current?.fit();

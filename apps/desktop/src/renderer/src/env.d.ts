@@ -1,4 +1,4 @@
-import type { DesktopApi } from '../../shared/app-info';
+import type { DesktopApi } from '../../shared/app-info.js';
 
 declare global {
   interface Window {

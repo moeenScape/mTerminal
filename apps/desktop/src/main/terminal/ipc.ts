@@ -1,3 +1,4 @@
+import { validTerminalInput } from '../../shared/terminal-input.js';
 import { failureCode } from '../failures.js';
 import { homedir } from 'node:os';
 import { ipcMain, type BrowserWindow } from 'electron';
@@ -75,8 +76,7 @@ export function attachTerminal(
           throw new Error('Invalid terminal request.');
         ownedId = id;
         if (channel === channels.close) terminal.close(id);
-        else if (channel === channels.write && typeof value === 'string' && value.length <= 65536)
-          terminal.write(id, value);
+        else if (channel === channels.write && validTerminalInput(value)) terminal.write(id, value);
         else if (channel === channels.resize && validTerminalSize(value))
           terminal.resize(id, value as TerminalSize);
         else if (

@@ -54,12 +54,46 @@ describe('local terminal lifecycle', () => {
       expect(() => terminal.ack(id, HIGH_WATER + 1)).toThrow();
       terminal.ack(id, HIGH_WATER);
       expect(fake.pty.resume).toHaveBeenCalledOnce();
-      terminal.write('another-id', 'ignored');
+      terminal.write('another-id', { kind: 'text', data: 'ignored' });
       expect(fake.pty.write).not.toHaveBeenCalled();
-      terminal.write(id, 'echo hello\r');
+      terminal.write(id, { kind: 'text', data: 'echo hello\r' });
       expect(fake.pty.write).toHaveBeenCalledWith('echo hello\r');
       terminal.resize(id, { cols: 100, rows: 40 });
       expect(fake.pty.resize).toHaveBeenLastCalledWith(100, 40);
+    } finally {
+      terminal.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('writes text controls unchanged and preserves eight-bit binary input', async () => {
+    const fake = fakePty();
+    const terminal = new TerminalSession(() => {});
+    await terminal.open(id, size, async () => fake.pty);
+    try {
+      const text = 'বাংলা 中文 😀 e\u0301\x03\t\x1b[A\x7f\r';
+      terminal.write(id, { kind: 'text', data: text });
+      expect(fake.pty.write).toHaveBeenLastCalledWith(text);
+      terminal.write(id, { kind: 'binary', data: '\x00\x7f\x80\xff' });
+      expect(fake.pty.write).toHaveBeenLastCalledWith(Buffer.from([0, 127, 128, 255]));
+    } finally {
+      terminal.dispose();
+    }
+  });
+  it('preserves Unicode and escape sequences across output batches', async () => {
+    vi.useFakeTimers();
+    const fake = fakePty();
+    const events: TerminalEvent[] = [];
+    const terminal = new TerminalSession((event) => events.push(event));
+    try {
+      await terminal.open(id, size, async () => fake.pty);
+      const chunks = ['\x1b[3', '1mবাংলা 中文 😀', '\x1b[0m\r\ne\u0301'];
+      for (const chunk of chunks) {
+        fake.data(chunk);
+        vi.advanceTimersByTime(16);
+      }
+      expect(events.flatMap((event) => (event.kind === 'data' ? [event.data] : [])).join('')).toBe(
+        chunks.join(''),
+      );
     } finally {
       terminal.dispose();
       vi.useRealTimers();

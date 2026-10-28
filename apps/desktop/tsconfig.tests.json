@@ -19,6 +19,8 @@
     "src/main/failures.ts",
     "src/main/diagnostics.ts",
     "src/main/terminal/session.ts",
-    "src/main/terminal/shells.ts"
+    "src/main/terminal/shells.ts",
+    "src/main/menus.ts",
+    "src/renderer/src/components/keyboard.ts"
   ]
 }

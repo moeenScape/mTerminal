@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F08 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F09 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -163,3 +163,10 @@ desktop verification remains outstanding; no interactive/visual or Windows/macOS
 pass is claimed.
 
 F08 adds deterministic platform fallbacks and specific missing/invalid-shell errors. Its tests are written and type-checked but deferred to the Phase 1 gate; Windows/macOS behavior has not been runtime-verified.
+
+F09 forwards Unicode text, control sequences and binary terminal reports through
+validated IPC. Unicode 11 character widths are enabled; complex shaping, modern
+emoji clusters and native IME behavior still need manual compatibility checks.
+On Linux/Windows, native menu actions use Ctrl+Shift combinations (for example
+copy/paste and development reload) so Ctrl+C, Ctrl+W and Ctrl+R remain shell input.
+macOS keeps its native Command menu shortcuts. Phase 1 tests remain deferred.

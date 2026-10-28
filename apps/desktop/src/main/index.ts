@@ -1,9 +1,10 @@
+import { applicationMenu } from './menus.js';
 import { DiagnosticLog } from './diagnostics.js';
 import { AppFailure, failureCode } from './failures.js';
 import { failureMessages, type FailureCode } from '../shared/failures.js';
 import { join, resolve } from 'node:path';
 import { LocalDatabase } from './storage/database.js';
-import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { createMainWindow } from './window.js';
 
 app.setName('mTerminal');
@@ -85,26 +86,9 @@ if (!app.requestSingleInstanceLock()) {
       }
       if (process.platform === 'win32') app.setAppUserModelId('com.mterminal.desktop');
 
-      const template: MenuItemConstructorOptions[] = [
-        ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
-        { role: 'fileMenu' },
-        { role: 'editMenu' },
-        {
-          label: 'View',
-          submenu: [
-            ...(!app.isPackaged
-              ? [{ role: 'reload' as const }, { role: 'toggleDevTools' as const }]
-              : []),
-            { role: 'resetZoom' },
-            { role: 'zoomIn' },
-            { role: 'zoomOut' },
-            { type: 'separator' },
-            { role: 'togglefullscreen' },
-          ],
-        },
-        { role: 'windowMenu' },
-      ];
-      Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(applicationMenu(process.platform, app.isPackaged)),
+      );
       openMainWindow();
     })
     .catch((error: unknown) => reportFatalError(error));

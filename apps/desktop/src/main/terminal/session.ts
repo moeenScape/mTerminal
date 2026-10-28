@@ -1,3 +1,4 @@
+import type { TerminalInput } from '../../shared/terminal-input.js';
 import type { IPty, IDisposable } from 'node-pty';
 import type { TerminalEvent, TerminalSize } from '../../shared/terminal.js';
 
@@ -82,8 +83,11 @@ export class TerminalSession {
     session.inFlight += data.length;
     this.send({ kind: 'data', id: session.id, data });
   }
-  write(id: string, data: string): void {
-    if (this.session?.id === id) this.session.pty.write(data);
+  write(id: string, input: TerminalInput): void {
+    if (this.session?.id === id)
+      this.session.pty.write(
+        input.kind === 'binary' ? Buffer.from(input.data, 'latin1') : input.data,
+      );
   }
   resize(id: string, size: TerminalSize): void {
     if (this.session?.id === id) this.session.pty.resize(size.cols, size.rows);

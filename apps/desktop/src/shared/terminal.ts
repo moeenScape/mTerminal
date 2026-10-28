@@ -1,3 +1,4 @@
+import type { TerminalInput } from './terminal-input.js';
 import type { FailureCode } from './failures.js';
 export const terminalChannels = {
   shells: 'terminal:shells',
@@ -24,7 +25,7 @@ export interface TerminalSize {
 export interface TerminalApi {
   getShells: () => Promise<ShellInfo[]>;
   openTerminal: (id: string, size: TerminalSize) => Promise<void>;
-  writeTerminal: (id: string, data: string) => void;
+  writeTerminal: (id: string, input: TerminalInput) => void;
   resizeTerminal: (id: string, size: TerminalSize) => void;
   ackTerminal: (id: string, count: number) => void;
   closeTerminal: (id: string) => void;

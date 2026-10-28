@@ -1,4 +1,4 @@
-# Local terminal: F07–F08
+# Local terminal: F07–F09
 
 ## Run and use
 
@@ -108,3 +108,56 @@ no Windows/macOS runtime pass is claimed.
 
 Platform references: [PowerShell Windows installation locations](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows),
 [macOS default shells](https://support.apple.com/en-us/102360).
+
+## Input, output, and keyboard handling (F09)
+
+Text input—including committed IME text and xterm-generated control sequences—uses
+`onData`. Input is split into at most 65,536 UTF-16 code units per IPC message,
+without cutting a surrogate pair. Enter, arrows, Tab, Escape, Backspace and Ctrl
+combinations are encoded by xterm and passed through rather than rebuilt by the
+application. Binary `onBinary` reports use a separate tagged payload; the main
+process validates eight-bit characters and creates a byte Buffer using Latin-1.
+Both forms require the owning renderer frame and the current session ID.
+
+Node-pty's default UTF-8 output decoding feeds raw text to xterm's streaming VT
+parser; partial ANSI sequences survive separate batches. xterm processes output
+before its acknowledgement releases PTY backpressure. Text/control output is not
+inserted as HTML, logged or put in React state. Use a UTF-8 shell/program locale;
+legacy output encodings are not automatically detected or converted.
+
+The pinned Unicode 11 addon provides character-width tables for wide and combining
+characters. It requires xterm's proposed Unicode API, enabled only inside the
+renderer terminal instance. Font coverage, Bengali/other complex-script shaping,
+modern emoji ZWJ clusters and OS-specific IME behavior need native visual checks;
+Unicode 11 widths alone do not guarantee those rendering outcomes.
+
+### Application shortcuts
+
+On Linux/Windows native menus use Ctrl+Shift for conflicting actions:
+
+| Action | Shortcut |
+| --- | --- |
+| Copy / Paste / Cut | Ctrl+Shift+C / V / X |
+| Select all | Ctrl+Shift+A |
+| Undo / Redo | Ctrl+Shift+Z / Y |
+| Close window / Quit | Ctrl+Shift+W / Q |
+| Development reload | Ctrl+Shift+R |
+| Minimize | Ctrl+Shift+M |
+| Fullscreen | Ctrl+Shift+F11 |
+
+macOS retains its Command-based native menu roles. Unshifted Ctrl combinations
+are available to the shell according to its keymap, including Ctrl+C interruption,
+Ctrl+W word deletion and Ctrl+R history search. Ctrl+Alt+1/2/3, when enabled in
+Settings, navigates the app without sending the same key to the PTY. Composition
+and AltGr events are excluded from navigation. Clipboard confirmation policy is
+still F12; full-screen application and platform keyboard checks remain pending.
+
+F09 tests cover text/emoji chunk boundaries, binary byte preservation, VT output
+across batches, invalid payload rejection, menu mapping and composition guards.
+A Bash E2E fixture checks Unicode/ANSI output and shell control keys; its Windows
+counterpart still needs compatibility work. These tests are written and
+type-checked, not executed until Phase 1 completion. Build/static checks pass;
+interactive, IME, visual and Windows/macOS verification remain pending.
+
+References: [xterm input events](https://xtermjs.org/docs/api/terminal/classes/terminal/#onbinary),
+[Electron accelerators](https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts).

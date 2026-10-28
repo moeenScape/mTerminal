@@ -256,3 +256,48 @@ test('rejects an unavailable shell override while preserving saved preferences',
   await page.getByRole('button', { name: 'Save preferences' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
 });
+
+test('renders Unicode/ANSI output and keeps shell control keys out of native menus', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(
+    info.platform === 'win32',
+    'Unix shell command fixture; Windows ConPTY needs its own phase compatibility check.',
+  );
+  const shells = await page.evaluate(() => window.mterminal.getShells());
+  const bash = shells.find((shell) => shell.name === 'bash');
+  test.skip(!bash, 'This keyboard fixture requires Bash/readline.');
+  await page.evaluate(async (path) => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: path! });
+  }, bash?.path);
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  // The completed marker does not appear literally in the typed command.
+  await page.keyboard.insertText(
+    "printf '\\033[31mF09_\\x55\\x4e\\x49\\x43\\x4f\\x44\\x45\\033[0m %s\\n' 'বাংলা 中文 😀 é'",
+  );
+  await page.keyboard.press('Enter');
+  const tree = page.locator('.xterm-accessibility-tree');
+  await expect(tree).toContainText('F09_UNICODE বাংলা 中文 😀 é');
+  await page.keyboard.type('echo discard');
+  await page.keyboard.press('Control+w');
+  await page.keyboard.type('F09_WORD');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => ((await tree.textContent()) ?? '').split('F09_WORD').length - 1)
+    .toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Control+r');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+u');
+  await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
+  await page.keyboard.type('sleep 30');
+  await page.keyboard.press('Enter');
+  await expect(tree).toContainText('sleep 30');
+  await page.keyboard.press('Control+c');
+  await page.keyboard.type('echo F09_INTERRUPT');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => ((await tree.textContent()) ?? '').split('F09_INTERRUPT').length - 1)
+    .toBeGreaterThanOrEqual(2);
+});
