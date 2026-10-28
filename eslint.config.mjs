@@ -15,7 +15,11 @@ export default tseslint.config(
       '.artifact-build/**',
     ],
   },
-  { ...js.configs.recommended, files: ['*.mjs'] },
+  { ...js.configs.recommended, files: ['*.mjs', 'apps/desktop/scripts/*.mjs'] },
+  {
+    files: ['apps/desktop/scripts/*.mjs'],
+    languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
+  },
   {
     files: ['apps/desktop/**/*.ts', 'apps/desktop/**/*.tsx'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

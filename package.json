@@ -16,12 +16,13 @@
     "build": "npm run typecheck && npm run build --workspace=@mterminal/desktop",
     "typecheck": "npm run typecheck --workspace=@mterminal/desktop",
     "lint": "eslint . --max-warnings=0",
-    "format": "prettier --write \"apps/desktop/**/*.{ts,tsx,css,html,json}\" \"*.{json,mjs}\"",
-    "format:check": "prettier --check \"apps/desktop/**/*.{ts,tsx,css,html,json}\" \"*.{json,mjs}\"",
+    "format": "prettier --write \"apps/desktop/**/*.{ts,tsx,css,html,json,mjs}\" \"*.{json,mjs}\"",
+    "format:check": "prettier --check \"apps/desktop/**/*.{ts,tsx,css,html,json,mjs}\" \"*.{json,mjs}\"",
     "check": "npm run typecheck && npm run lint && npm run format:check",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "npm run test:unit --workspace=@mterminal/desktop",
-    "test:e2e": "npm run build && npm run test:e2e --workspace=@mterminal/desktop"
+    "test:e2e": "npm run build && npm run test:e2e --workspace=@mterminal/desktop",
+    "database": "npm run database --workspace=@mterminal/desktop --"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

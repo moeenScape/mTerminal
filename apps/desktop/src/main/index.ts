@@ -1,7 +1,14 @@
+import { join } from 'node:path';
+import { LocalDatabase } from './storage/database.js';
 import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
 import { createMainWindow } from './window.js';
 
 app.setName('mTerminal');
+let database: LocalDatabase | undefined;
+app.on('will-quit', () => {
+  database?.close();
+  database = undefined;
+});
 
 function reportStartupError(error: unknown): void {
   console.error('Unable to start mTerminal:', error);
@@ -9,6 +16,8 @@ function reportStartupError(error: unknown): void {
     'Unable to open mTerminal',
     'The application could not start. Please restart it.',
   );
+  database?.close();
+  database = undefined;
   app.exit(1);
 }
 
@@ -37,7 +46,8 @@ if (!app.requestSingleInstanceLock()) {
 
   void app
     .whenReady()
-    .then(() => {
+    .then(async () => {
+      database = await LocalDatabase.open(join(app.getPath('userData'), 'mterminal.sqlite'));
       if (process.platform === 'win32') app.setAppUserModelId('com.mterminal.desktop');
 
       const template: MenuItemConstructorOptions[] = [

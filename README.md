@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F04 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F05 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -134,3 +134,7 @@ If newly added skills do not appear, restart Codex. These are reusable instructi
 `.gitignore` excludes dependencies, generated output, reports, local environment files, runtime development data, document build intermediates, and personal IDE files. Example environment files remain eligible for version control.
 
 Ignore rules do not remove files already tracked by Git. The existing `.artifact-build/` intermediates and some `.idea/` files are tracked and require a separate index cleanup if they should leave future commits. Final reference documents under `docs/` remain eligible for version control.
+
+## Local database and recovery
+
+The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite currently holds migration history and the local workspace UUID. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for backup, recovery, and lock-file handling. Storage uses Node’s built-in `node:sqlite`; no additional native package or ABI rebuild is required. Runtime/platform verification remains pending.

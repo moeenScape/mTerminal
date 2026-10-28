@@ -11,6 +11,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 - Unchecked means implementation is planned or incomplete; checked means the implementation step is delivered. Phase verification is tracked separately: a checked feature does not mean its deferred tests or all platform checks have passed.
 - Keep feature IDs stable and reference them in commits, issues, and pull requests.
+- At the end of each implemented step, stage its related changes and commit using `Phase <number> / F<id>: <imperative summary>`. Do not push.
 - Record active work, blockers, implementation links, and validation evidence below.
 - Record which operating systems were actually tested.
 - A successful build alone does not establish runtime compatibility.
@@ -23,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F04 implementation delivered; Phase 0 remains in progress |
-| Next feature | F05 — Local database |
-| Implementation status | F01–F04 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views; phase verification pending |
+| Active feature | F05 implementation delivered; Phase 0 remains in progress |
+| Next feature | F06 — Error handling |
+| Implementation status | F01–F05 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation; phase verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | No user-reported startup blocker; agent-side visual inspection unavailable |
 | Phase 0 verification | Unit/E2E tests written and type-checked, intentionally not executed until the phase implementation is complete |
@@ -69,7 +70,7 @@ Dependencies: None.
 - [x] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks. Implementation complete with a read-only app-info bridge; security tests remain pending.
 - [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
 - [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is stored for F07/F08; executable discovery and validation remain there. Runtime and phase tests pending.
-- [ ] **F05 — Local database:** Migrations, transactions, stable IDs, and recoverable backups.
+- [x] **F05 — Local database:** Main-process SQLite, ordered transactional schema migrations, persistent workspace UUID, integrity/version checks, startup snapshot, pre-upgrade backups, exclusive ownership, and offline backup/restore maintenance. Build/static checks passed; runtime and phase tests pending.
 - [ ] **F06 — Error handling:** Useful messages and diagnostic logs without secrets.
 
 Completion criteria: The application opens reliably, persists preferences, handles failures, and rejects invalid IPC requests. Keep process execution, filesystem access, and credentials outside the renderer.
@@ -251,7 +252,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 | F01/F02 | Implementation complete | `apps/desktop/src/main/`, `apps/desktop/src/preload/` | Static/build checks passed; Ubuntu launch reported by user | Run lifecycle/security tests at the Phase 0 gate; Windows/macOS unverified |
 | F03 | Implementation complete | `apps/desktop/src/renderer/src/` | Static/build checks passed; navigation/search/keyboard/minimum-size E2E checks written but not executed | Visual review and phase tests pending |
 | F04 | Implementation complete | `apps/desktop/src/main/preferences.ts` | Static checks/build; focused tests written, execution deferred | Runtime/visual verification pending |
-| F05 | Next | — | Not started | SQLite migrations, transactions, stable IDs, recoverable backups |
+| F05 | Implementation complete | `apps/desktop/src/main/storage/database.ts` | Build/type/lint/format passed; storage tests written but not run | Runtime recovery/platform checks pending |
+| F06 | Next | — | Not started | Useful error messages and diagnostic logs without secrets |
 
 ## Progress log
 
@@ -282,3 +284,7 @@ These references informed the plan. Check current dependency versions and behavi
 ### F04 implementation update
 
 Settings are versioned in `preferences.json` under Electron userData. Validated IPC and queued temporary-file replacement protect writes. Invalid existing files are preserved and startup fails rather than overwriting them. Navigation shortcuts use Ctrl+Alt+1/2/3. Window position and arbitrary shortcut remapping are outside this initial preference scope. F05 is next; phase tests remain deferred.
+
+### F05 implementation update
+
+Added SQLite schema v1 with migration history and a stable local-workspace UUID. Startup initializes storage before opening the window and closes it at quit. Backups use SQLite’s snapshot API; recovery validates the staged database and preserves the replaced file. Offline maintenance commands and crash-lock recovery are documented in `docs/LOCAL_STORAGE.md`. No credentials are stored. Preferences remain in their F04 JSON file. Build/static checks pass; tests are written and deferred until Phase 0 completion. Electron SQLite runtime and Windows/macOS remain unverified. Next: F06.

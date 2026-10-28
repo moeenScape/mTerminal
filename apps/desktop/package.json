@@ -12,7 +12,8 @@
     "build": "electron-vite build",
     "typecheck": "tsc --build",
     "test:unit": "vitest run --config vitest.config.ts",
-    "test:e2e": "playwright test --config playwright.config.ts"
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "database": "node scripts/database.mjs"
   },
   "dependencies": {
     "react": "19.3.1",

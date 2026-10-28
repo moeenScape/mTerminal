@@ -25,3 +25,8 @@ local-data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local SQLite databases, journals, and maintenance artifacts
+*.sqlite
+*.sqlite-*
+*.sqlite.*
