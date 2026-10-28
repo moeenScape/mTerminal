@@ -93,4 +93,28 @@ describe('owned terminal registry', () => {
     expect(current.pty.kill).not.toHaveBeenCalled();
     registry.dispose();
   });
+  it('aborts pending starts and blocks new sessions while closing', async () => {
+    const registry = new TerminalRegistry(() => {});
+    let signal!: AbortSignal;
+    let finish!: (pty: IPty) => void;
+    const opening = registry.open('pending', size, (value) => {
+      signal = value;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    expect(registry.count).toBe(1);
+    registry.close('pending');
+    expect(signal.aborted).toBe(true);
+    expect(registry.count).toBe(0);
+    const late = fakePty();
+    finish(late.pty);
+    await opening;
+    expect(late.pty.kill).toHaveBeenCalledOnce();
+    registry.suspend(true);
+    await expect(registry.open('blocked', size, async () => fakePty().pty)).rejects.toThrow();
+    registry.suspend(false);
+    await registry.open('allowed', size, async () => fakePty().pty);
+    registry.dispose();
+  });
 });

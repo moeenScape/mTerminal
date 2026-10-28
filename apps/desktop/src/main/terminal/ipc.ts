@@ -19,7 +19,7 @@ export function attachTerminal(
   rendererUrl: string,
   shellOverride: () => string,
   diagnostics: DiagnosticLog,
-): void {
+): TerminalRegistry {
   const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
     if (!window.webContents.isDestroyed()) window.webContents.send(channels.event, event);
@@ -38,9 +38,10 @@ export function attachTerminal(
     if (args.length !== 2 || !validTerminalId(id) || !validTerminalSize(size))
       return { ok: false, code: 'terminal-failed' };
     try {
-      await terminal.open(id, size, async () => {
+      await terminal.open(id, size, async (signal) => {
         const shell = await chooseShell(shellOverride());
         const { spawn } = await import('node-pty');
+        if (signal.aborted) throw new Error('Terminal start cancelled.');
         const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
         for (const key of [
           'ELECTRON_RUN_AS_NODE',
@@ -110,4 +111,5 @@ export function attachTerminal(
     ipcMain.removeHandler(channels.shells);
     for (const channel of operations) ipcMain.removeAllListeners(channel);
   });
+  return terminal;
 }

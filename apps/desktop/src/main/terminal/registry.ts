@@ -7,9 +7,21 @@ import { TerminalSession } from './session.js';
 export class TerminalRegistry {
   private readonly sessions = new Map<string, TerminalSession>();
   private disposed = false;
+  private suspended = false;
+  get count(): number {
+    return this.sessions.size;
+  }
+  suspend(value: boolean): void {
+    this.suspended = value;
+  }
   constructor(private readonly send: (event: TerminalEvent) => void) {}
-  async open(id: string, size: TerminalSize, create: () => Promise<IPty>): Promise<void> {
-    if (this.disposed || this.sessions.has(id)) throw new Error('Duplicate or disposed terminal.');
+  async open(
+    id: string,
+    size: TerminalSize,
+    create: (signal: AbortSignal) => Promise<IPty>,
+  ): Promise<void> {
+    if (this.disposed || this.suspended || this.sessions.has(id))
+      throw new Error('Duplicate or disposed terminal.');
     if (this.sessions.size >= MAX_TERMINAL_TABS) throw new AppFailure('terminal-limit');
     const session = new TerminalSession((event) => {
       if (this.sessions.get(id) !== session) return;

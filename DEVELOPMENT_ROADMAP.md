@@ -25,7 +25,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
 | Active feature | F14 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F15 — Session lifecycle; outstanding Phase 0 sandbox verification remains recorded |
+| Next feature | F15 — Complete platform-specific orphan prevention; outstanding Phase 0 sandbox verification remains recorded |
 | Implementation status | F01–F14 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, and clipboard controls; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -473,3 +473,18 @@ Added per-tab xterm search with case matching, previous/next navigation, keyboar
 ### F14 implementation update
 
 Added per-tab terminal appearance controls and a reset action. Theme can follow the app or use dark/light; font family, size, zoom, cursor shape and blink are independently configurable. Font changes request a fresh PTY fit. Choices remain in memory for the app session and are not persisted. Unit and desktop tests are written but deferred until the Phase 1 gate. Static/build checks pass; native visual and platform checks remain pending. Next: F15.
+
+
+### F15 implementation in progress
+
+Closing a tab or resetting its owner now cancels an in-progress shell start before
+spawn; any process returned by a non-cancellable factory is still terminated.
+Closing a window with active or starting sessions asks for confirmation, and new
+sessions are blocked while window state is saved. Cancel or a failed save leaves
+the window usable. Existing exit handling retains terminal output.
+
+Orphan prevention remains incomplete: node-pty signals the shell, but does not
+guarantee termination of detached or independently managed descendants. Platform-
+specific process-tree handling and Linux, macOS and Windows verification are
+still needed before F15 can be checked off. Focused unit and desktop tests are
+written but deferred until the Phase 1 test gate.

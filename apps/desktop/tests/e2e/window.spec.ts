@@ -33,7 +33,12 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   try {
-    await application?.close();
+    if (application) {
+      await application.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+      });
+      await application.close();
+    }
   } finally {
     if (userData) await rm(userData, { recursive: true, force: true });
   }
@@ -559,4 +564,15 @@ test('keeps terminal appearance settings independent between tabs', async () => 
   await expect(first.getByLabel('Font size')).toHaveValue('20');
   await first.getByRole('button', { name: 'Reset appearance' }).click();
   await expect(first.getByLabel('Cursor', { exact: true })).toHaveValue('block');
+});
+
+test('cancelling window close preserves an active terminal', async () => {
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await application.evaluate(({ dialog, BrowserWindow }) => {
+    dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false });
+    BrowserWindow.getAllWindows()[0]?.close();
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
 });

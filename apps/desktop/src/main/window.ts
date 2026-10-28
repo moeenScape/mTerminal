@@ -55,7 +55,12 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
   });
 
   attachClipboard(window, rendererUrl, diagnostics);
-  attachTerminal(window, rendererUrl, () => store.preferences.defaultShell, diagnostics);
+  const terminals = attachTerminal(
+    window,
+    rendererUrl,
+    () => store.preferences.defaultShell,
+    diagnostics,
+  );
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');
     dialog.showErrorBox('Interface stopped', failureMessages['renderer-crashed']);
@@ -100,10 +105,41 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
     window.show();
   });
   let closing = false;
+  let confirmed = false;
+  let confirming = false;
   window.on('close', (event) => {
-    if (closing || !store.preferences.rememberWindow) return;
+    if (closing) return;
+    if (!confirmed && terminals.count > 0) {
+      event.preventDefault();
+      if (confirming) return;
+      confirming = true;
+      void dialog
+        .showMessageBox(window, {
+          type: 'warning',
+          buttons: ['Cancel', 'Close terminals'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+          message: `Close ${terminals.count} active terminal session${terminals.count === 1 ? '' : 's'}?`,
+          detail: 'Running commands may be interrupted and terminal output will be discarded.',
+        })
+        .then(({ response }) => {
+          confirming = false;
+          if (response === 1 && !window.isDestroyed()) {
+            confirmed = true;
+            terminals.suspend(true);
+            window.close();
+          }
+        })
+        .catch(() => {
+          confirming = false;
+        });
+      return;
+    }
+    if (!store.preferences.rememberWindow) return;
     event.preventDefault();
     const bounds = window.getNormalBounds();
+    terminals.suspend(true);
     closing = true;
     void store
       .save(store.preferences, {
@@ -116,6 +152,8 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
         const code = failureCode(error, 'preferences-save');
         diagnostics.record('window-state-save-failed', code);
         closing = false;
+        confirmed = false;
+        terminals.suspend(false);
         // Keep the window open so a failed write cannot silently discard the saved state.
         dialog.showErrorBox(
           'Unable to save window state',

@@ -18,18 +18,22 @@ interface Session {
 }
 export class TerminalSession {
   private session: Session | undefined;
-  private opening: { id: string; size: TerminalSize } | undefined;
+  private opening: { id: string; size: TerminalSize; controller: AbortController } | undefined;
   private disposed = false;
   constructor(private readonly send: (event: TerminalEvent) => void) {}
-  async open(id: string, size: TerminalSize, create: () => Promise<IPty>): Promise<void> {
+  async open(
+    id: string,
+    size: TerminalSize,
+    create: (signal: AbortSignal) => Promise<IPty>,
+  ): Promise<void> {
     if (this.disposed || this.session || this.opening)
       throw new Error('A terminal is already open.');
     if (!validTerminalSize(size)) throw new Error('Invalid terminal size.');
-    const opening = { id, size: { ...size } };
+    const opening = { id, size: { ...size }, controller: new AbortController() };
     this.opening = opening;
     let started: Session | undefined;
     try {
-      const pty = await create();
+      const pty = await create(opening.controller.signal);
       if (this.disposed || this.opening !== opening) {
         pty.kill();
         return;
@@ -119,7 +123,10 @@ export class TerminalSession {
     }
   }
   close(id: string): void {
-    if (this.opening?.id === id) this.opening = undefined;
+    if (this.opening?.id === id) {
+      this.opening.controller.abort();
+      this.opening = undefined;
+    }
     if (this.session?.id === id) this.release(this.session, true);
   }
   private release(session: Session, kill: boolean): void {
@@ -136,11 +143,13 @@ export class TerminalSession {
     }
   }
   reset(): void {
+    this.opening?.controller.abort();
     this.opening = undefined;
     if (this.session) this.release(this.session, true);
   }
   dispose(): void {
     this.disposed = true;
+    this.opening?.controller.abort();
     this.opening = undefined;
     if (this.session) this.release(this.session, true);
   }
