@@ -1,0 +1,36 @@
+{
+  "name": "mterminal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@mterminal/desktop",
+    "start": "npm run start --workspace=@mterminal/desktop",
+    "build": "npm run typecheck && npm run build --workspace=@mterminal/desktop",
+    "typecheck": "npm run typecheck --workspace=@mterminal/desktop",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write \"apps/desktop/**/*.{ts,tsx,css,html,json}\" \"*.{json,mjs}\"",
+    "format:check": "prettier --check \"apps/desktop/**/*.{ts,tsx,css,html,json}\" \"*.{json,mjs}\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "npm run test:unit --workspace=@mterminal/desktop",
+    "test:e2e": "npm run build && npm run test:e2e --workspace=@mterminal/desktop"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  }
+}

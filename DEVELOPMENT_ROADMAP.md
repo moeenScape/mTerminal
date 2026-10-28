@@ -9,22 +9,26 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 ## Development tracking
 
-- Unchecked means planned or incomplete; checked means implemented and verified.
+- Unchecked means implementation is planned or incomplete; checked means the implementation step is delivered. Phase verification is tracked separately: a checked feature does not mean its deferred tests or all platform checks have passed.
 - Keep feature IDs stable and reference them in commits, issues, and pull requests.
 - Record active work, blockers, implementation links, and validation evidence below.
 - Record which operating systems were actually tested.
 - A successful build alone does not establish runtime compatibility.
 - Update this roadmap when scope, technology choices, or platform support changes.
 - Do not mark a phase complete until its completion criteria are met.
+- Write tests alongside features; execute them after the phase implementation is complete. During feature development, build, lint, formatting, and type checks may run without executing tests. Record deferred test execution explicitly.
 
 ## Current progress
 
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | None recorded |
-| Next feature | F01 — Desktop window |
-| Implementation status | Planning only; no application implementation recorded |
+| Active feature | F04 implementation delivered; Phase 0 remains in progress |
+| Next feature | F05 — Local database |
+| Implementation status | F01–F04 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views; phase verification pending |
+| Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
+| Current blocker | No user-reported startup blocker; agent-side visual inspection unavailable |
+| Phase 0 verification | Unit/E2E tests written and type-checked, intentionally not executed until the phase implementation is complete |
 | Last roadmap update | 2026-10-28 |
 
 ## Selected technology stack
@@ -48,7 +52,7 @@ The Electron, TypeScript, React, xterm.js, and node-pty foundation is selected. 
 
 | Milestone | Phases | Deliverable | Status |
 | --- | --- | --- | --- |
-| M1 | 0–2 | Local terminal, tabs, host management, SSH | Planned |
+| M1 | 0–2 | Local terminal, tabs, host management, SSH | In progress |
 | M2 | 3–4 | Secure persistent credentials and SFTP | Planned |
 | M3 | 5–6 | Workspaces, automation, logs, advanced connections | Planned |
 | M4 | 7 | Accounts and encrypted synchronization | Planned |
@@ -61,10 +65,10 @@ Release engineering applies throughout development. Implement phases in order un
 
 Dependencies: None.
 
-- [ ] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior.
-- [ ] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks.
-- [ ] **F03 — Application layout:** Termius-style dark desktop shell, left navigation, searchable host view, session tab strip, settings, and connection status. Follow the [interface direction](README.md#interface-direction).
-- [ ] **F04 — Preferences:** Appearance, shortcuts, default shell, and window state.
+- [x] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior. Implementation complete; user reported Ubuntu launch succeeds. Lifecycle tests and other platforms remain pending.
+- [x] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks. Implementation complete with a read-only app-info bridge; security tests remain pending.
+- [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
+- [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is stored for F07/F08; executable discovery and validation remain there. Runtime and phase tests pending.
 - [ ] **F05 — Local database:** Migrations, transactions, stable IDs, and recoverable backups.
 - [ ] **F06 — Error handling:** Useful messages and diagnostic logs without secrets.
 
@@ -229,9 +233,9 @@ Start during Phase 0 and revisit for every public release.
 - [ ] Document installation, development, testing, and troubleshooting.
 - [ ] Review dependency licenses, security updates, and release contents.
 
-## Definition of done
+## Definition of verified completion
 
-A feature is complete when:
+Implementation checkboxes track delivered code, as requested; they do not replace the phase verification gate. Before declaring a phase verified, confirm for its features that:
 
 1. Intended behavior is implemented.
 2. Relevant success and failure paths are verified.
@@ -244,7 +248,10 @@ A feature is complete when:
 
 | Feature | Status | Issue/PR | Verification | Blocker/next action |
 | --- | --- | --- | --- | --- |
-| F01 | Planned | — | None | Establish application foundation and document the toolchain |
+| F01/F02 | Implementation complete | `apps/desktop/src/main/`, `apps/desktop/src/preload/` | Static/build checks passed; Ubuntu launch reported by user | Run lifecycle/security tests at the Phase 0 gate; Windows/macOS unverified |
+| F03 | Implementation complete | `apps/desktop/src/renderer/src/` | Static/build checks passed; navigation/search/keyboard/minimum-size E2E checks written but not executed | Visual review and phase tests pending |
+| F04 | Implementation complete | `apps/desktop/src/main/preferences.ts` | Static checks/build; focused tests written, execution deferred | Runtime/visual verification pending |
+| F05 | Next | — | Not started | SQLite migrations, transactions, stable IDs, recoverable backups |
 
 ## Progress log
 
@@ -256,6 +263,9 @@ Append entries for completed work and material decisions.
 | 2026-10-28 | Foundation | Selected Electron/TypeScript stack; documented source layout and Git ignore rules | Application implementation has not started |
 | 2026-10-28 | F03 | Recorded Termius Desktop as the required UI reference in README.md | Design requirements only; no interface implemented yet |
 | 2026-10-28 | Foundation | Established monorepo directory placeholders and updated nested output ignore rules | Desktop, server, and shared package implementation has not started |
+| 2026-10-28 | F01/F02 | Added npm workspace/toolchain, secure desktop window lifecycle, app-info bridge, welcome screen, and security/startup tests | Build/type/lint/format checks passed. Tests intentionally not run. Ubuntu sandbox blocks desktop launch; visual and Windows/macOS verification pending. Features remain unchecked until verification. |
+| 2026-10-28 | F01/F02 | User reported Ubuntu launch succeeds; marked implementation delivered using the updated tracking convention | User-reported startup only; no automated security/lifecycle test pass implied. Earlier sandbox failure remains historical agent-side evidence. |
+| 2026-10-28 | F03 | Implemented Termius-style navigation, view tabs, Hosts search/empty states, Workspace empty state, read-only Settings, and status bar; next step is F04 | Build/type/lint/format checks passed. E2E coverage updated but not executed. No visual inspection surface available; Phase 0 remains unverified. |
 
 ## References
 
@@ -268,3 +278,7 @@ These references informed the plan. Check current dependency versions and behavi
 - [xterm.js](https://xtermjs.org/)
 - [node-pty](https://github.com/microsoft/node-pty)
 - [ssh2](https://github.com/mscdex/ssh2)
+
+### F04 implementation update
+
+Settings are versioned in `preferences.json` under Electron userData. Validated IPC and queued temporary-file replacement protect writes. Invalid existing files are preserved and startup fails rather than overwriting them. Navigation shortcuts use Ctrl+Alt+1/2/3. Window position and arbitrary shortcut remapping are outside this initial preference scope. F05 is next; phase tests remain deferred.

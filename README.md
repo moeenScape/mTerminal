@@ -1,6 +1,8 @@
 # mTerminal
 
-A planned desktop terminal and SSH/SFTP client for Linux, Windows, and macOS.
+A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
+
+F01–F04 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -26,7 +28,7 @@ The first UI milestone is the dark application shell, navigation, host view, and
 
 ## Project structure
 
-This repository uses a monorepo layout. The application and package directories exist as empty placeholders; there is no runnable application or configured workspace toolchain yet. Empty `.gitkeep` files preserve these directories in Git.
+This repository uses npm workspaces. `apps/desktop/` contains the runnable Electron/React application. The future server and cross-application package remain empty; `.gitkeep` files preserve unused directories in Git.
 
 ```text
 ownterminal/
@@ -59,7 +61,7 @@ ownterminal/
 
 Implement the desktop application first. Keep `apps/server/` and `packages/shared/` empty until their features need implementation. Later server work includes accounts, synchronization, organizations, and billing.
 
-The planned desktop entry points are `apps/desktop/src/main/index.ts`, `apps/desktop/src/preload/index.ts`, `apps/desktop/src/renderer/index.html`, and `apps/desktop/src/renderer/src/main.tsx`. Create these files when configuring the desktop toolchain.
+Desktop entry points are `apps/desktop/src/main/index.ts`, `apps/desktop/src/preload/index.ts`, `apps/desktop/src/renderer/index.html`, and `apps/desktop/src/renderer/src/main.tsx`. Build configuration lives in `apps/desktop/electron.vite.config.ts`.
 
 Keep desktop IPC contracts in `apps/desktop/src/shared/`; use `packages/shared/` only for contracts actually needed by both applications. Keep functionality inside its feature directory, adding modules when needed. Use `PascalCase.tsx` for React components and descriptive `kebab-case.ts` filenames for other modules.
 
@@ -73,7 +75,40 @@ Store runtime databases, preferences, and logs under Electron's application data
 
 ## Development and verification
 
-No application toolchain, runtime version, npm workspaces, scripts, or tests are configured yet. Configure root npm workspaces when adding the first package; add reproducible install, development, build, lint, and test instructions with the first application implementation. Keep a root `package-lock.json` when npm dependencies are introduced. Do not create runnable server or shared packages merely to fill the layout.
+Use Node.js 24.12 or newer within Node 24, and npm 11. `.nvmrc` selects the initial development version. Run commands from the repository root:
+
+```sh
+nvm use
+npm ci
+npm run dev
+```
+
+`npm ci` uses the root lockfile. The desktop postinstall downloads the pinned Electron runtime using `install-electron`; network access is needed for the first install. Development binds the renderer to `http://127.0.0.1:5173/`; free that port if it is occupied. `npm run dev` watches main/preload changes and enables React hot reload. Close the window and stop the command with Ctrl+C when finished; on macOS, closing the window leaves the app running until Quit.
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Build and launch the development desktop app |
+| `npm run check` | Type-check application and test code, lint, and check formatting; does not execute tests |
+| `npm run format` | Format desktop source/configuration and root JSON/JS configuration |
+| `npm run build` | Type-check and compile main, preload, and renderer code |
+| `npm start` | Launch the compiled app after a build |
+| `npm run test:unit` | Execute security boundary and renderer-location unit tests |
+| `npm run test:e2e` | Build and execute Electron window/bridge tests using Playwright |
+| `npm test` | Run both test suites at the phase completion gate |
+
+**Testing cadence:** Write tests with each feature, but run them after the phase implementation is complete, as requested. Build, lint, formatting, and type checks can run during development. Tests are currently written and type-checked but have not been executed. Do not mark a feature verified merely because test code exists.
+
+The end-to-end suite launches the installed Electron executable; it does not require downloading Playwright browsers. It needs a working desktop display, or a configured virtual display in CI, and permission to start Chromium's sandbox. Close other mTerminal instances before running it. Do not disable the application sandbox to work around a host configuration problem.
+
+### Launch verification
+
+The user reported that `npm run dev` opens the application on Ubuntu. This is user-reported startup evidence; it does not establish that security, lifecycle, or layout tests have passed.
+
+An earlier agent-run launch aborted with `The SUID sandbox helper binary was found, but is not configured correctly`, and a user-namespace probe returned `Operation not permitted`. If that error recurs in another execution environment, it needs an administrator-approved Chromium sandbox configuration. No system permissions or sandbox settings were changed by the implementation.
+
+The production build and static checks succeed. F03 visual inspection, automated runtime/security verification, and Windows/macOS checks remain pending. Tests are deferred until the Phase 0 completion gate. Roadmap checkboxes indicate implementation delivery; phase verification is recorded separately.
+
+`npm run build` produces compiled application files, not distributable installers. Windows/macOS runtime checks, installer configuration, signing, and native terminal integration remain future work. Only the desktop workspace is enabled; the server and shared package will be added when implemented.
 
 Expected generated directories are `out/` for compiled code, `dist/` or `release/` for distributables, and the test-report directories listed in `.gitignore`. These names are ignored within each app/package as well as at the root. Committed desktop assets belong in `apps/desktop/assets/`; avoid mixing them with generated output.
 
