@@ -1,0 +1,555 @@
+{
+  "pages": [
+    {
+      "title": "Termius detailed feature guide",
+      "intro": "Free and paid capabilities for developers and infrastructure teams",
+      "sections": [
+        [
+          "Purpose and scope",
+          "This guide explains the publicly documented Termius feature set, how the features fit everyday work, and where paid subscriptions add value. It covers connections, files, credentials, terminal productivity, mobile use, collaboration, integrations, and administration. Reviewed on 27 October 2026."
+        ],
+        [
+          "Main finding",
+          "Starter covers a broad local workflow. Pro adds personal synchronization and session records. Team supports shared infrastructure, Business adds separation of access, and Enterprise addresses contractual and organizational requirements. Choose a plan around the workflow you need."
+        ],
+        [
+          "How to read this guide",
+          "Plan placement follows the current pricing comparison unless a conflict is explicitly identified. Platform support depends on the operating system, app distribution, and version. Examples are illustrative configurations, not commands executed against your infrastructure. This is independent documentation, not an official Termius manual."
+        ],
+        [
+          "Coverage boundary",
+          "The catalogue includes all rows in the public pricing comparison and the relevant documented workflows. Features listed without an implementation guide are identified as such. No feature is claimed to have been tested hands-on."
+        ]
+      ],
+      "sources": [
+        "overview",
+        "pricing"
+      ]
+    },
+    {
+      "title": "Plans and feature availability",
+      "sections": [
+        [
+          "Prices and billing",
+          "Annual-billing advertised rates in USD: Starter free; Pro $10 per user per month; Team $20 per seat per month; Business $30 per seat per month; Enterprise custom. These correspond to $120, $240, and $360 per year respectively before any checkout adjustments. Monthly billing is available, but its current rates were not verified."
+        ],
+        [
+          "Purchase and cancellation",
+          "Team and Business have a two-seat minimum. Pro can be purchased through the account portal or supported app stores. Store subscriptions must be managed in that store. Cancellation disables renewal while retaining access through the paid period. Paid plans are subscriptions, with no lifetime option documented."
+        ],
+        [
+          "Student access",
+          "An active GitHub Student Developer Pack provides Pro and Team features through the education programme. Verify continuing eligibility through Termius rather than assuming permanent access."
+        ],
+        [
+          "Recent changes",
+          "Desktop 10.1.0 made proxies, agent forwarding, host chains, and serial free in September 2026. SSH certificates and environment variables became free in December 2025. MultiKey was retired after 15 October 2026; the documentation directs users toward SSH ID or another authentication method."
+        ]
+      ],
+      "sources": [
+        "pricing",
+        "billing",
+        "education",
+        "changelog"
+      ]
+    },
+    {
+      "title": "Connections and server organization",
+      "sections": [
+        [
+          "SSH and local terminal",
+          "For remote shell access, create a host with its address, port, username, and authentication. Connect using a password or key. The local terminal runs a shell on the desktop machine; it does not require a remote host. Verify unfamiliar server fingerprints through a trusted channel before accepting them."
+        ],
+        [
+          "Mosh Telnet and serial",
+          "Mosh is available for compatible remote environments and is useful when network continuity is difficult. Telnet and serial support legacy devices and equipment consoles. Telnet does not provide SSH encryption; use it only where the network and device requirements justify it. Serial requires a suitable device connection and platform support."
+        ],
+        [
+          "Hosts groups and tags",
+          "A host stores reusable connection settings. Organize hosts in nested groups by project, region, or environment; use tags to locate them. Group settings can supply credentials, ports, and jump hosts to member hosts. Check inherited settings before changing a group because multiple connections can be affected."
+        ],
+        [
+          "Example organization",
+          "Create Development and Production groups. Put app-dev-01 in Development and app-prod-01 in Production. Assign a production jump host at group level so the private application host is reached through the approved entry point."
+        ]
+      ],
+      "sources": [
+        "connect",
+        "groups",
+        "overview"
+      ]
+    },
+    {
+      "title": "Tunnels proxies and jump hosts",
+      "sections": [
+        [
+          "Local forwarding",
+          "Expose a service reachable from an SSH host through a local port. Example: map 127.0.0.1:15432 on your laptop to db.internal:5432 through a bastion. A database client then connects to the laptop port. The destination is resolved and reached from the SSH side of the tunnel."
+        ],
+        [
+          "Remote and dynamic forwarding",
+          "Remote forwarding provides a listener on the SSH server that forwards toward a client-side destination. Dynamic forwarding supplies a SOCKS endpoint for compatible applications. Create the appropriate rule in Port Forwarding, choose the SSH host and endpoints, then start it. Port conflicts and server forwarding policy can prevent activation."
+        ],
+        [
+          "Jump hosts and proxies",
+          "A host chain connects through one or more intermediate SSH servers to a target. SOCKS and HTTP proxy settings route eligible connections through an existing proxy. These solve different routing needs; they do not automatically provide permission to reach the destination."
+        ],
+        [
+          "Agent forwarding",
+          "Agent forwarding makes an authentication agent usable through a remote session without copying the private key to that host. A compromised forwarded-to host can still misuse the agent while it is accessible. Enable it only where needed. These advanced connection functions are now in the free desktop tier."
+        ]
+      ],
+      "sources": [
+        "tunnel",
+        "connect",
+        "changelog"
+      ]
+    },
+    {
+      "title": "SFTP file management",
+      "sections": [
+        [
+          "Desktop file workflow",
+          "The desktop SFTP interface has two active panes. Browse local and remote locations side by side, transfer by drag and drop, or copy to the selected destination. Switch between the terminal and SFTP for the same host. Show hidden files when necessary and enter a complete path to reach a known directory."
+        ],
+        [
+          "Editing and transfers",
+          "Termius supports downloading a file for editing and tracking changes for upload. Confirm the destination path and permissions before replacing a configuration file. Keep a recoverable copy when changing a production file. SFTP uses the remote account permissions; the graphical client does not automatically grant elevated access."
+        ],
+        [
+          "Mobile and distribution limits",
+          "iOS and Android support multiple SFTP tabs. Mobile interactions differ from the desktop panes. The Mac App Store and Snap distributions are sandboxed and can have restricted local filesystem access; the vendor recommends its website distributions when broader local file access is required."
+        ],
+        [
+          "Example workflow",
+          "Open app-dev-01, switch to SFTP, browse to a permitted deployment directory, and upload a sample file. Confirm its size and contents through the terminal before repeating the workflow for an actual deployment."
+        ]
+      ],
+      "sources": [
+        "sftp"
+      ],
+      "image": "sftp"
+    },
+    {
+      "title": "Keys identities and SSH ID",
+      "sections": [
+        [
+          "Keychain and identities",
+          "The Keychain manages reusable passwords, keys, certificates, and identities. Host entries reference these items rather than requiring repeated credential entry. Generate or import a key and assign it to the intended host. Termius can help install its public part into authorized_keys."
+        ],
+        [
+          "Hardware biometric and certificate authentication",
+          "Documented key types include Ed25519, ECDSA, RSA, and ML-DSA. FIDO2 and biometric keys offer device-backed authentication on supported systems. SSH certificates are also supported. Account 2FA protects the Termius account; it is separate from authentication required by a remote SSH server."
+        ],
+        [
+          "SSH ID",
+          "SSH ID generates device-bound private keys and publishes the corresponding public keys under an sshid.io handle. An account is required. Adding a device or regenerating keys requires provisioning the appropriate public keys on servers; a public-key directory is not itself a complete server-access revocation system."
+        ],
+        [
+          "Post quantum support",
+          "Termius documents ML-KEM key exchange and ML-DSA authentication. The server must support the relevant algorithm. Otherwise, mutually supported classical algorithms are used. Larger handshakes can cause compatibility problems on older systems. Do not assume every connection uses post-quantum algorithms."
+        ]
+      ],
+      "sources": [
+        "keys",
+        "overview",
+        "sshid",
+        "pqc"
+      ]
+    },
+    {
+      "title": "Terminal productivity and automation",
+      "sections": [
+        [
+          "Workspaces and templates",
+          "A desktop workspace combines at least two local or remote sessions. Focus mode prioritizes one session; Split view displays several together. Save a template to retain connections, tab names, layout, working directories, and command state. Reopening a template rebuilds a working setup; it should not be treated as a guaranteed persistent server process."
+        ],
+        [
+          "Broadcast input",
+          "Broadcast sends the same input to several sessions. This can help compare environments or run the same inspection command across hosts. Confirm every destination first. A command safe in development may be destructive in production, and identical input can behave differently when working directories or shell state differ."
+        ],
+        [
+          "Snippets and startup actions",
+          "Snippets store commands or scripts, support packages, and can run from the terminal panel, autocomplete, or across multiple hosts. Basic snippets and multi-execution are free in the pricing table. Startup snippets are paid and run on connection. Use read-only startup commands before introducing actions that change state."
+        ],
+        [
+          "Example commands",
+          "A reusable inspection snippet could run hostname, uptime, and df -h. A startup snippet could change to /srv/myapp. Test the script on a disposable host before assigning it to a group of servers."
+        ]
+      ],
+      "sources": [
+        "workspace",
+        "snippets",
+        "pricing"
+      ],
+      "image": "workspace"
+    },
+    {
+      "title": "Autocomplete AI and environment settings",
+      "sections": [
+        [
+          "Autocomplete and command history",
+          "Autocomplete draws from command history, paths, built-in commands and arguments, snippets, and saved identities for password prompts. Enable it through Settings then Terminal. Shell integration works locally with Bash or Zsh and is documented remotely for Bash with OpenSSH 7.2 or later. PowerShell and CMD autocomplete are not supported."
+        ],
+        [
+          "Compatibility limits",
+          "Remote shell integration uses extra SSH exec channels to read paths and history. Locked-down systems or network equipment can reject these channels and disconnect. If that happens, disable autocomplete for the affected workflow before changing server policy."
+        ],
+        [
+          "AI command and snippet generation",
+          "Termius documents natural-language command generation and AI-assisted snippet creation. Review generated commands, options, paths, and permissions before execution. Its command-generation explanation states that conversion happens in the cloud. Do not assume the encrypted vault means AI requests are processed locally. Current quotas and every AI widget entitlement were not verified."
+        ],
+        [
+          "Environment and appearance",
+          "Environment variables can be configured for sessions, but the SSH server must permit the relevant variables. Terminal appearance can be customized through themes and fonts. Maintain a visible distinction between environments if it helps avoid selecting the wrong session."
+        ]
+      ],
+      "sources": [
+        "autocomplete",
+        "ai",
+        "snippets",
+        "changelog",
+        "mobile",
+        "env",
+        "aiwidget",
+        "env",
+        "aiwidget"
+      ]
+    },
+    {
+      "title": "Cloud synchronization and data protection",
+      "sections": [
+        [
+          "Personal and team storage",
+          "Starter uses local storage; paid personal sync keeps the setup available across devices. Termius describes end-to-end encryption for vault data. A personal vault is private to its user, while a team vault shares selected infrastructure information with permitted members."
+        ],
+        [
+          "Credentials can remain local",
+          "The Sync keys and identities setting controls personal credentials separately from other synchronized data. Disabling it leaves usernames, passwords, keys, and identities local while other eligible vault information still synchronizes. Each device then needs its own credentials."
+        ],
+        [
+          "Encryption password",
+          "The encryption password protects vault decryption and remains necessary even with SSO. The vendor cannot recover encrypted vault data if the password is lost. Store it securely and distinguish password recovery from the ability to decrypt old data."
+        ],
+        [
+          "Logout and subscription expiry",
+          "Logout clears local data, including credentials excluded from sync. After Pro expires, paid synchronization stops and subsequent changes remain on the device. Logging out with unsynced changes loses those changes. Confirm that needed information has been preserved before signing out or changing devices."
+        ]
+      ],
+      "sources": [
+        "sync",
+        "crypto",
+        "expiry"
+      ]
+    },
+    {
+      "title": "Session records and mobile use",
+      "sections": [
+        [
+          "Personal session logs",
+          "Logs record terminal activity and help review troubleshooting. By default, a new connection replaces the recent log for that host. Bookmark a session to preserve it and add a comment explaining the investigation. Recording supports SSH, Telnet, serial, and local terminals; Mosh is excluded."
+        ],
+        [
+          "Logging limits",
+          "Mobile can record and sync sessions, but viewing logs requires desktop. Multiplayer logging belongs to the session owner and does not provide a separate log for every guest. Disabling logging for a vault deletes existing logs, including bookmarks. This workflow should not be assumed to provide immutable compliance evidence."
+        ],
+        [
+          "Mobile interaction",
+          "The iOS and iPadOS guide documents gesture controls, selection and clipboard actions, adjustable text size, customizable keyboard controls, snippets, an AI widget, and voice typing. For example, double-tapping sends Tab and pinching changes text size. Android support and gestures should be checked in its own app version."
+        ],
+        [
+          "Practical limitation",
+          "A phone is useful for a short inspection or urgent intervention. Confirm operating-system background limits before relying on a long-running connection. Mobile support does not imply complete desktop feature parity."
+        ]
+      ],
+      "sources": [
+        "logs",
+        "mobile"
+      ],
+      "image": "logs"
+    },
+    {
+      "title": "Collaboration and access control",
+      "sections": [
+        [
+          "Shared vaults and administration",
+          "Team owners can invite or remove members, grant vault access, transfer ownership, and require account 2FA. An invitation alone should not be treated as completed access provisioning: the management guide requires explicitly granting access to shared vaults."
+        ],
+        [
+          "Multiple vaults and permissions",
+          "Use separate vaults for customers, projects, or environments when the subscription permits it. A viewer can connect and run snippets without editing stored data; an editor can change vault contents and manage membership. Vault permissions do not replace Unix users, sudo rules, or database authorization."
+        ],
+        [
+          "Multiplayer and shared logs",
+          "Multiplayer lets people work in a live terminal; the public product overview states that one person types at a time. The pricing matrix lists multiplayer in Starter even though team-wide sharing and collaboration are paid. Confirm the actual invitation flow and limits in your account. Shared logs retain a recent session per host per member; editors can manage bookmarks and comments while viewers can read them."
+        ],
+        [
+          "Offboarding",
+          "Remove Termius membership and vault access, then separately revoke server credentials, authorized keys, certificates, and other permissions as appropriate. Removing access to a client vault does not by itself prove that previously accessible server credentials have been revoked."
+        ]
+      ],
+      "sources": [
+        "team",
+        "vaults",
+        "teamlogs",
+        "pricing",
+        "overview",
+        "home",
+        "home"
+      ]
+    },
+    {
+      "title": "Integrations enterprise controls and limitations",
+      "sections": [
+        [
+          "Cloud inventory",
+          "AWS imports EC2 and Lightsail hosts, DigitalOcean imports Droplets, and Azure imports virtual machines. These integrations update host records as inventory changes. The cloud access credentials are documented as local-only. Azure imports require a public IP address; VMs without one are excluded."
+        ],
+        [
+          "Conflicting cloud entitlement",
+          "The pricing table places AWS, DigitalOcean, and Azure integration under Pro and above. All three implementation guides specify Team, Business, and Enterprise. Treat Pro eligibility as unresolved and confirm it before buying specifically for cloud inventory."
+        ],
+        [
+          "SSO and enterprise features",
+          "Business offers SAML SSO as an add-on; Enterprise includes it in the pricing summary. SSO centralizes identity-provider authentication but still requires the encryption password. Enterprise also lists compliance-report access, approved domains, priority support, a dedicated manager, onboarding, an SLA, custom terms, and purchasing options."
+        ],
+        [
+          "Listed integrations with limited detail",
+          "The comparison lists API bridge and Ansible from Team, and Vanta for Enterprise. Public implementation instructions were not found in the reviewed documentation index. Their precise APIs, permissions, deployment requirements, and contract limits must be confirmed with Termius. Do not interpret their names as a general-purpose public scripting API."
+        ]
+      ],
+      "sources": [
+        "aws",
+        "do",
+        "azure",
+        "sso",
+        "pricing"
+      ]
+    },
+    {
+      "title": "Choosing a plan and evaluating the workflow",
+      "sections": [
+        [
+          "Individual use",
+          "Start with Starter when one computer and a local server catalogue meet the need. Evaluate Pro when repeated setup across a laptop and phone costs time, when startup actions are useful, or when revisiting terminal records matters. Compare the recurring cost with actual time saved."
+        ],
+        [
+          "Team use",
+          "Evaluate Team when shared hosts, scripts, and handovers become a regular need. Evaluate Business when access needs separation across clients or environments. Consider Enterprise when identity, procurement, evidence, or support commitments require negotiated terms."
+        ],
+        [
+          "Suggested evaluation",
+          "Use a non-production host. Create two groups, connect with a key, transfer a sample file, create a read-only snippet, save a workspace, and configure a local tunnel. If evaluating a paid plan, check cross-device sync, bookmark a session, and verify vault permissions with separate test accounts."
+        ],
+        [
+          "Record before adoption",
+          "Record app version, operating system, distribution, plan, checkout price, and results. Resolve cloud-integration eligibility and multiplayer limits. Confirm where credentials and logs are stored, what happens at logout, and how server access is revoked. This guide provides a research baseline, not a hands-on acceptance result."
+        ]
+      ],
+      "sources": [
+        "billing",
+        "sync",
+        "logs",
+        "vaults"
+      ]
+    }
+  ],
+  "sources": {
+    "pricing": [
+      "Plans and feature comparison",
+      "https://www.termius.com/pricing"
+    ],
+    "overview": [
+      "Product concepts",
+      "https://docs.termius.com/getting-started/what-is-termius"
+    ],
+    "connect": [
+      "Connection protocols",
+      "https://docs.termius.com/organize-and-connect-to-hosts/connecting-to-a-server"
+    ],
+    "sftp": [
+      "SFTP file management",
+      "https://docs.termius.com/organize-and-connect-to-hosts/managing-files-with-sftp"
+    ],
+    "tunnel": [
+      "Port forwarding",
+      "https://docs.termius.com/organize-and-connect-to-hosts/port-forwarding-and-tunneling"
+    ],
+    "groups": [
+      "Groups and tags",
+      "https://docs.termius.com/organize-and-connect-to-hosts/groups-and-tags"
+    ],
+    "keys": [
+      "Keys and certificates",
+      "https://docs.termius.com/keychain/ssh-keys-and-certificates"
+    ],
+    "workspace": [
+      "Workspaces",
+      "https://docs.termius.com/terminal/workspaces"
+    ],
+    "snippets": [
+      "Snippets",
+      "https://docs.termius.com/terminal/snippets"
+    ],
+    "autocomplete": [
+      "Autocomplete and shell integration",
+      "https://docs.termius.com/terminal/autocomplete-and-shell-integration"
+    ],
+    "ai": [
+      "AI command generation",
+      "https://www.termius.com/blog/boost-your-terminal-experience-with-ai"
+    ],
+    "logs": [
+      "Session logs",
+      "https://docs.termius.com/organize-and-connect-to-hosts/session-logs"
+    ],
+    "mobile": [
+      "Mobile terminal",
+      "https://docs.termius.com/terminal/mobile-terminal"
+    ],
+    "vaults": [
+      "Team vaults",
+      "https://docs.termius.com/team-collaboration/team-vaults"
+    ],
+    "team": [
+      "Team management",
+      "https://docs.termius.com/team-collaboration/team-management"
+    ],
+    "teamlogs": [
+      "Team session logs",
+      "https://docs.termius.com/team-collaboration/team-session-logs"
+    ],
+    "sync": [
+      "Credential synchronization",
+      "https://docs.termius.com/keychain/sync-of-keys-and-passwords"
+    ],
+    "crypto": [
+      "Encryption",
+      "https://docs.termius.com/security/encryption-overview"
+    ],
+    "pqc": [
+      "Post quantum cryptography",
+      "https://docs.termius.com/security/post-quantum-cryptography"
+    ],
+    "sshid": [
+      "SSH ID",
+      "https://docs.termius.com/ssh-id-passkeys-for-ssh/what-is-ssh-id"
+    ],
+    "aws": [
+      "AWS integration",
+      "https://docs.termius.com/integrations/aws"
+    ],
+    "do": [
+      "DigitalOcean integration",
+      "https://docs.termius.com/integrations/digitalocean"
+    ],
+    "azure": [
+      "Azure integration",
+      "https://docs.termius.com/integrations/microsoft-azure"
+    ],
+    "sso": [
+      "SAML SSO",
+      "https://docs.termius.com/administration/saml-sso"
+    ],
+    "billing": [
+      "Billing and subscriptions",
+      "https://docs.termius.com/administration/billing-and-plans"
+    ],
+    "expiry": [
+      "Subscription expiry",
+      "https://docs.termius.com/help-center/faq/what-will-happen-when-my-pro-subscription-expires"
+    ],
+    "changelog": [
+      "Desktop release notes",
+      "https://docs.termius.com/changelog"
+    ],
+    "education": [
+      "Student access",
+      "https://www.termius.com/education"
+    ],
+    "env": [
+      "Environment variables",
+      "https://docs.termius.com/terminal/environment-variables"
+    ],
+    "aiwidget": [
+      "AI widget settings",
+      "https://docs.termius.com/help-center/faq/how-can-i-hide-the-ai-widget"
+    ],
+    "home": [
+      "Product overview and multiplayer",
+      "https://www.termius.com/"
+    ]
+  },
+  "matrix": [
+    [
+      "Connections and networking",
+      "Starter",
+      "SSH / SFTP / Mosh / Telnet / local / serial; forwarding / chains / proxies"
+    ],
+    [
+      "Authentication",
+      "Starter",
+      "Certificates / FIDO2 / biometrics / PIN / 2FA"
+    ],
+    [
+      "Terminal tools",
+      "Starter",
+      "Groups / environment / history / autocomplete / workspaces"
+    ],
+    [
+      "Reusable commands",
+      "Starter",
+      "Snippets / multi-execution"
+    ],
+    [
+      "Live terminal",
+      "Starter",
+      "Multiplayer; limits unverified"
+    ],
+    [
+      "Personal tools",
+      "Pro",
+      "Sync / startup snippets / logs / bookmarks"
+    ],
+    [
+      "Cloud inventory",
+      "Disputed",
+      "Pro table; Team guides"
+    ],
+    [
+      "Team tools",
+      "Team",
+      "Sharing / collaboration / team logs / console / billing"
+    ],
+    [
+      "Integrations",
+      "Team",
+      "API bridge / Ansible"
+    ],
+    [
+      "Access separation",
+      "Business",
+      "Multiple vaults / granular access"
+    ],
+    [
+      "SSO",
+      "Business add-on",
+      "Included in Enterprise"
+    ],
+    [
+      "Enterprise",
+      "Enterprise",
+      "Vanta / domains / SOC2 report / SLA / support / manager / onboarding"
+    ],
+    [
+      "Purchasing",
+      "Enterprise",
+      "Transfer / check / PO / custom terms"
+    ],
+    [
+      "Log retention",
+      "Enterprise",
+      "Custom control; lower paid tiers keep recent records"
+    ]
+  ]
+}
