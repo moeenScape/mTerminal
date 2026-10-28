@@ -1,0 +1,4 @@
+interface:
+  display_name: "mTerminal Development"
+  short_description: "Build reliable Electron and TypeScript terminal features"
+  default_prompt: "Use $mterminal-development to implement the requested mTerminal feature with appropriate verification."

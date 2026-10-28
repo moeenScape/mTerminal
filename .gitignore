@@ -1,0 +1,27 @@
+# Dependencies and generated application output
+node_modules/
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Test reports and coverage
+coverage/
+test-results/
+playwright-report/
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+!.env.*.example
+local-data/
+*.log
+
+# Generated document previews and build intermediates
+/.artifact-build/
+
+# Personal editor and operating-system files
+.idea/
+.DS_Store
+Thumbs.db

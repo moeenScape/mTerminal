@@ -27,7 +27,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Implementation status | Planning only; no application implementation recorded |
 | Last roadmap update | 2026-10-28 |
 
-## Proposed technology stack
+## Selected technology stack
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Later online services | TypeScript backend and PostgreSQL | Accounts, encrypted sync, organizations, and billing |
 | Verification | Unit tests, integration tests, Playwright | Validate application behavior and desktop workflows |
 
-These are starting choices. Mosh, hardware keys, certificates, serial connections, and modern cryptographic algorithms need separate investigations. No online backend is required for the initial local terminal and SSH workflows.
+The Electron, TypeScript, React, xterm.js, and node-pty foundation is selected. The monorepo places desktop work in `apps/desktop/`, reserves `apps/server/` for later online services, and reserves `packages/shared/` for cross-application contracts. Keep the latter two empty until needed. Add SSH, storage, and online services when their phases begin. Mosh, hardware keys, certificates, serial connections, and modern cryptographic algorithms need separate investigations. No online backend is required for the initial local terminal and SSH workflows.
 
 ## Milestones and dependencies
 
@@ -63,12 +63,14 @@ Dependencies: None.
 
 - [ ] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior.
 - [ ] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks.
-- [ ] **F03 — Application layout:** Host sidebar, terminal area, settings, and connection status.
+- [ ] **F03 — Application layout:** Termius-style dark desktop shell, left navigation, searchable host view, session tab strip, settings, and connection status. Follow the [interface direction](README.md#interface-direction).
 - [ ] **F04 — Preferences:** Appearance, shortcuts, default shell, and window state.
 - [ ] **F05 — Local database:** Migrations, transactions, stable IDs, and recoverable backups.
 - [ ] **F06 — Error handling:** Useful messages and diagnostic logs without secrets.
 
 Completion criteria: The application opens reliably, persists preferences, handles failures, and rejects invalid IPC requests. Keep process execution, filesystem access, and credentials outside the renderer.
+
+UI acceptance: Compare the application shell and host view visually with Termius Desktop. Verify consistent dark styling, compact spacing, accessible contrast, keyboard focus, resizing, and platform-appropriate window controls. Use mTerminal branding. Terminal tabs, split panes, and SFTP follow their respective feature phases.
 
 Document source layout, runtime versions, entry points, dependency installation, development, build, lint, and test commands in `README.md`. Configure formatting/linting and a suitable test framework with the first implementation, and commit the dependency lockfile.
 
@@ -251,6 +253,9 @@ Append entries for completed work and material decisions.
 | Date | Features | Change/decision | Evidence and remaining limits |
 | --- | --- | --- | --- |
 | 2026-10-28 | F01–F78 | Initial development roadmap saved | Planning only; application behavior not verified |
+| 2026-10-28 | Foundation | Selected Electron/TypeScript stack; documented source layout and Git ignore rules | Application implementation has not started |
+| 2026-10-28 | F03 | Recorded Termius Desktop as the required UI reference in README.md | Design requirements only; no interface implemented yet |
+| 2026-10-28 | Foundation | Established monorepo directory placeholders and updated nested output ignore rules | Desktop, server, and shared package implementation has not started |
 
 ## References
 
