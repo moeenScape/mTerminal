@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F07 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F08 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -149,7 +149,7 @@ Run `npm run dev` from the repository root, open **Workspace**, and choose **Sta
 local shell**. Input goes to the real shell; output is rendered by xterm.js. Use
 **Close session** to stop it. Changing views preserves the running terminal;
 reloading the app or closing the window ends it. Settings' default shell override
-must be an absolute executable path without arguments and applies to new sessions.
+must be an existing absolute executable path without arguments or surrounding quotes and applies to new sessions. Invalid overrides are rejected before saving and checked again at launch. Leaving the field blank uses a valid Unix `$SHELL`, then Bash on Linux or Zsh on macOS; Windows prefers PowerShell before cmd.
 
 `npm install` now rebuilds node-pty for the installed Electron version. If Electron
 or your machine architecture changes, run `npm run rebuild:native`. Building may
@@ -161,3 +161,5 @@ F07 build/static checks and native-module loading pass on Linux x64. New termina
 tests are written but deferred until the Phase 1 gate. Phase 0's sandbox-enabled
 desktop verification remains outstanding; no interactive/visual or Windows/macOS
 pass is claimed.
+
+F08 adds deterministic platform fallbacks and specific missing/invalid-shell errors. Its tests are written and type-checked but deferred to the Phase 1 gate; Windows/macOS behavior has not been runtime-verified.

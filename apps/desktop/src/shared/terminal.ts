@@ -1,3 +1,4 @@
+import type { FailureCode } from './failures.js';
 export const terminalChannels = {
   shells: 'terminal:shells',
   open: 'terminal:open',
@@ -7,6 +8,7 @@ export const terminalChannels = {
   close: 'terminal:close',
   event: 'terminal:event',
 } as const;
+export type TerminalOpenResult = { ok: true } | { ok: false; code: FailureCode };
 export interface ShellInfo {
   path: string;
   name: string;

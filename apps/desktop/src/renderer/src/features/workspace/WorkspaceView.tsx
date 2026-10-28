@@ -132,11 +132,16 @@ export function WorkspaceView({
       onRunningChange(true);
       setStatus('Local shell running');
       term.focus();
-    } catch {
+    } catch (error) {
       if (session.current !== id) return;
       session.current = null;
       setStarting(false);
-      setStatus(failureMessages['terminal-failed']);
+      const message =
+        error instanceof Error &&
+        Object.values(failureMessages).some((value) => value === error.message)
+          ? error.message
+          : failureMessages['terminal-failed'];
+      setStatus(message);
     }
   }
   function stop() {

@@ -94,13 +94,18 @@ export function SettingsView({
                 <input
                   value={draft.defaultShell}
                   maxLength={1024}
-                  placeholder="System default"
+                  placeholder={
+                    info?.platform === 'win32'
+                      ? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+                      : '/bin/bash'
+                  }
                   onChange={(event) => setDraft({ ...draft, defaultShell: event.target.value })}
                 />
               </label>
               <p className="section-description">
-                Leave blank to select an installed shell automatically. Changes apply to new local
-                sessions; enter an absolute executable path without arguments.
+                Leave blank to use your Unix login shell or the platform fallback (Bash on Linux,
+                Zsh on macOS, PowerShell on Windows). Changes apply to new sessions. Enter an
+                absolute executable path without arguments or surrounding quotes.
               </p>
               <label>
                 <input

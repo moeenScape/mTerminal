@@ -1,3 +1,4 @@
+import { validateShellOverride } from './terminal/shells.js';
 import { attachTerminal } from './terminal/ipc.js';
 import { AppFailure, failureCode } from './failures.js';
 import type { DiagnosticLog } from './diagnostics.js';
@@ -82,6 +83,7 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
       if (args.length !== 1) throw new Error('Invalid preferences request.');
       const preferences = validatePreferences(args[0]);
       try {
+        await validateShellOverride(preferences.defaultShell);
         await store.save(preferences);
         return { ok: true, preferences: store.preferences };
       } catch (error) {

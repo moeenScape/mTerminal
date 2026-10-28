@@ -1,3 +1,4 @@
+import { failureCode } from '../failures.js';
 import { homedir } from 'node:os';
 import { ipcMain, type BrowserWindow } from 'electron';
 import {
@@ -5,6 +6,7 @@ import {
   validTerminalId,
   validTerminalSize,
   type TerminalSize,
+  type TerminalOpenResult,
 } from '../../shared/terminal.js';
 import { validateAppInfoRequest } from '../security.js';
 import type { DiagnosticLog } from '../diagnostics.js';
@@ -29,10 +31,11 @@ export function attachTerminal(
       return [];
     }
   });
-  ipcMain.handle(channels.open, async (event, ...args: unknown[]) => {
+  ipcMain.handle(channels.open, async (event, ...args: unknown[]): Promise<TerminalOpenResult> => {
     validateAppInfoRequest(event, window.webContents, rendererUrl, []);
     const [id, size] = args;
-    if (args.length !== 2 || !validTerminalId(id) || !validTerminalSize(size)) return false;
+    if (args.length !== 2 || !validTerminalId(id) || !validTerminalSize(size))
+      return { ok: false, code: 'terminal-failed' };
     try {
       await terminal.open(id, size, async () => {
         const shell = await chooseShell(shellOverride());
@@ -53,11 +56,12 @@ export function attachTerminal(
           env,
         });
       });
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (error) {
       terminal.close(id);
-      diagnostics.record('terminal-open-failed', 'terminal-failed');
-      return false;
+      const code = failureCode(error, 'terminal-failed');
+      diagnostics.record('terminal-open-failed', code);
+      return { ok: false, code };
     }
   });
   const operations = [channels.write, channels.resize, channels.ack, channels.close] as const;

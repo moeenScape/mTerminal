@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F07 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F08 — Platform defaults; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F07 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, and one local PTY terminal; desktop verification pending |
+| Active feature | F08 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F09 — Input and output; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F08 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, and platform shell defaults; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -69,7 +69,7 @@ Dependencies: None.
 - [x] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior. Implementation complete; user reported Ubuntu launch succeeds. Lifecycle tests and other platforms remain pending.
 - [x] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks. Implementation complete with a read-only app-info bridge; security tests remain pending.
 - [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
-- [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is consumed by F07; platform default refinements remain in F08. Runtime and phase tests pending.
+- [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is consumed by F07; platform defaults and save-time validation are implemented in F08. Runtime and phase tests pending.
 - [x] **F05 — Local database:** Main-process SQLite, ordered transactional schema migrations, persistent workspace UUID, integrity/version checks, startup snapshot, pre-upgrade backups, exclusive ownership, and offline backup/restore maintenance. Build/static checks passed; runtime and phase tests pending.
 - [x] **F06 — Error handling:** Fixed failure codes and recovery messages, sanitized preference-save results, bounded local diagnostic logs, fatal-process and renderer-crash handling. Unit/static/build checks pass; sandbox-enabled desktop verification blocked by the environment.
 
@@ -84,7 +84,7 @@ Document source layout, runtime versions, entry points, dependency installation,
 Dependencies: Phase 0.
 
 - [x] **F07 — Local shell:** xterm.js connected to an owned node-pty session, executable shell discovery and configured override, bounded streamed output with acknowledgements, initial input/resize/exit/close support, and persistence across navigation. Static/build/native-load checks passed on Linux x64; feature tests and interactive runtime verification pending.
-- [ ] **F08 — Platform defaults:** Bash/Zsh on Unix systems, PowerShell on Windows, and a configurable override.
+- [x] **F08 — Platform defaults:** Valid Unix login-shell preference, Bash-first Linux and Zsh-first macOS fallback; PowerShell 7/Windows PowerShell before cmd on Windows. Override availability is validated before save and at launch; specific missing/invalid-shell failures are shown without exposing raw exceptions. Static/build checks passed; tests written, not executed; platform runtime checks pending.
 - [ ] **F09 — Input and output:** Unicode, control sequences, keyboard input, and streamed output.
 - [ ] **F10 — Resizing:** Synchronize terminal rows/columns with the PTY.
 - [ ] **F11 — Tabs:** Create, rename, reorder, switch, and close.
@@ -257,6 +257,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | F07 | Implementation complete | `apps/desktop/src/main/terminal/`, `apps/desktop/src/renderer/src/features/workspace/` | Build/static checks and Electron native-module load pass on Linux x64; tests written, not executed | Interactive shell/visual checks pending; F08 next |
 
+| F08 | Implementation complete | `apps/desktop/src/main/terminal/shells.ts` | Type/lint/format/build pass; policy/availability and invalid-override E2E tests written, not run | Linux/macOS/Windows runtime verification pending; F09 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -334,3 +336,24 @@ lint, format, and diff checks pass. node-pty loads under Electron's bundled Node
 24.22.1 / ABI 150 on Linux x64; no interactive shell, visual, or Windows/macOS pass
 is claimed. New unit/E2E tests are written and type-checked but not executed until
 the Phase 1 gate. F08 is next. Commit this step without pushing.
+
+### F08 implementation update
+
+Made shell selection deterministic per platform while respecting a valid Unix
+`SHELL` preference. Linux falls back through Bash, Zsh, then sh; macOS through Zsh,
+Bash, then sh. Windows checks PowerShell 7 in Program Files and absolute PATH
+directories, then Windows PowerShell, ComSpec and cmd. Windows ignores Unix SHELL,
+rejects drive-relative/root-relative paths and scripts, and deduplicates candidate
+paths without case sensitivity. Automatic selection excludes false/nologin.
+
+A nonempty saved override must name an existing, accessible executable; invalid
+overrides never silently fall back. Validation occurs before saving and again at
+launch, so deleting/moving the executable after saving produces a useful error.
+Rejected saves retain previous preferences and the user's draft. Start results
+now carry a fixed failure code through preload to Workspace; diagnostics record
+codes only. No configuration schema or dependency changes were required.
+
+Type checking, lint, formatting, build and diff checks pass. Tests are written and
+type-checked but not executed until the Phase 1 gate. Runtime and Windows/macOS
+verification remain pending; Phase 0's sandbox blocker remains recorded. Next:
+F09. Commit as Phase 1 / F08 without pushing.

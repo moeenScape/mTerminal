@@ -26,6 +26,8 @@ location. Raw exceptions are never placed in those dialogs or diagnostic files.
 | `database-invalid` | Preserve the database and journals; use a matching app version or restore a validated backup. |
 | `database-open` | Check the data directory and disk space; preserve existing files before recovery. |
 | `preferences-invalid` | Quit, back up `preferences.json`, then repair or move it aside. Moving it aside resets preferences, not the SQLite database. |
+| `shell-invalid` | Correct or clear the absolute default shell path in Settings. The prior preference is retained when a save is rejected. |
+| `shell-missing` | Install a usable shell or set its absolute executable path in Settings. |
 | `preferences-save` | Unsaved values remain in the form. Fix directory access or disk space, then retry Save. |
 | `permission-denied` / `disk-full` | Correct access or free space, then retry; do not remove application records. |
 | `backup-unsupported` | Use a filesystem supporting hard links for the data/backup directory. |

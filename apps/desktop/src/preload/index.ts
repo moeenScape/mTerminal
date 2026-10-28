@@ -1,4 +1,8 @@
-import { terminalChannels as channels, type TerminalEvent } from '../shared/terminal.js';
+import {
+  terminalChannels as channels,
+  type TerminalEvent,
+  type TerminalOpenResult,
+} from '../shared/terminal.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
 import { PREFERENCES_GET, PREFERENCES_SAVE } from '../shared/preferences.js';
 import { contextBridge, ipcRenderer } from 'electron';
@@ -7,8 +11,8 @@ import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-i
 const api: DesktopApi = {
   getShells: () => ipcRenderer.invoke(channels.shells),
   openTerminal: async (id, size) => {
-    const ok: boolean = await ipcRenderer.invoke(channels.open, id, size);
-    if (!ok) throw new Error(failureMessages['terminal-failed']);
+    const result: TerminalOpenResult = await ipcRenderer.invoke(channels.open, id, size);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
   },
   writeTerminal: (id, data) => ipcRenderer.send(channels.write, id, data),
   resizeTerminal: (id, size) => ipcRenderer.send(channels.resize, id, size),

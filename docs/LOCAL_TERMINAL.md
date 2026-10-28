@@ -1,4 +1,4 @@
-# Local terminal: F07
+# Local terminal: F07–F08
 
 ## Run and use
 
@@ -16,11 +16,34 @@ permissions. Switching Hosts/Workspace/Settings preserves the session and output
 Closing the session, reloading the window, or destroying the window stops the PTY.
 Closing a session can interrupt foreground work; it never replays commands.
 
-Unix discovery checks `$SHELL`, executable entries from `/etc/shells`, and common
-shell paths. Windows discovery checks ComSpec and standard PowerShell/cmd paths.
-The saved absolute executable path in Settings takes precedence. No arguments are
-parsed from that setting. Platform-specific default ordering is the next step,
-F08; shell paths are not persisted or logged by discovery.
+## Platform defaults (F08)
+
+A valid explicit override always wins. For automatic selection, candidates are
+checked in this order; missing, inaccessible and non-file entries are skipped:
+
+| Platform | Selection order |
+| --- | --- |
+| Linux | Valid `$SHELL`, `/bin/bash`, `/usr/bin/bash`, Zsh, sh, then remaining `/etc/shells` entries and fish |
+| macOS | Valid `$SHELL`, `/bin/zsh`, `/bin/bash`, `/bin/sh`, then remaining `/etc/shells` entries and fish |
+| Windows | PowerShell 7 under Program Files, `pwsh.exe` in absolute PATH directories, system Windows PowerShell, ComSpec, system cmd |
+
+Windows ignores Unix `SHELL`. Empty/relative PATH directories are not searched;
+candidate paths are deduplicated without case sensitivity. On Unix, false/nologin
+are excluded. There is no automatic retry with another shell after spawn fails.
+
+Settings accepts only an existing file with Unix execute access, or a fully
+qualified `.exe`/`.com` path on Windows. Paths containing spaces are supported as
+one executable path; do not add arguments, environment expansions, or surrounding
+quotes. Relative and Windows current-drive-relative paths are rejected. Changing
+this setting affects new sessions and does not interrupt the current terminal.
+
+Save-time validation preserves prior preferences if rejected. Launch revalidates
+the saved path in case it has since moved or lost permissions. Invalid overrides
+show `shell-invalid` and never silently fall back. Clear the field to return to
+automatic selection. When no automatic candidate is usable, `shell-missing`
+explains installation or override options. Discovery checks file/access metadata;
+a damaged executable or unsupported binary can still fail when spawned.
+
 
 ## Process and data boundaries
 
@@ -75,3 +98,13 @@ splits, SSH, and host management are not part of F07.
 References: [node-pty](https://github.com/microsoft/node-pty),
 [xterm flow control](https://xtermjs.org/docs/guides/flowcontrol/),
 [Electron native modules](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules).
+
+F08 policy and availability tests cover platform ordering, missing defaults,
+case-insensitive Windows deduplication, path constraints, explicit override
+precedence and missing/permission/directory failures. An E2E regression covers
+rejecting an unavailable override without replacing saved preferences. These
+checks are written and type-checked but not executed until Phase 1 completion;
+no Windows/macOS runtime pass is claimed.
+
+Platform references: [PowerShell Windows installation locations](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows),
+[macOS default shells](https://support.apple.com/en-us/102360).

@@ -192,7 +192,10 @@ test('keeps unsaved preferences on write failure and logs only a safe failure co
   await page.getByRole('tab', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
   const shell = page.getByLabel('Default shell executable', { exact: true });
-  await shell.fill('/private/test-shell');
+  const shells = await page.evaluate(() => window.mterminal.getShells());
+  const shellPath = shells[0]?.path;
+  if (!shellPath) throw new Error('A shell is required for the preference write-failure test.');
+  await shell.fill(shellPath);
   const blocked = join(userData, 'preferences.json');
   await mkdir(blocked);
   try {
@@ -200,10 +203,10 @@ test('keeps unsaved preferences on write failure and logs only a safe failure co
     await expect(
       page.getByRole('status').filter({ hasText: 'Your changes are still in this form' }),
     ).toBeVisible();
-    await expect(shell).toHaveValue('/private/test-shell');
+    await expect(shell).toHaveValue(shellPath);
     const content = await readFile(join(userData, 'logs/diagnostics.log'), 'utf8');
     expect(content).toContain('preferences-save-failed');
-    expect(content).not.toContain('/private/test-shell');
+    expect(content).not.toContain(shellPath);
   } finally {
     await rm(blocked, { recursive: true, force: true });
   }
@@ -230,4 +233,26 @@ test('starts a real local shell, preserves it across views, and closes the sessi
   await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
   await page.getByRole('button', { name: 'Close session' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Session closed' })).toBeVisible();
+});
+
+test('rejects an unavailable shell override while preserving saved preferences', async () => {
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  const invalid =
+    info.platform === 'win32'
+      ? 'C:\\__mterminal_missing_shell__\\missing.exe'
+      : '/__mterminal_missing_shell__/missing';
+  const field = page.getByLabel('Default shell executable', { exact: true });
+  await field.fill(invalid);
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'The selected default shell is unavailable' }),
+  ).toBeVisible();
+  await expect(field).toHaveValue(invalid);
+  const saved = await page.evaluate(() => window.mterminal.getPreferences());
+  expect(saved.defaultShell).toBe('');
+  await field.fill('');
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
 });

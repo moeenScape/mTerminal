@@ -1,4 +1,8 @@
 export const failureMessages = {
+  'shell-invalid':
+    'The selected default shell is unavailable. In Settings, enter an absolute path to an existing executable without arguments or surrounding quotes, or clear the field to use the platform default. On Windows, use an .exe or .com file.',
+  'shell-missing':
+    'No usable shell was found. Install Bash or Zsh on Linux/macOS, or PowerShell on Windows, then retry. You can also set an absolute shell executable path in Settings.',
   'terminal-failed':
     'The local shell could not start or stopped unexpectedly. Check the default shell executable in Settings and rebuild native modules with npm run rebuild:native if needed.',
   'terminal-overflow':
