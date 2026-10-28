@@ -900,7 +900,7 @@ for (const outcome of ['disconnected', 'failed'] as const) {
       }, state);
       await expect(page.getByRole('status').filter({ hasText: message })).toBeVisible();
       if (state === 'authenticating') {
-        await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await page.getByRole('tab', { name: 'State fixture', exact: true }).press('Delete');
         await expect(page.getByRole('dialog').getByRole('heading')).toHaveText(
           'Close “State fixture”?',
         );
@@ -1046,4 +1046,46 @@ test('reconnect asks for fresh credentials, preserves output on cancel and never
   expect(result.attempts[0]).not.toBe(result.attempts[1]);
   expect(result.writes.filter((write) => write.id === result.attempts[1])).toEqual([]);
   expect(result.supplied).toEqual([true, true]);
+});
+
+test('cancels a pending SSH attempt in place and ignores its late events and reply', async () => {
+  // Keep a fixture request pending until cancellation, then deliver deliberately stale callbacks.
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle(
+      'terminal:ssh',
+      (event, id: string) =>
+        new Promise((resolve) => {
+          event.sender.send('terminal:event', { kind: 'state', id, state: 'authenticating' });
+          ipcMain.once('terminal:close', (_reply, closedId) => {
+            if (closedId !== id) return;
+            event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+            event.sender.send('terminal:event', { kind: 'data', id, data: 'F24_STALE_OUTPUT' });
+            resolve({ ok: true });
+          });
+        }),
+    );
+  });
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Cancel fixture',
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to Cancel fixture' }).click();
+  await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
+  await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH authenticating…' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel connection', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'SSH connection cancelled.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Cancel fixture', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reconnect SSH' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.xterm-accessibility-tree')).not.toContainText('F24_STALE_OUTPUT');
 });

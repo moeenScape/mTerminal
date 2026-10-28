@@ -1,4 +1,5 @@
 export const failureMessages = {
+  'ssh-cancelled': 'SSH connection cancelled.',
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',
   'ssh-failed':

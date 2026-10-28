@@ -313,13 +313,15 @@ export function TerminalPane({
         inputReady.current = false;
         session.current = null;
         setStarting(false);
-        onPhaseChange(id, hostId ? 'failed' : 'error');
+        const cancelled =
+          hostId && error instanceof Error && error.message === failureMessages['ssh-cancelled'];
+        onPhaseChange(id, hostId ? (cancelled ? 'disconnected' : 'failed') : 'error');
         const message =
           error instanceof Error &&
           Object.values(failureMessages).some((value) => value === error.message)
             ? error.message
             : failureMessages['terminal-failed'];
-        setStatus(hostId ? `SSH failed. ${message}` : message);
+        setStatus(cancelled ? message : hostId ? `SSH failed. ${message}` : message);
       }
     },
     [id, onPhaseChange, hostId],
@@ -332,6 +334,19 @@ export function TerminalPane({
     });
     return () => cancelAnimationFrame(frame);
   }, [active, start]);
+
+  function cancelConnection(expectedId = session.current) {
+    if (!hostId || !expectedId || session.current !== expectedId) return;
+    session.current = null;
+    inputReady.current = false;
+    setSshChallenge(null);
+    setSshPrompt(false);
+    setStarting(false);
+    setRunning(false);
+    onPhaseChange(id, 'disconnected');
+    setStatus(failureMessages['ssh-cancelled']);
+    window.mterminal.closeTerminal(expectedId);
+  }
 
   return (
     <div
@@ -351,11 +366,7 @@ export function TerminalPane({
               window.mterminal.answerSshChallenge(sshChallenge.id, sshChallenge.token, answers);
             setSshChallenge(null);
           }}
-          onCancel={() => {
-            if (session.current === sshChallenge.id)
-              window.mterminal.closeTerminal(sshChallenge.id);
-            setSshChallenge(null);
-          }}
+          onCancel={() => cancelConnection(sshChallenge.id)}
         />
       )}
       {sshPrompt && (
@@ -404,8 +415,15 @@ export function TerminalPane({
           </button>
         </div>
         {running || starting ? (
-          <button type="button" className="secondary-button" onClick={() => onRequestClose(id)}>
-            {starting ? 'Cancel' : 'Close session'}
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              if (hostId && starting) cancelConnection();
+              else onRequestClose(id);
+            }}
+          >
+            {hostId && starting ? 'Cancel connection' : starting ? 'Cancel' : 'Close session'}
           </button>
         ) : (
           <button type="button" className="secondary-button" onClick={() => void start()}>

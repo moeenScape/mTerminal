@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F23 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F24 — Cancellation; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F23 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive and explicit reconnect; desktop verification pending |
+| Active feature | F01–F24 implementation complete; Phase 2 unit gate passed; desktop/platform acceptance remains blocked |
+| Next feature | F25 — Reusable identities; Phase 2 desktop/platform acceptance remains outstanding |
+| Implementation status | F01–F24 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect and in-place SSH cancellation; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -107,7 +107,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 - [x] **F21 — Known hosts (implementation):** Persistent endpoint fingerprints, unknown-key confirmation, changed-key refusal with both fingerprints, explicit checked rotation followed by a new connection, optional pinning and cancellation. Tests written; execution deferred to Phase 2 gate.
 - [x] **F22 — Connection state (implementation):** Main-owned connecting, identity verification, authenticating, opening-shell and connected progress; disconnected/failed outcomes, retained terminal output, active-session counts and close guards. Tests written; execution deferred to Phase 2 gate.
 - [x] **F23 — Keepalive and reconnect (implementation):** SSH keepalive probes, a specific lost-peer failure message, and explicit reconnect with new session IDs, fresh credentials, profile/trust re-evaluation and no command replay. Tests written; execution deferred to Phase 2 gate.
-- [ ] **F24 — Cancellation:** Cancel pending connections and release resources.
+- [x] **F24 — Cancellation (implementation):** In-place cancellation during setup, identity checks and interactive authentication; retained tab/output, socket/timer/challenge cleanup and stale callback suppression. Phase 2 unit gate: 113/113 passed; desktop acceptance blocked.
 
 Completion criteria: Test valid/invalid credentials, changed fingerprints, disconnects, cancellation, and remote terminal resizing against disposable servers. Reconnection must not silently repeat previous commands.
 
@@ -707,3 +707,31 @@ reconnect preserving output, view changes, new session IDs and zero input replay
 Tests are written/type-checked but deferred to the Phase 2 gate. Real timing, live
 network-loss, desktop visual and Windows/macOS checks remain pending under the
 recorded sandbox blocker. Next: F24.
+
+
+### F24 implementation and Phase 2 test gate
+
+Cancel connection now immediately stops a pending SSH attempt and keeps its tab
+and output. Identity and keyboard-interactive dialogs use the same cancellation
+path. The renderer invalidates the session ID before closing it, clears setup
+state/prompts, shows SSH connection cancelled, and offers explicit reconnect.
+Late progress, data or successful open responses cannot reactivate that attempt.
+Closing a tab/established session retains the normal confirmation flow.
+
+The main process returns a dedicated cancellation code instead of logging an
+expected user cancellation as a connection failure. Existing abort propagation
+clears challenge timers, closes the SSH client/socket, cancels shell setup and
+releases registry ownership. New real loopback tests cancel during host identity
+verification before authentication and during interactive prompts, then verify
+server-side socket closure. A desktop IPC fixture sends late callbacks/replies
+after cancellation and checks the tab stays cancelled with no stale output.
+
+Phase 2 implementation has reached its test gate. On Linux/Node 24.12.0 all
+113 unit tests across 18 files passed, including storage/migrations, host groups,
+trust policy, SSH password/key/interactive authentication, resizing/output,
+keepalive, cancellation and cleanup. Build, type, lint, format and diff checks
+passed. Sandbox-enabled desktop tests were attempted with --max-failures=1:
+the first launch failed because chrome-sandbox ownership/mode is invalid, and
+34 tests did not run. No sandbox settings or OS permissions were changed.
+Desktop interaction/visual checks, external OpenSSH and Windows/macOS acceptance
+remain pending; Phase 2 acceptance is not declared complete. Next: F25.

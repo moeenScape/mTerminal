@@ -220,3 +220,9 @@ A stalled peer is normally closed on the following probe (about 60 seconds).
 After loss/exit, **Reconnect SSH** requests fresh credentials and starts a new
 shell. Its prompt warns that submitting clears displayed output; cancelling
 keeps it. Connections and previous commands are never replayed automatically.
+
+F24 adds **Cancel connection** during SSH setup and in identity/authentication
+prompts. Cancellation keeps the terminal tab and output, closes pending network
+resources and ignores late replies. Phase 2's unit gate passed (113 tests on
+Linux/Node 24.12.0). Desktop launch remains blocked by the recorded sandbox
+configuration error; visual and Windows/macOS acceptance are still pending.

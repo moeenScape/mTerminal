@@ -110,3 +110,22 @@ accelerated interval clock to exercise keepalive loss. A desktop IPC fixture
 covers fresh credentials, cancellation, new IDs and absence of input replay.
 These tests are written/type-checked and deferred to the Phase 2 gate; real
 network-loss timing and cross-platform behavior remain unverified.
+
+## Cancelling setup
+
+Use Cancel connection while SSH is connecting, verifying identity, authenticating
+or opening a shell. The same action is available in identity and interactive
+authentication dialogs. Cancellation keeps the tab and any displayed output,
+marks it cancelled/disconnected, and offers Reconnect SSH. Pending sockets,
+challenge waits and setup timers are released. Late status, output and successful
+open replies cannot reactivate the cancelled attempt. Cancelling the initial
+credential dialog starts no connection. Closing a live tab or established
+session still follows the existing close-confirmation flow.
+
+At the Phase 2 gate, all 113 unit tests passed on Linux/Node 24.12.0, including
+real loopback SSH authentication, trust verification, keepalive and cancellation
+with socket closure. Build, type, lint and format checks passed. Desktop tests
+were attempted with fail-fast: one launch failure from invalid chrome-sandbox
+ownership/mode, 34 not run. No sandbox permissions or settings were changed.
+External OpenSSH, desktop interaction and Windows/macOS verification remain
+pending. Earlier deferred-test notes describe their implementation checkpoints.

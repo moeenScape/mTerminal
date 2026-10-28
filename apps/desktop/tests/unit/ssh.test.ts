@@ -3,6 +3,7 @@ import type { TerminalTransport, TerminalExit } from '../../src/main/terminal/tr
 import { generateKeyPairSync, createHash } from 'node:crypto';
 import { Server, utils, type Connection, type AuthContext } from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
+import { SshChallenges } from '../../src/main/terminal/ssh-challenges.js';
 import { openSsh, fingerprintMatches } from '../../src/main/terminal/ssh.js';
 import type { SshConnectionState } from '../../src/shared/terminal.js';
 import { validateSshCredentials } from '../../src/shared/ssh.js';
@@ -21,6 +22,7 @@ async function fixture(
     fingerprint: string,
     authCount: () => number,
     windows: number[][],
+    connectionCount: () => number,
   ) => Promise<void>,
   authenticate?: (context: AuthContext) => void,
 ) {
@@ -85,7 +87,13 @@ async function fixture(
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Fixture address invalid');
   try {
-    await operation(address.port, fingerprint, () => authCount, windows);
+    await operation(
+      address.port,
+      fingerprint,
+      () => authCount,
+      windows,
+      () => connections.size,
+    );
   } finally {
     for (const connection of connections) connection.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -169,7 +177,7 @@ describe('SSH terminal transport', () => {
         pendingController.signal,
       );
       pendingController.abort();
-      await expect(pending).rejects.toMatchObject({ code: 'ssh-failed' });
+      await expect(pending).rejects.toMatchObject({ code: 'ssh-cancelled' });
       const controller = new AbortController();
       controller.abort();
       await expect(
@@ -179,7 +187,7 @@ describe('SSH terminal transport', () => {
           size,
           controller.signal,
         ),
-      ).rejects.toMatchObject({ code: 'ssh-failed' });
+      ).rejects.toMatchObject({ code: 'ssh-cancelled' });
     });
   });
   it('authenticates with an encrypted private key and rejects an incorrect passphrase', async () => {
@@ -342,5 +350,48 @@ describe('SSH terminal transport', () => {
         await new Promise<void>((resolve) => proxy.close(() => resolve()));
       }
     });
+  });
+  it('cancels during identity verification before authentication and closes its socket', async () => {
+    await fixture(async (port, fingerprint, authCount, _windows, connectionCount) => {
+      const controller = new AbortController();
+      await expect(
+        openSsh(
+          { ...host, port },
+          { username: 'user', password: 'test-password', fingerprint },
+          size,
+          controller.signal,
+          undefined,
+          async () => {
+            controller.abort();
+            return false;
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'ssh-cancelled' });
+      expect(authCount()).toBe(0);
+      await expect.poll(connectionCount).toBe(0);
+    });
+  });
+  it('cancels a pending keyboard-interactive round and clears its connection', async () => {
+    await fixture(
+      async (port, fingerprint, _authCount, _windows, connectionCount) => {
+        const controller = new AbortController();
+        const challenges = new SshChallenges(() => controller.abort());
+        await expect(
+          openSsh(
+            { ...host, port },
+            { username: 'user', method: 'keyboard-interactive', fingerprint },
+            size,
+            controller.signal,
+            (question) => challenges.ask('cancel-fixture', question, controller.signal),
+          ),
+        ).rejects.toMatchObject({ code: 'ssh-cancelled' });
+        await expect.poll(connectionCount).toBe(0);
+      },
+      (context) => {
+        if (context.method === 'keyboard-interactive')
+          context.prompt([{ prompt: 'OTP', echo: false }], () => context.reject());
+        else context.reject(['keyboard-interactive']);
+      },
+    );
   });
 });

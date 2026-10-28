@@ -63,7 +63,11 @@ export function openSsh(
       }
       if (!settled) {
         settled = true;
-        reject(new AppFailure(mismatch ? 'ssh-key-mismatch' : 'ssh-failed'));
+        reject(
+          new AppFailure(
+            signal.aborted ? 'ssh-cancelled' : mismatch ? 'ssh-key-mismatch' : 'ssh-failed',
+          ),
+        );
       } else for (const listener of exitListeners) listener(outcome());
       stream?.destroy();
       client.destroy();

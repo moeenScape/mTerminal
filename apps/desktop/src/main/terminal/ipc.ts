@@ -131,7 +131,7 @@ export function attachTerminal(
       return { ok: true };
     } catch (error) {
       const code = failureCode(error, 'ssh-failed');
-      diagnostics.record('terminal-open-failed', code);
+      if (code !== 'ssh-cancelled') diagnostics.record('terminal-open-failed', code);
       return { ok: false, code };
     }
   });
