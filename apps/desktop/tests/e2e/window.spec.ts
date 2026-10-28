@@ -301,3 +301,38 @@ test('renders Unicode/ANSI output and keeps shell control keys out of native men
     .poll(async () => ((await tree.textContent()) ?? '').split('F09_INTERRUPT').length - 1)
     .toBeGreaterThanOrEqual(2);
 });
+
+test('keeps the PTY grid equal to xterm after resizing and restoring a hidden workspace', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(
+    info.platform === 'win32',
+    'This fixture uses Bash/stty; ConPTY still needs native verification.',
+  );
+  const shells = await page.evaluate(() => window.mterminal.getShells());
+  const bash = shells.find((shell) => shell.name === 'bash');
+  test.skip(!bash, 'This fixture requires Bash and stty.');
+  await page.evaluate(async (path) => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: path! });
+  }, bash?.path);
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  async function checkSize(tag: string) {
+    // DSR at the bottom-right reports xterm's grid; stty reports the PTY's grid.
+    const command = `saved=$(stty -g); stty -echo -icanon min 1 time 0; printf '\\033[999;999H\\033[6n'; IFS= read -r -d R reply; stty "$saved"; reply=\${reply#$'\\e['}; set -- $(stty size); printf 'F10_${tag}:%sx%s:%s\\n' "$1" "$2" "$reply"`;
+    await page.keyboard.insertText(command);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.xterm-accessibility-tree')).toContainText(
+      new RegExp(`F10_${tag}:(\\d+)x(\\d+):\\1;\\2`),
+    );
+  }
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await checkSize('LARGE');
+  await page.setViewportSize({ width: 760, height: 520 });
+  await checkSize('SMALL');
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await checkSize('RESTORED');
+});

@@ -59,7 +59,6 @@ export function attachTerminal(
       });
       return { ok: true };
     } catch (error) {
-      terminal.close(id);
       const code = failureCode(error, 'terminal-failed');
       diagnostics.record('terminal-open-failed', code);
       return { ok: false, code };

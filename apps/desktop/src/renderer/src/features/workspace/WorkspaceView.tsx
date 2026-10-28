@@ -1,3 +1,4 @@
+import { TerminalSizing } from './terminal-sizing';
 import { isWorkspaceShortcut } from '../../components/keyboard';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { terminalInputChunks, type TerminalInput } from '../../../../shared/terminal-input';
@@ -20,7 +21,7 @@ export function WorkspaceView({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
-  const fit = useRef<FitAddon | null>(null);
+  const sizing = useRef<TerminalSizing | null>(null);
   const session = useRef<string | null>(null);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -44,7 +45,7 @@ export function WorkspaceView({
     term.unicode.activeVersion = '11';
     term.open(host);
     terminal.current = term;
-    fit.current = addon;
+
     let disposed = false;
     void window.mterminal
       .getShells()
@@ -52,17 +53,30 @@ export function WorkspaceView({
         if (!disposed) setShells(items.map((item) => item.name));
       })
       .catch(() => {});
-    const resize = () => {
-      if (!host.clientWidth || !host.clientHeight) return;
-      addon.fit();
-      if (session.current)
-        window.mterminal.resizeTerminal(session.current, {
-          cols: Math.min(term.cols, 500),
-          rows: Math.min(term.rows, 300),
-        });
-    };
+    const sizer = new TerminalSizing(
+      host,
+      term,
+      () => addon.proposeDimensions(),
+      (size) => {
+        if (session.current) window.mterminal.resizeTerminal(session.current, size);
+      },
+    );
+    sizing.current = sizer;
+    const resize = () => sizer.schedule();
     const observer = new ResizeObserver(resize);
     observer.observe(host);
+    window.addEventListener('resize', resize);
+    document.fonts.addEventListener('loadingdone', resize);
+    void document.fonts.ready.then(resize).catch(() => {});
+    let resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const scaleChanged = () => {
+      resolution.removeEventListener('change', scaleChanged);
+      resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      resolution.addEventListener('change', scaleChanged);
+      resize();
+    };
+    resolution.addEventListener('change', scaleChanged);
+    resize();
     const sendInput = (data: string, kind: TerminalInput['kind']) => {
       if (!session.current) return;
       for (const input of terminalInputChunks(data, kind))
@@ -93,13 +107,17 @@ export function WorkspaceView({
     return () => {
       disposed = true;
       observer.disconnect();
+      window.removeEventListener('resize', resize);
+      document.fonts.removeEventListener('loadingdone', resize);
+      resolution.removeEventListener('change', scaleChanged);
+      sizer.dispose();
       input.dispose();
       binary.dispose();
       unsubscribe();
       if (session.current) window.mterminal.closeTerminal(session.current);
       session.current = null;
       terminal.current = null;
-      fit.current = null;
+      sizing.current = null;
       term.dispose();
     };
   }, [onRunningChange]);
@@ -117,27 +135,31 @@ export function WorkspaceView({
     );
   }, [navigationShortcuts]);
   useEffect(() => {
-    if (active && terminal.current && session.current) {
-      fit.current?.fit();
-      terminal.current.focus();
+    if (active) {
+      sizing.current?.schedule();
+      if (session.current) terminal.current?.focus();
     }
   }, [active]);
 
   async function start() {
     const term = terminal.current;
     if (!term || session.current) return;
-    fit.current?.fit();
+    const size = sizing.current?.fitNow();
+    if (!size) {
+      setStatus(
+        'Terminal layout is not ready. Wait for fonts or resize the window, then try again.',
+      );
+      return;
+    }
     term.reset();
     const id = crypto.randomUUID();
     session.current = id;
     setStarting(true);
     setStatus('Starting local shell…');
     try {
-      await window.mterminal.openTerminal(id, {
-        cols: Math.max(2, Math.min(term.cols, 500)),
-        rows: Math.max(1, Math.min(term.rows, 300)),
-      });
+      await window.mterminal.openTerminal(id, size);
       if (session.current !== id) return;
+      sizing.current?.fitNow(true);
       setRunning(true);
       setStarting(false);
       onRunningChange(true);

@@ -18,6 +18,7 @@ export type TerminalEvent =
   | { kind: 'data'; id: string; data: string }
   | { kind: 'exit'; id: string; exitCode: number }
   | { kind: 'error'; id: string; code: 'terminal-failed' | 'terminal-overflow' };
+export const terminalLimits = { minCols: 2, maxCols: 500, minRows: 1, maxRows: 300 } as const;
 export interface TerminalSize {
   cols: number;
   rows: number;
@@ -42,10 +43,10 @@ export function validTerminalSize(value: unknown): value is TerminalSize {
   const size = value as TerminalSize;
   return (
     Number.isInteger(size.cols) &&
-    size.cols >= 2 &&
-    size.cols <= 500 &&
+    size.cols >= terminalLimits.minCols &&
+    size.cols <= terminalLimits.maxCols &&
     Number.isInteger(size.rows) &&
-    size.rows >= 1 &&
-    size.rows <= 300
+    size.rows >= terminalLimits.minRows &&
+    size.rows <= terminalLimits.maxRows
   );
 }

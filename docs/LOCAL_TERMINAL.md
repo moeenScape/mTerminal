@@ -1,4 +1,4 @@
-# Local terminal: F07–F09
+# Local terminal: F07–F10
 
 ## Run and use
 
@@ -161,3 +161,34 @@ interactive, IME, visual and Windows/macOS verification remain pending.
 
 References: [xterm input events](https://xtermjs.org/docs/api/terminal/classes/terminal/#onbinary),
 [Electron accelerators](https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts).
+
+## Resizing (F10)
+
+`TerminalSizing` is the single owner of the renderer grid. FitAddon proposes rows
+and columns from the available terminal container; the controller applies the
+shared bounds to both xterm and the PTY notification (2–500 columns, 1–300 rows).
+Large windows can leave unused space at those limits. The emulator is no longer
+allowed to grow beyond the PTY's dimensions.
+
+Container/window resize, font readiness/loading, display-scale changes and view
+activation schedule one update per animation frame. Unchanged dimensions produce
+no extra IPC update. A hidden/zero-size container or unready/invalid measurement
+does not resize the PTY to zero. Reopening Workspace schedules a fresh fit.
+Background output never changes keyboard focus. Observer, font, media-query and
+window listeners are removed on disposal, and late frames are ignored.
+
+Starting a session requires a measurable grid. If layout is not ready, wait for
+fonts or resize the window and try Start again. While the shell is opening, the
+main process remembers the newest grid instead of discarding resize requests.
+The new PTY receives that grid; after open, a forced renderer resync and later
+layout notifications catch any remaining change. Active-session resizes are
+validated and deduplicated. Resizing neither creates another shell nor replays
+commands or input.
+
+Tests cover coalescing, clamping both grids identically, invalid/hidden layouts,
+restoration, forced sync, disposal, resize-during-open, duplicate suppression and
+cancelled opening identity. A Unix Bash/stty fixture compares actual PTY size to
+xterm's cursor-position report after large/small/hidden-view transitions. These
+checks are written and type-checked but not run until Phase 1 completion. Windows
+ConPTY, native display scaling/zoom, font rendering, Vim/tmux and full-screen
+compatibility remain unverified. F11 tabs are next.

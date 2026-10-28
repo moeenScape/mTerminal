@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F09 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F10 — Resizing; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F09 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, and Unicode/text/binary terminal input/output; desktop verification pending |
+| Active feature | F10 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F11 — Tabs; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F10 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, Unicode/text/binary terminal input/output, and synchronized resizing; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -86,7 +86,7 @@ Dependencies: Phase 0.
 - [x] **F07 — Local shell:** xterm.js connected to an owned node-pty session, executable shell discovery and configured override, bounded streamed output with acknowledgements, initial input/resize/exit/close support, and persistence across navigation. Static/build/native-load checks passed on Linux x64; feature tests and interactive runtime verification pending.
 - [x] **F08 — Platform defaults:** Valid Unix login-shell preference, Bash-first Linux and Zsh-first macOS fallback; PowerShell 7/Windows PowerShell before cmd on Windows. Override availability is validated before save and at launch; specific missing/invalid-shell failures are shown without exposing raw exceptions. Static/build checks passed; tests written, not executed; platform runtime checks pending.
 - [x] **F09 — Input and output:** Unicode 11 width handling, surrogate-safe bounded text input, validated binary terminal input, raw VT/control output streaming, terminal-friendly native accelerators, and composition/AltGr-safe navigation. Build/static checks pass; tests written and deferred; interactive/IME/platform verification pending.
-- [ ] **F10 — Resizing:** Synchronize terminal rows/columns with the PTY.
+- [x] **F10 — Resizing:** One renderer sizing controller measures, clamps, and applies the same grid to xterm and the PTY. Frame-coalesced layout/font/scale updates, hidden-workspace handling, startup resize retention and duplicate suppression are implemented. Static/build checks pass; tests written and deferred; native/visual verification pending.
 - [ ] **F11 — Tabs:** Create, rename, reorder, switch, and close.
 - [ ] **F12 — Clipboard:** Selection, copy/paste, shortcuts, and multiline-paste handling.
 - [ ] **F13 — Search and scrollback:** Searchable output and bounded history.
@@ -261,6 +261,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | F09 | Implementation complete | `apps/desktop/src/shared/terminal-input.ts`, `apps/desktop/src/main/menus.ts` | Type/lint/format/build/diff pass; transport/menu/keyboard tests written, not run | Interactive/IME/Windows/macOS verification pending; F10 next |
 
+| F10 | Implementation complete | `apps/desktop/src/renderer/src/features/workspace/terminal-sizing.ts`, `apps/desktop/src/main/terminal/session.ts` | Type/lint/format/build/diff pass; sizing, startup-race and PTY/DSR E2E checks written, not run | Native display/full-screen/platform verification pending; F11 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -381,3 +383,27 @@ Unicode/ANSI output, Ctrl+W/Ctrl+R, and Ctrl+C interruption. Tests are written a
 type-checked, not executed until Phase 1 completion. Native IME, font rendering,
 modern grapheme clusters and Windows/macOS compatibility remain unverified.
 Phase 0's sandbox blocker remains unchanged. Next: F10; commit without pushing.
+
+### F10 implementation update
+
+Replaced independent FitAddon.fit calls and separately clamped IPC sizes with one
+sizing controller. It measures with proposeDimensions, applies the shared limits
+to both grids, and coalesces notifications into animation frames. It ignores
+hidden/zero-size or invalid measurements, suppresses unchanged publication, and
+can force synchronization after a new PTY opens. Container/window resize, font
+readiness/loading, device-pixel-ratio changes, and workspace activation request a
+fit. Disposal removes observers/listeners and cancels pending frames.
+
+The main session retains the latest resize while shell startup awaits filesystem
+or native initialization, applies it to the created PTY, and ignores duplicate or
+stale-session resizes. Pending openings use object identity so a late cancelled
+process cannot attach to a newer opening reusing its ID. Grid bounds are shared
+with IPC validation. No settings or dependency migration was required.
+
+Type/lint/format/build/diff checks pass. New tests cover coalescing, exact grid
+caps, hidden/invalid measurements, forced resync, disposal, startup races and
+native resize deduplication. A Bash/stty E2E fixture compares PTY dimensions with
+xterm's cursor-position report after window resizing and hidden-workspace restore.
+Tests are written and type-checked but deferred until Phase 1 completion. Visual,
+DPI/zoom, full-screen applications and Windows/macOS runtime checks remain pending.
+Phase 0's sandbox blocker remains recorded. Next: F11; commit without pushing.

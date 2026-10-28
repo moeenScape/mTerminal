@@ -138,6 +138,71 @@ describe('local terminal lifecycle', () => {
     terminal.dispose();
     expect(next.pty.kill).toHaveBeenCalledOnce();
   });
+  it('keeps the latest grid during startup and suppresses duplicate or stale resizes', async () => {
+    const fake = fakePty();
+    const terminal = new TerminalSession(() => {});
+    let complete!: (pty: IPty) => void;
+    const opening = terminal.open(
+      id,
+      size,
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    terminal.resize(id, { cols: 100, rows: 30 });
+    terminal.resize('stale-id', { cols: 200, rows: 80 });
+    terminal.resize(id, { cols: 120, rows: 40 });
+    complete(fake.pty);
+    await opening;
+    expect(fake.pty.resize).toHaveBeenCalledExactlyOnceWith(120, 40);
+    terminal.resize(id, { cols: 120, rows: 40 });
+    expect(fake.pty.resize).toHaveBeenCalledOnce();
+    terminal.resize(id, { cols: 90, rows: 20 });
+    expect(fake.pty.resize).toHaveBeenLastCalledWith(90, 20);
+    expect(() => terminal.resize(id, { cols: 0, rows: 0 })).toThrow();
+    terminal.dispose();
+  });
+  it('does not attach a late cancelled process even if a new opening reuses its ID', async () => {
+    const old = fakePty();
+    const current = fakePty();
+    const terminal = new TerminalSession(() => {});
+    let finishOld!: (pty: IPty) => void;
+    const first = terminal.open(
+      id,
+      size,
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+    );
+    terminal.close(id);
+    await terminal.open(id, { cols: 100, rows: 30 }, async () => current.pty);
+    finishOld(old.pty);
+    await first;
+    expect(old.pty.kill).toHaveBeenCalledOnce();
+    expect(current.pty.kill).not.toHaveBeenCalled();
+    terminal.dispose();
+  });
+  it('does not close a newer session when a cancelled opening rejects late', async () => {
+    const current = fakePty();
+    const terminal = new TerminalSession(() => {});
+    let rejectOld!: (error: Error) => void;
+    const first = terminal.open(
+      id,
+      size,
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    terminal.close(id);
+    await terminal.open(id, size, async () => current.pty);
+    rejectOld(new Error('cancelled initialization'));
+    await expect(first).rejects.toThrow('cancelled initialization');
+    expect(current.pty.kill).not.toHaveBeenCalled();
+    terminal.dispose();
+  });
   it('stops an overflowing session rather than growing memory indefinitely', async () => {
     const fake = fakePty();
     const send = vi.fn();

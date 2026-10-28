@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F09 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F10 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -170,3 +170,9 @@ emoji clusters and native IME behavior still need manual compatibility checks.
 On Linux/Windows, native menu actions use Ctrl+Shift combinations (for example
 copy/paste and development reload) so Ctrl+C, Ctrl+W and Ctrl+R remain shell input.
 macOS keeps its native Command menu shortcuts. Phase 1 tests remain deferred.
+
+F10 keeps the emulator and PTY on one bounded grid during window/workspace
+resizing. Hidden workspaces retain their size and catch up when shown; resizes
+received during shell startup are retained. Notifications are coalesced, and
+font/scale changes request a fresh fit. Tests are written and type-checked but
+remain deferred to the Phase 1 gate; native visual/DPI checks are still pending.

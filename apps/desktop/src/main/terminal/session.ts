@@ -1,6 +1,6 @@
 import type { TerminalInput } from '../../shared/terminal-input.js';
 import type { IPty, IDisposable } from 'node-pty';
-import type { TerminalEvent, TerminalSize } from '../../shared/terminal.js';
+import { validTerminalSize, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
 
 export const HIGH_WATER = 256 * 1024;
 const LOW_WATER = 64 * 1024;
@@ -13,20 +13,24 @@ interface Session {
   queued: number;
   inFlight: number;
   paused: boolean;
+  size: TerminalSize;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 export class TerminalSession {
   private session: Session | undefined;
-  private opening: string | undefined;
+  private opening: { id: string; size: TerminalSize } | undefined;
   private disposed = false;
   constructor(private readonly send: (event: TerminalEvent) => void) {}
   async open(id: string, size: TerminalSize, create: () => Promise<IPty>): Promise<void> {
     if (this.disposed || this.session || this.opening)
       throw new Error('A terminal is already open.');
-    this.opening = id;
+    if (!validTerminalSize(size)) throw new Error('Invalid terminal size.');
+    const opening = { id, size: { ...size } };
+    this.opening = opening;
+    let started: Session | undefined;
     try {
       const pty = await create();
-      if (this.disposed || this.opening !== id) {
+      if (this.disposed || this.opening !== opening) {
         pty.kill();
         return;
       }
@@ -38,10 +42,12 @@ export class TerminalSession {
         queued: 0,
         inFlight: 0,
         paused: false,
+        size: { ...opening.size },
         timer: undefined,
       };
+      started = session;
       this.session = session;
-      pty.resize(size.cols, size.rows);
+      pty.resize(session.size.cols, session.size.rows);
       session.listeners.push(pty.onData((data) => this.output(session, data)));
       session.listeners.push(
         pty.onExit(({ exitCode }) => {
@@ -52,10 +58,10 @@ export class TerminalSession {
         }),
       );
     } catch (error) {
-      if (this.session?.id === id) this.release(this.session, true);
+      if (started && this.session === started) this.release(started, true);
       throw error;
     } finally {
-      if (this.opening === id) this.opening = undefined;
+      if (this.opening === opening) this.opening = undefined;
     }
   }
   private output(session: Session, data: string): void {
@@ -90,7 +96,17 @@ export class TerminalSession {
       );
   }
   resize(id: string, size: TerminalSize): void {
-    if (this.session?.id === id) this.session.pty.resize(size.cols, size.rows);
+    if (!validTerminalSize(size)) throw new Error('Invalid terminal size.');
+    if (this.opening?.id === id) this.opening.size = { ...size };
+    const session = this.session;
+    if (
+      !session ||
+      session.id !== id ||
+      (session.size.cols === size.cols && session.size.rows === size.rows)
+    )
+      return;
+    session.pty.resize(size.cols, size.rows);
+    session.size = { ...size };
   }
   ack(id: string, count: number): void {
     const session = this.session;
@@ -103,7 +119,7 @@ export class TerminalSession {
     }
   }
   close(id: string): void {
-    if (this.opening === id) this.opening = undefined;
+    if (this.opening?.id === id) this.opening = undefined;
     if (this.session?.id === id) this.release(this.session, true);
   }
   private release(session: Session, kill: boolean): void {
