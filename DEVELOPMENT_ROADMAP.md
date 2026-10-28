@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F10 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F11 — Tabs; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F10 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, Unicode/text/binary terminal input/output, and synchronized resizing; desktop verification pending |
+| Active feature | F11 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F12 — Clipboard; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F11 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, one local PTY terminal, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, and independent terminal tabs; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -87,7 +87,7 @@ Dependencies: Phase 0.
 - [x] **F08 — Platform defaults:** Valid Unix login-shell preference, Bash-first Linux and Zsh-first macOS fallback; PowerShell 7/Windows PowerShell before cmd on Windows. Override availability is validated before save and at launch; specific missing/invalid-shell failures are shown without exposing raw exceptions. Static/build checks passed; tests written, not executed; platform runtime checks pending.
 - [x] **F09 — Input and output:** Unicode 11 width handling, surrogate-safe bounded text input, validated binary terminal input, raw VT/control output streaming, terminal-friendly native accelerators, and composition/AltGr-safe navigation. Build/static checks pass; tests written and deferred; interactive/IME/platform verification pending.
 - [x] **F10 — Resizing:** One renderer sizing controller measures, clamps, and applies the same grid to xterm and the PTY. Frame-coalesced layout/font/scale updates, hidden-workspace handling, startup resize retention and duplicate suppression are implemented. Static/build checks pass; tests written and deferred; native/visual verification pending.
-- [ ] **F11 — Tabs:** Create, rename, reorder, switch, and close.
+- [x] **F11 — Tabs:** Independent PTYs and mounted terminal panes with create, rename, drag/button/keyboard reorder, switch, status and close actions. Running/starting tab closure names the tab in a confirmation. UI and backend enforce 16 terminals. Build/static checks pass; tests written, deferred; runtime/visual verification pending.
 - [ ] **F12 — Clipboard:** Selection, copy/paste, shortcuts, and multiline-paste handling.
 - [ ] **F13 — Search and scrollback:** Searchable output and bounded history.
 - [ ] **F14 — Appearance:** Themes, fonts, cursor, zoom, and per-session settings.
@@ -263,6 +263,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | F10 | Implementation complete | `apps/desktop/src/renderer/src/features/workspace/terminal-sizing.ts`, `apps/desktop/src/main/terminal/session.ts` | Type/lint/format/build/diff pass; sizing, startup-race and PTY/DSR E2E checks written, not run | Native display/full-screen/platform verification pending; F11 next |
 
+| F11 | Implementation complete | `apps/desktop/src/main/terminal/registry.ts`, `apps/desktop/src/renderer/src/features/workspace/` | Type/lint/format/build/diff pass; registry/tab/E2E regressions written, not run | Visual, native focus/drag and multi-process verification pending; F12 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -407,3 +409,29 @@ xterm's cursor-position report after window resizing and hidden-workspace restor
 Tests are written and type-checked but deferred until Phase 1 completion. Visual,
 DPI/zoom, full-screen applications and Windows/macOS runtime checks remain pending.
 Phase 0's sandbox blocker remains recorded. Next: F11; commit without pushing.
+
+### F11 implementation update
+
+Added a window-owned terminal registry around the existing single-session manager.
+Each opaque session ID owns its own PTY, buffer, acknowledgements, dimensions and
+cleanup; duplicate IDs cannot replace a live process. Closing/resetting/disposing
+releases only the intended entries, including late-created processes after tab
+cancellation. Exit/error events release backend slots. Both renderer and backend
+are bounded to 16 tabs/sessions.
+
+Workspace now creates local-shell tabs, keeps panes mounted across tab/view changes,
+renames labels without restarting processes, reorders by drag/buttons/keyboard,
+and switches via roving tabs. Arrow/Home/End navigate, F2 renames, Delete requests
+close, and Alt+Shift+Left/Right reorder. Native modal dialogs confirm the named
+running/starting tab and trap focus; app navigation cannot bypass an open dialog.
+Closing an active tab selects a neighbor. Exited/error tabs retain output until
+closed or explicitly restarted. Names/order are in memory; app reload still ends
+sessions and does not restore them. No saved-workspace persistence is claimed.
+
+Type/lint/format/build/diff checks pass. Tests cover reducer actions and boundaries,
+backend isolation/limits/cleanup, tab creation/output isolation, rename/reorder,
+keyboard focus and close confirmation. Existing close-session regression was
+updated for confirmation. Test code is written and type-checked but not executed
+until Phase 1 completion. Native multi-process, focus, drag, visual and platform
+checks remain pending, alongside Phase 0's sandbox verification. Next: F12;
+commit without pushing.

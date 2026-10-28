@@ -1,4 +1,6 @@
 export const failureMessages = {
+  'terminal-limit':
+    'The maximum of 16 local terminals is open. Close an existing terminal tab before creating another.',
   'shell-invalid':
     'The selected default shell is unavailable. In Settings, enter an absolute path to an existing executable without arguments or surrounding quotes, or clear the field to use the platform default. On Windows, use an .exe or .com file.',
   'shell-missing':

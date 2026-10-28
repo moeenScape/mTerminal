@@ -16,7 +16,7 @@ export function App() {
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [preferencesError, setPreferencesError] = useState('');
-  const [terminalRunning, setTerminalRunning] = useState(false);
+  const [terminalCount, setTerminalCount] = useState(0);
   const [hostQuery, setHostQuery] = useState('');
 
   useEffect(() => {
@@ -58,6 +58,7 @@ export function App() {
     document.documentElement.dataset.appearance = preferences.appearance;
     if (!preferences.navigationShortcuts) return;
     function navigate(event: KeyboardEvent) {
+      if (document.querySelector('dialog[open]')) return;
       if (!isWorkspaceShortcut(event)) return;
       const view = viewItems[Number(event.key) - 1];
       if (view) {
@@ -128,7 +129,7 @@ export function App() {
             navigationShortcuts={preferences.navigationShortcuts}
             active={activeView === 'workspace'}
             appearance={preferences.appearance}
-            onRunningChange={setTerminalRunning}
+            onCountChange={setTerminalCount}
           />
           {activeView === 'settings' && (
             <SettingsView
@@ -152,7 +153,9 @@ export function App() {
                 : 'Starting application…'}
           </span>
           <div className="status-details">
-            <span>{terminalRunning ? '1 session' : '0 sessions'}</span>
+            <span>
+              {terminalCount} {terminalCount === 1 ? 'session' : 'sessions'}
+            </span>
             {state.status === 'ready' && (
               <span className="version">
                 {state.info.platform} <span aria-hidden="true">·</span> v{state.info.version}

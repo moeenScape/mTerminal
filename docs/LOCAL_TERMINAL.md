@@ -1,4 +1,4 @@
-# Local terminal: F07–F10
+# Local terminal: F07–F11
 
 ## Run and use
 
@@ -13,7 +13,7 @@ Open Workspace and click **Start local shell**. Type commands normally. The shel
 starts in your home directory and inherits the application's environment except
 internal Electron/test variables and `NODE_OPTIONS`. It runs with your user
 permissions. Switching Hosts/Workspace/Settings preserves the session and output.
-Closing the session, reloading the window, or destroying the window stops the PTY.
+Closing a tab stops its PTY; reloading or destroying the window stops all owned PTYs.
 Closing a session can interrupt foreground work; it never replays commands.
 
 ## Platform defaults (F08)
@@ -48,7 +48,7 @@ a damaged executable or unsupported binary can still fail when spawned.
 ## Process and data boundaries
 
 - Main process: executable checks, PTY ownership, input, resize, output batching,
-  backpressure, exit and disposal. One session is allowed per application window.
+  backpressure, exit and disposal. Up to 16 independent sessions are allowed per application window.
 - Preload: fixed typed terminal operations and a disposable event subscription.
   Main-frame identity, session IDs, payload lengths and grid sizes are validated.
 - Renderer: xterm.js and FitAddon; output bypasses React state. The terminal stays
@@ -191,4 +191,56 @@ cancelled opening identity. A Unix Bash/stty fixture compares actual PTY size to
 xterm's cursor-position report after large/small/hidden-view transitions. These
 checks are written and type-checked but not run until Phase 1 completion. Windows
 ConPTY, native display scaling/zoom, font rendering, Vim/tmux and full-screen
-compatibility remain unverified. F11 tabs are next.
+compatibility remain unverified. F11 now provides tabs; its runtime verification is also pending.
+
+## Terminal tabs (F11)
+
+Workspace starts empty. **Start local shell** or **New terminal** creates a tab;
+the selected new tab starts its shell when its pane is visible and measurable.
+If creation is switched away from before startup begins, selecting that tab starts
+it. Use a tab label to switch. Inactive panes stay mounted and continue parsing
+and acknowledging output, preserving scrollback without routing it through React.
+A newly completed background startup does not steal focus from another tab or a
+dialog. The footer reports running sessions, not a fixed count.
+
+Tabs display their name and Ready/Starting/Running/Exited/Error status. Double-click
+or **Rename** opens a dialog; names must be nonblank and at most 64 UTF-16 units,
+with no control characters. Renaming changes only the label. Drag to another tab
+or use **Move left/right** to reorder without remounting its terminal or PTY.
+
+Keyboard controls in the terminal tab strip:
+
+| Key | Action |
+| --- | --- |
+| Left/Right, Home/End | Select a tab and keep keyboard focus in the strip |
+| F2 | Rename the focused tab |
+| Delete | Close the focused tab |
+| Alt+Shift+Left/Right | Move the focused tab one position |
+
+The close button or **Close session** removes the tab. A running or starting tab
+first opens a modal confirmation naming it and warning about interrupted work and
+discarded output. Cancel/Escape preserves it. Closing an exited/error/idle tab is
+immediate. Closing the selected tab chooses the next available neighbor; closing
+another tab preserves selection. Exit/error output remains visible until the tab
+is closed, or **Start local shell** explicitly starts a fresh session in that tab.
+
+Names, ordering and scrollback are in memory only. There is no session restoration
+or command replay. Window close/reload ends all sessions; broader quit/process-tree
+behavior still needs F15. Tabs and backend PTYs both have a fixed limit of 16;
+close existing tabs to create more. Existing per-session buffer/scrollback/grid
+limits remain in force. Concurrency performance still needs F16 measurements.
+
+The main process owns a separate single-session manager per session ID. Input,
+resize and acknowledgements route only to that ID after the existing main-frame
+checks. Duplicate IDs cannot overwrite an active entry. Natural exit frees a
+backend slot. Close/reset/dispose release PTYs, listeners and pending creations;
+a late process from a cancelled opening is killed rather than attached elsewhere.
+No tab name, command or output is added to diagnostic logs or SQLite.
+
+Tests cover tab actions, invalid names/moves/IDs, neighbor selection and limits;
+backend input/resize/close isolation, duplicate rejection, slot release and late
+cancellation; and desktop creation, output separation, rename, reorder, keyboard
+navigation, dialog behavior and close confirmation. They are written/type-checked
+but not run until Phase 1 completion. Pointer drag behavior, native focus,
+concurrent interactive sessions, visual layout and Windows/macOS remain unverified.
+F12 clipboard handling is next.

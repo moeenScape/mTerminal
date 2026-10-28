@@ -22,6 +22,8 @@
     "src/main/terminal/shells.ts",
     "src/main/menus.ts",
     "src/renderer/src/components/keyboard.ts",
-    "src/renderer/src/features/workspace/terminal-sizing.ts"
+    "src/renderer/src/features/workspace/terminal-sizing.ts",
+    "src/main/terminal/registry.ts",
+    "src/renderer/src/features/workspace/tabs.ts"
   ]
 }

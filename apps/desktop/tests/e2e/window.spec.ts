@@ -232,7 +232,11 @@ test('starts a real local shell, preserves it across views, and closes the sessi
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
   await page.getByRole('button', { name: 'Close session' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Session closed' })).toBeVisible();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'No terminal tabs' })).toBeVisible();
 });
 
 test('rejects an unavailable shell override while preserving saved preferences', async () => {
@@ -335,4 +339,82 @@ test('keeps the PTY grid equal to xterm after resizing and restoring a hidden wo
   await page.setViewportSize({ width: 1000, height: 700 });
   await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
   await checkSize('RESTORED');
+});
+
+test('creates independent tabs, renames, reorders, switches, and confirms closing', async () => {
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type('echo TAB_ONE_ONLY');
+  await page.keyboard.press('Enter');
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).toContainText('TAB_ONE_ONLY');
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Terminal 2', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).not.toContainText('TAB_ONE_ONLY');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Terminal name').fill('Build shell');
+  await page.keyboard.press('Control+Alt+1');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Workspace', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Save name' }).click();
+  await page.getByRole('button', { name: 'Move left', exact: true }).click();
+  const tabs = page.getByRole('tablist', { name: 'Terminal sessions' });
+  await expect(tabs.getByRole('tab').nth(0)).toHaveAttribute('aria-label', 'Build shell');
+  await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-label', 'Terminal 1');
+  await tabs.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
+  await expect(
+    page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
+  ).toContainText('TAB_ONE_ONLY');
+  await page.getByRole('button', { name: 'Close Terminal 1', exact: true }).click();
+  const confirmation = page.getByRole('dialog');
+  await expect(confirmation).toContainText('Close “Terminal 1”?');
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(tabs.getByRole('tab')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Close Terminal 1', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await expect(tabs.getByRole('tab')).toHaveCount(1);
+  await expect(tabs.getByRole('tab', { name: 'Build shell' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+test('supports terminal tab keyboard navigation, rename, and reorder', async () => {
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const tabs = page.getByRole('tablist', { name: 'Terminal sessions' });
+  const two = tabs.getByRole('tab', { name: 'Terminal 2', exact: true });
+  await two.focus();
+  await two.press('ArrowLeft');
+  const one = tabs.getByRole('tab', { name: 'Terminal 1', exact: true });
+  await expect(one).toBeFocused();
+  await one.press('F2');
+  await page.getByRole('dialog').getByLabel('Terminal name').fill('Keyboard shell');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save name' }).click();
+  const renamed = tabs.getByRole('tab', { name: 'Keyboard shell', exact: true });
+  await expect(renamed).toBeFocused();
+  await renamed.press('Alt+Shift+ArrowRight');
+  await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-label', 'Keyboard shell');
+  const workspaceView = page.getByRole('tab', { name: 'Workspace', exact: true });
+  await workspaceView.focus();
+  await workspaceView.press('ArrowLeft');
+  const hostsView = page.getByRole('tab', { name: 'Hosts', exact: true });
+  await expect(hostsView).toBeFocused();
+  await hostsView.press('ArrowRight');
+  await expect(workspaceView).toBeFocused();
 });

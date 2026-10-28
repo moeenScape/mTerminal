@@ -12,7 +12,7 @@ import {
 import { validateAppInfoRequest } from '../security.js';
 import type { DiagnosticLog } from '../diagnostics.js';
 import { chooseShell, discoverShells } from './shells.js';
-import { TerminalSession } from './session.js';
+import { TerminalRegistry } from './registry.js';
 
 export function attachTerminal(
   window: BrowserWindow,
@@ -20,7 +20,7 @@ export function attachTerminal(
   shellOverride: () => string,
   diagnostics: DiagnosticLog,
 ): void {
-  const terminal = new TerminalSession((event) => {
+  const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
     if (!window.webContents.isDestroyed()) window.webContents.send(channels.event, event);
   });

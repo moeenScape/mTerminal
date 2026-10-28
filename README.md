@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F10 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F11 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace supports up to 16 independent local terminal tabs with create, rename, reorder, switch and close actions. Sessions remain running across tab/view changes. Running-tab closure requires confirmation. Saved-host management and persisted workspace restoration are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -146,7 +146,7 @@ Startup and storage failures show fixed recovery instructions and an event code.
 ## Local terminal (F07)
 
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
-local shell**. Input goes to the real shell; output is rendered by xterm.js. Use
+local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use
 **Close session** to stop it. Changing views preserves the running terminal;
 reloading the app or closing the window ends it. Settings' default shell override
 must be an existing absolute executable path without arguments or surrounding quotes and applies to new sessions. Invalid overrides are rejected before saving and checked again at launch. Leaving the field blank uses a valid Unix `$SHELL`, then Bash on Linux or Zsh on macOS; Windows prefers PowerShell before cmd.
@@ -176,3 +176,11 @@ resizing. Hidden workspaces retain their size and catch up when shown; resizes
 received during shell startup are retained. Notifications are coalesced, and
 font/scale changes request a fresh fit. Tests are written and type-checked but
 remain deferred to the Phase 1 gate; native visual/DPI checks are still pending.
+
+F11 adds independent terminal tabs. Use New terminal, double-click or Rename to
+change a label, and drag tabs or use Move left/right to reorder. Arrow/Home/End
+navigate the focused tab strip; F2 renames, Delete closes, and Alt+Shift+Arrow moves
+a tab. Closing a running/starting tab asks for confirmation naming that tab.
+Labels, order and scrollback remain in memory and are discarded on reload.
+The feature tests are written/type-checked but deferred; native/visual/platform
+verification remains pending.

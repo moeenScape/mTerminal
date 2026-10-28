@@ -615,3 +615,145 @@ h2 {
 .terminal-container .xterm {
   height: 100%;
 }
+
+.terminal-panels {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.terminal-pane .terminal-status {
+  padding: 0;
+}
+.terminal-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  flex: 1;
+  padding: 24px;
+  color: var(--muted);
+}
+.terminal-empty h2,
+.terminal-empty p {
+  margin: 0;
+}
+.terminal-tabs {
+  display: flex;
+  flex-shrink: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar);
+}
+.terminal-tab-item {
+  display: flex;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+}
+.terminal-tab-item > [role='tab'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+  max-width: 240px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.terminal-tab-item > [aria-selected='true'] {
+  background: var(--surface);
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+.terminal-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-tab-phase {
+  font-size: 10px;
+  color: var(--muted);
+}
+.terminal-tab-close {
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.terminal-tab-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.terminal-tab-actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.terminal-tab-actions button:hover,
+.terminal-tab-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.local-workspace button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.terminal-dialog {
+  width: min(440px, calc(100vw - 48px));
+  max-height: 80vh;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.terminal-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.terminal-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.terminal-dialog p {
+  line-height: 1.6;
+}
+.terminal-dialog label {
+  display: grid;
+  gap: 8px;
+}
+.terminal-dialog input {
+  width: 100%;
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px;
+  font: inherit;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.dialog-actions button {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--text);
+}
