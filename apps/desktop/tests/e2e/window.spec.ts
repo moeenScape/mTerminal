@@ -62,6 +62,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'openSshTerminal',
       'listHostGroups',
       'saveHostGroup',
       'deleteHostGroup',
@@ -720,4 +721,23 @@ test('organizes hosts with nested groups, tags and inherited defaults', async ()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete group', exact: true }).click();
   await expect(page.getByText('Ungrouped · prod')).toBeVisible();
   await expect(page.getByText('ops@prod.example.com:2222 · SSH')).toBeVisible();
+});
+
+test('opens an SSH credential prompt and cancels without starting a session', async () => {
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'SSH target',
+      address: '127.0.0.1',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to SSH target', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
+  await expect(dialog.getByLabel('Session password')).toHaveAttribute('type', 'password');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'No active session' })).toBeVisible();
 });

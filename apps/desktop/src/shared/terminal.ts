@@ -5,6 +5,7 @@ export const MAX_TERMINAL_TABS = 16;
 export const terminalChannels = {
   shells: 'terminal:shells',
   open: 'terminal:open',
+  ssh: 'terminal:ssh',
   write: 'terminal:write',
   resize: 'terminal:resize',
   ack: 'terminal:ack',
@@ -26,6 +27,12 @@ export interface TerminalSize {
   rows: number;
 }
 export interface TerminalApi {
+  openSshTerminal: (
+    id: string,
+    size: TerminalSize,
+    hostId: string,
+    credentials: import('./ssh.js').SshCredentials,
+  ) => Promise<void>;
   getShells: () => Promise<ShellInfo[]>;
   openTerminal: (id: string, size: TerminalSize) => Promise<void>;
   writeTerminal: (id: string, input: TerminalInput) => void;

@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F18 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F19 — SSH sessions; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F18 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults and tags; desktop verification pending |
+| Active feature | F19 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F20 — Authentication methods; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F19 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags and SSH terminal sessions; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -102,7 +102,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 
 - [x] **F17 — Saved hosts (implementation):** Create/edit/delete SSH profiles with names, addresses, ports and usernames; searchable host list, confirmation before deletion, schema v2 persistence and validated IPC. Tests written and deferred to the Phase 2 gate; visual/runtime verification pending.
 - [x] **F18 — Groups and tags (implementation):** Nested groups with port/username defaults, field-level inheritance and host overrides, normalized tags, descendant-aware group and exact tag filtering, and search across profile, effective username, group and tags. Tests written; Phase 2 execution and runtime verification pending.
-- [ ] **F19 — SSH sessions:** Connect remote shell channels to the terminal.
+- [x] **F19 — SSH sessions (implementation):** Saved-host Connect opens a remote PTY through ssh2 with session-only password and explicitly pinned SHA256 fingerprint, input/output, resizing, backpressure, cancellation and cleanup. Tests written; execution deferred to Phase 2 gate.
 - [ ] **F20 — Authentication:** Passwords, private keys, passphrases, and keyboard-interactive prompts.
 - [ ] **F21 — Known hosts:** Trusted fingerprints, unknown-key confirmation, and changed-key handling.
 - [ ] **F22 — Connection state:** Connecting, authenticating, connected, disconnected, and failed.
@@ -575,3 +575,29 @@ paths and payloads, reopen persistence, subtree deletion safety and desktop grou
 creation/filtering/confirmation. Test execution remains deferred to the Phase 2
 gate. Desktop visual and platform verification remain pending under the recorded
 sandbox blocker. Next: F19.
+
+
+### F19 implementation update
+
+Saved hosts now open SSH tabs through ssh2 1.17.0. The main process resolves the
+saved address and inherited port, validates the session credentials and verifies
+the exact SHA256 host key before authentication. The credential modal pre-fills
+the effective username; passwords/fingerprints are not saved or logged and are
+requested again on each explicit connection. This minimum password/pin flow
+makes F19 usable; additional authentication methods remain F20 and managed
+known-host trust/changed-key handling remain F21.
+
+The existing owned-session registry now accepts a narrow transport shared by
+local PTYs and SSH channels. SSH requests an xterm-256color PTY, decodes UTF-8
+stdout/stderr, forwards raw input, propagates window sizes, participates in the
+existing output batching/acknowledgements/backpressure, and closes on cancellation,
+tab/window close, renderer loss or setup failure. A 15-second handshake and
+20-second overall setup timeout bound stalled starts. Disconnection ends the
+session; no command replay or automatic reconnect is performed.
+
+Build, type, lint, format and diff checks pass. A disposable loopback ssh2 server
+fixture covers Unicode IO, PTY resizing, clean exit, authentication rejection,
+host-key mismatch before authentication and cancelled startup. A desktop test
+covers opening/cancelling the prompt. Tests are written/type-checked but deferred
+to the Phase 2 gate. No live SSH, visual or cross-platform verification is claimed;
+the desktop sandbox blocker remains. Next: F20.

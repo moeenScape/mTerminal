@@ -197,3 +197,11 @@ but deferred to the Phase 1 gate; native clipboard/keyboard behavior is unverifi
 F13 adds per-tab literal search with match-case and previous/next navigation. Use Search or Ctrl+Shift+F (Command+F on macOS); Enter and Shift+Enter navigate matches, Escape closes search, and Bottom returns to live output. Scrollback retains up to 3,000 lines. Tests are deferred until the Phase 1 gate.
 
 F14 adds per-tab terminal appearance controls for theme, font, size, zoom, cursor shape and blink. Open **Terminal appearance** in a tab; settings last for the current app session. Tests and native visual verification remain pending.
+
+## SSH sessions
+
+Save an SSH profile in Hosts, then choose Connect. Supply a username, a session-only
+password and the server's SHA256 host fingerprint obtained through a trusted
+channel. Matching fingerprints are required on every connection; credentials and
+key trust are not saved. See [SSH session setup](docs/SSH_SESSIONS.md) for details
+and current limitations. Group port/username defaults apply to new connections.

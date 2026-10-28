@@ -1,3 +1,7 @@
+import { openSsh } from './ssh.js';
+import { validateSshCredentials } from '../../shared/ssh.js';
+import { validHostId, resolveHost } from '../../shared/hosts.js';
+import type { LocalDatabase } from '../storage/database.js';
 import { validTerminalInput } from '../../shared/terminal-input.js';
 import { failureCode } from '../failures.js';
 import { homedir } from 'node:os';
@@ -19,6 +23,7 @@ export function attachTerminal(
   rendererUrl: string,
   shellOverride: () => string,
   diagnostics: DiagnosticLog,
+  database: LocalDatabase,
 ): TerminalRegistry {
   const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
@@ -61,6 +66,29 @@ export function attachTerminal(
       return { ok: true };
     } catch (error) {
       const code = failureCode(error, 'terminal-failed');
+      diagnostics.record('terminal-open-failed', code);
+      return { ok: false, code };
+    }
+  });
+  ipcMain.handle(channels.ssh, async (event, ...args: unknown[]): Promise<TerminalOpenResult> => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+    try {
+      const [id, size, hostId, value] = args;
+      if (
+        args.length !== 4 ||
+        !validTerminalId(id) ||
+        !validTerminalSize(size) ||
+        !validHostId(hostId)
+      )
+        throw new Error('Invalid request.');
+      const credentials = validateSshCredentials(value);
+      const host = database.listHosts().find((item) => item.id === hostId);
+      if (!host) throw new Error('Host missing.');
+      const effective = resolveHost(host, database.listHostGroups());
+      await terminal.open(id, size, (signal) => openSsh(effective, credentials, size, signal));
+      return { ok: true };
+    } catch (error) {
+      const code = failureCode(error, 'ssh-failed');
       diagnostics.record('terminal-open-failed', code);
       return { ok: false, code };
     }
@@ -108,6 +136,7 @@ export function attachTerminal(
   window.once('closed', () => {
     terminal.dispose();
     ipcMain.removeHandler(channels.open);
+    ipcMain.removeHandler(channels.ssh);
     ipcMain.removeHandler(channels.shells);
     for (const channel of operations) ipcMain.removeAllListeners(channel);
   });

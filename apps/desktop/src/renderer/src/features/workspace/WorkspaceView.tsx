@@ -82,7 +82,9 @@ export function WorkspaceView({
   appearance,
   navigationShortcuts,
   onCountChange,
+  sshRequest,
 }: {
+  sshRequest: { id: string; hostId: string; title: string } | null;
   active: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
@@ -101,6 +103,26 @@ export function WorkspaceView({
     (id: string, phase: TabPhase) => dispatch({ type: 'phase', id, phase }),
     [],
   );
+  const handledSsh = useRef<string | null>(null);
+  const [limitError, setLimitError] = useState('');
+  useEffect(() => {
+    if (!sshRequest || handledSsh.current === sshRequest.id) return;
+    const frame = requestAnimationFrame(() => {
+      handledSsh.current = sshRequest.id;
+      if (state.tabs.length >= MAX_TERMINAL_TABS) {
+        setLimitError('Close a terminal tab before connecting another host.');
+        return;
+      }
+      setLimitError('');
+      dispatch({
+        type: 'add',
+        id: sshRequest.id,
+        title: sshRequest.title,
+        hostId: sshRequest.hostId,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [sshRequest, state.tabs.length]);
   useEffect(() => onCountChange(running), [running, onCountChange]);
   useEffect(
     () => () => {
@@ -181,6 +203,7 @@ export function WorkspaceView({
   }
   return (
     <div className="local-workspace" ref={workspace} hidden={!active}>
+      {limitError && <p role="alert">{limitError}</p>}
       <header className="terminal-toolbar">
         <div>
           <h1>Workspace</h1>
@@ -308,6 +331,7 @@ export function WorkspaceView({
                 key={tab.id}
                 id={tab.id}
                 title={tab.title}
+                hostId={tab.hostId}
                 active={active && state.activeId === tab.id}
                 appearance={appearance}
                 navigationShortcuts={navigationShortcuts}

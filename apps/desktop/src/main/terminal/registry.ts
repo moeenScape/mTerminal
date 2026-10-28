@@ -1,4 +1,4 @@
-import type { IPty } from 'node-pty';
+import type { TerminalTransport } from './transport.js';
 import { MAX_TERMINAL_TABS, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
 import type { TerminalInput } from '../../shared/terminal-input.js';
 import { AppFailure } from '../failures.js';
@@ -18,7 +18,7 @@ export class TerminalRegistry {
   async open(
     id: string,
     size: TerminalSize,
-    create: (signal: AbortSignal) => Promise<IPty>,
+    create: (signal: AbortSignal) => Promise<TerminalTransport>,
   ): Promise<void> {
     if (this.disposed || this.suspended || this.sessions.has(id))
       throw new Error('Duplicate or disposed terminal.');

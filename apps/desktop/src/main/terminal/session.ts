@@ -1,5 +1,6 @@
 import type { TerminalInput } from '../../shared/terminal-input.js';
-import type { IPty, IDisposable } from 'node-pty';
+import type { IDisposable } from 'node-pty';
+import type { TerminalTransport } from './transport.js';
 import { validTerminalSize, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
 
 export const HIGH_WATER = 256 * 1024;
@@ -7,9 +8,9 @@ export const OUTPUT_BATCH = 64 * 1024;
 const LOW_WATER = 64 * 1024;
 const MAX_BUFFER = 1024 * 1024;
 
-function closePty(pty: IPty): void {
+function closePty(pty: TerminalTransport): void {
   // shortcut: node-pty 1.1 exposes destroy at runtime but omits it from public typings; review on upgrade.
-  const destroy = (pty as IPty & { destroy?: () => void }).destroy;
+  const destroy = (pty as TerminalTransport & { destroy?: () => void }).destroy;
   if (typeof destroy === 'function') {
     try {
       destroy.call(pty);
@@ -27,7 +28,7 @@ function closePty(pty: IPty): void {
 
 interface Session {
   id: string;
-  pty: IPty;
+  pty: TerminalTransport;
   listeners: IDisposable[];
   queue: string[];
   queued: number;
@@ -44,7 +45,7 @@ export class TerminalSession {
   async open(
     id: string,
     size: TerminalSize,
-    create: (signal: AbortSignal) => Promise<IPty>,
+    create: (signal: AbortSignal) => Promise<TerminalTransport>,
   ): Promise<void> {
     if (this.disposed || this.session || this.opening)
       throw new Error('A terminal is already open.');

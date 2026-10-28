@@ -18,6 +18,11 @@ export function App() {
   const [preferencesError, setPreferencesError] = useState('');
   const [terminalCount, setTerminalCount] = useState(0);
   const [hostQuery, setHostQuery] = useState('');
+  const [sshRequest, setSshRequest] = useState<{
+    id: string;
+    hostId: string;
+    title: string;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -123,9 +128,18 @@ export function App() {
               query={hostQuery}
               onQueryChange={setHostQuery}
               onOpenWorkspace={() => setActiveView('workspace')}
+              onConnect={(host) => {
+                setSshRequest({
+                  id: crypto.randomUUID(),
+                  hostId: host.id,
+                  title: host.name.slice(0, 64),
+                });
+                setActiveView('workspace');
+              }}
             />
           )}
           <WorkspaceView
+            sshRequest={sshRequest}
             navigationShortcuts={preferences.navigationShortcuts}
             active={activeView === 'workspace'}
             appearance={preferences.appearance}

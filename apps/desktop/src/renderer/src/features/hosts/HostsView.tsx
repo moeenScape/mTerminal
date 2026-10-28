@@ -13,9 +13,10 @@ interface HostsViewProps {
   query: string;
   onQueryChange: (query: string) => void;
   onOpenWorkspace: () => void;
+  onConnect: (host: SavedHost) => void;
 }
 
-export function HostsView({ query, onQueryChange, onOpenWorkspace }: HostsViewProps) {
+export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: HostsViewProps) {
   const [hosts, setHosts] = useState<SavedHost[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
   const [groupFilter, setGroupFilter] = useState('');
@@ -205,6 +206,9 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace }: HostsViewPr
                     {host.tags?.length ? ` · ${host.tags.join(' · ')}` : ''}
                   </span>
                 </div>
+                <button onClick={() => onConnect(host)} aria-label={`Connect to ${host.name}`}>
+                  Connect
+                </button>
                 <button onClick={() => setEditor({ host })} aria-label={`Edit ${host.name}`}>
                   Edit
                 </button>

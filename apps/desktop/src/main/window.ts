@@ -94,6 +94,7 @@ export async function createMainWindow(
     rendererUrl,
     () => store.preferences.defaultShell,
     diagnostics,
+    database,
   );
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');

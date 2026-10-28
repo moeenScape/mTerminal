@@ -1,3 +1,5 @@
+import { SshPrompt } from './SshPrompt';
+import type { SshCredentials } from '../../../../shared/ssh';
 import {
   defaultTerminalAppearance,
   terminalOptions,
@@ -30,6 +32,7 @@ import { failureMessages } from '../../../../shared/failures';
 export function TerminalPane({
   id,
   title,
+  hostId,
   onRequestClose,
   active,
   appearance,
@@ -38,6 +41,7 @@ export function TerminalPane({
 }: {
   id: string;
   title: string;
+  hostId: string | undefined;
   onRequestClose: (id: string) => void;
   active: boolean;
   appearance: 'dark' | 'light';
@@ -72,6 +76,7 @@ export function TerminalPane({
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState('No active session');
+  const [sshPrompt, setSshPrompt] = useState(false);
   const [shells, setShells] = useState<string[]>([]);
   const { attach: attachClipboard, ...clipboard } = useTerminalClipboard(
     terminal,
@@ -228,57 +233,67 @@ export function TerminalPane({
     if (container.current?.clientWidth) terminal.current?.focus();
   }
 
-  const start = useCallback(async () => {
-    const term = terminal.current;
-    if (!term || session.current) return;
-    const size = sizing.current?.fitNow();
-    if (!size) {
-      setStatus(
-        'Terminal layout is not ready. Wait for fonts or resize the window, then try again.',
-      );
-      onPhaseChange(id, 'error');
-      return;
-    }
-    inputReady.current = false;
-    setSearchOpen(false);
-    setQuery('');
-    search.current?.close();
-    term.reset();
-    const sessionId = crypto.randomUUID();
-    session.current = sessionId;
-    setStarting(true);
-    onPhaseChange(id, 'starting');
-    setStatus('Starting local shell…');
-    try {
-      await window.mterminal.openTerminal(sessionId, size);
-      if (session.current !== sessionId) return;
-      sizing.current?.fitNow(true);
-      inputReady.current = true;
-      setRunning(true);
-      setStarting(false);
-      onPhaseChange(id, 'running');
-      setStatus('Local shell running');
-      const panel = document.getElementById(`terminal-panel-${id}`);
-      if (
-        panel?.clientWidth &&
-        panel.contains(document.activeElement) &&
-        !document.activeElement?.closest('[role="search"], dialog')
-      )
-        term.focus();
-    } catch (error) {
-      if (session.current !== sessionId) return;
+  const start = useCallback(
+    async (credentials?: SshCredentials) => {
+      const term = terminal.current;
+      if (!term || session.current) return;
+      if (hostId && !credentials) {
+        setSshPrompt(true);
+        return;
+      }
+      setSshPrompt(false);
+      const size = sizing.current?.fitNow();
+      if (!size) {
+        setStatus(
+          'Terminal layout is not ready. Wait for fonts or resize the window, then try again.',
+        );
+        onPhaseChange(id, 'error');
+        return;
+      }
       inputReady.current = false;
-      session.current = null;
-      setStarting(false);
-      onPhaseChange(id, 'error');
-      const message =
-        error instanceof Error &&
-        Object.values(failureMessages).some((value) => value === error.message)
-          ? error.message
-          : failureMessages['terminal-failed'];
-      setStatus(message);
-    }
-  }, [id, onPhaseChange]);
+      setSearchOpen(false);
+      setQuery('');
+      search.current?.close();
+      term.reset();
+      const sessionId = crypto.randomUUID();
+      session.current = sessionId;
+      setStarting(true);
+      onPhaseChange(id, 'starting');
+      setStatus(hostId ? 'Connecting SSH…' : 'Starting local shell…');
+      try {
+        if (hostId && credentials)
+          await window.mterminal.openSshTerminal(sessionId, size, hostId, credentials);
+        else await window.mterminal.openTerminal(sessionId, size);
+        if (session.current !== sessionId) return;
+        sizing.current?.fitNow(true);
+        inputReady.current = true;
+        setRunning(true);
+        setStarting(false);
+        onPhaseChange(id, 'running');
+        setStatus(hostId ? 'SSH connected' : 'Local shell running');
+        const panel = document.getElementById(`terminal-panel-${id}`);
+        if (
+          panel?.clientWidth &&
+          panel.contains(document.activeElement) &&
+          !document.activeElement?.closest('[role="search"], dialog')
+        )
+          term.focus();
+      } catch (error) {
+        if (session.current !== sessionId) return;
+        inputReady.current = false;
+        session.current = null;
+        setStarting(false);
+        onPhaseChange(id, 'error');
+        const message =
+          error instanceof Error &&
+          Object.values(failureMessages).some((value) => value === error.message)
+            ? error.message
+            : failureMessages['terminal-failed'];
+        setStatus(message);
+      }
+    },
+    [id, onPhaseChange, hostId],
+  );
   useEffect(() => {
     if (!active || autoStarted.current) return;
     const frame = requestAnimationFrame(() => {
@@ -296,6 +311,14 @@ export function TerminalPane({
       id={`terminal-panel-${id}`}
       aria-labelledby={`terminal-tab-${id}`}
     >
+      {sshPrompt && (
+        <SshPrompt
+          title={title}
+          hostId={hostId!}
+          onConnect={(credentials) => void start(credentials)}
+          onCancel={() => setSshPrompt(false)}
+        />
+      )}
       <header className="terminal-toolbar">
         <p className="terminal-status" role="status">
           {status}
@@ -338,7 +361,7 @@ export function TerminalPane({
           </button>
         ) : (
           <button type="button" className="secondary-button" onClick={() => void start()}>
-            Start local shell
+            {hostId ? 'Connect SSH' : 'Start local shell'}
           </button>
         )}
       </header>
@@ -509,7 +532,7 @@ export function TerminalPane({
         </p>
       )}
       {!running && !starting && (
-        <p className="shell-help">
+        <p className="shell-help" hidden={!!hostId}>
           Installed shells: {shells.join(', ') || 'None discovered'}. The saved default shell is
           used when configured. Closing a session stops its foreground work.
         </p>

@@ -4,13 +4,14 @@ export interface TerminalTab {
   id: string;
   title: string;
   phase: TabPhase;
+  hostId?: string;
 }
 export interface TabsState {
   tabs: TerminalTab[];
   activeId: string | null;
 }
 export type TabsAction =
-  | { type: 'add'; id: string; title: string }
+  | { type: 'add'; id: string; title: string; hostId?: string }
   | { type: 'select'; id: string }
   | { type: 'close'; id: string }
   | { type: 'rename'; id: string; title: string }
@@ -31,7 +32,18 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
   if (action.type === 'add') {
     const title = tabTitle(action.title);
     if (index >= 0 || !title || state.tabs.length >= MAX_TERMINAL_TABS) return state;
-    return { tabs: [...state.tabs, { id: action.id, title, phase: 'idle' }], activeId: action.id };
+    return {
+      tabs: [
+        ...state.tabs,
+        {
+          id: action.id,
+          title,
+          phase: 'idle',
+          ...(action.hostId ? { hostId: action.hostId } : {}),
+        },
+      ],
+      activeId: action.id,
+    };
   }
   if (index < 0) return state;
   if (action.type === 'select') return { ...state, activeId: action.id };

@@ -1,4 +1,8 @@
 export const failureMessages = {
+  'ssh-failed':
+    'SSH connection failed. Check the address, port, username, password and server availability, then retry.',
+  'ssh-key-mismatch':
+    'The server key does not match the supplied fingerprint. Connection refused. Verify the fingerprint through a trusted channel before retrying.',
   'clipboard-unavailable': 'Clipboard access failed. Focus mTerminal and try Copy or Paste again.',
   'clipboard-too-large':
     'Clipboard text exceeds the limit. Copy a smaller selection (up to 1 Mi characters) and try again.',
