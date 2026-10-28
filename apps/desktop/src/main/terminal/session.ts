@@ -3,6 +3,7 @@ import type { IPty, IDisposable } from 'node-pty';
 import { validTerminalSize, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
 
 export const HIGH_WATER = 256 * 1024;
+export const OUTPUT_BATCH = 64 * 1024;
 const LOW_WATER = 64 * 1024;
 const MAX_BUFFER = 1024 * 1024;
 
@@ -75,7 +76,7 @@ export class TerminalSession {
       session.listeners.push(
         pty.onExit(({ exitCode }) => {
           if (this.session !== session) return;
-          this.flush(session);
+          this.flush(session, true);
           this.release(session, false);
           this.send({ kind: 'exit', id, exitCode });
         }),
@@ -88,7 +89,7 @@ export class TerminalSession {
     }
   }
   private output(session: Session, data: string): void {
-    if (this.session !== session) return;
+    if (this.session !== session || !data.length) return;
     if (session.queued + session.inFlight + data.length > MAX_BUFFER) {
       this.release(session, true);
       this.send({ kind: 'error', id: session.id, code: 'terminal-overflow' });
@@ -102,15 +103,35 @@ export class TerminalSession {
       session.pty.pause();
     }
   }
-  private flush(session: Session): void {
+  private flush(session: Session, drain = false): void {
     if (session.timer) clearTimeout(session.timer);
     session.timer = undefined;
-    if (!session.queued) return;
-    const data = session.queue.join('');
-    session.queue = [];
-    session.queued = 0;
-    session.inFlight += data.length;
-    this.send({ kind: 'data', id: session.id, data });
+    if (this.session !== session) return;
+    do {
+      const chunks: string[] = [];
+      let remaining = OUTPUT_BATCH;
+      let consumed = 0;
+      while (remaining > 0 && consumed < session.queue.length) {
+        const head = session.queue[consumed]!;
+        let count = Math.min(remaining, head.length);
+        // Keep surrogate pairs together when a batch ends inside a string.
+        const last = head.charCodeAt(count - 1);
+        if (count < head.length && last >= 0xd800 && last <= 0xdbff) count--;
+        if (!count) break;
+        chunks.push(head.slice(0, count));
+        if (count === head.length) consumed++;
+        else session.queue[consumed] = head.slice(count);
+        remaining -= count;
+      }
+      if (consumed) session.queue = session.queue.slice(consumed);
+      const data = chunks.join('');
+      if (!data.length) break;
+      session.queued -= data.length;
+      session.inFlight += data.length;
+      this.send({ kind: 'data', id: session.id, data });
+    } while (drain && session.queued);
+    if (session.queued && this.session === session)
+      session.timer = setTimeout(() => this.flush(session), 16);
   }
   write(id: string, input: TerminalInput): void {
     if (this.session?.id === id)

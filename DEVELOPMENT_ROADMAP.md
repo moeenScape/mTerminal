@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F14 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
-| Next feature | F15 — Complete platform-specific orphan prevention; outstanding Phase 0 sandbox verification remains recorded |
-| Implementation status | F01–F14 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, and clipboard controls; desktop verification pending |
+| Active feature | F01–F16 implementation complete; Phase 1 verification blocked on desktop launch |
+| Next feature | Resolve desktop verification blocker, then F17 — Saved hosts |
+| Implementation status | F01–F16 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, and bounded output batching; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -91,8 +91,8 @@ Dependencies: Phase 0.
 - [x] **F12 — Clipboard:** xterm selection/copy/select-all controls, plain-text paste via toolbar and native copy/paste events, bounded validated clipboard IPC, newline/control-character preview and confirmation, session-bound paste cancellation, and OSC 52 blocking. Static/build checks pass; tests written, deferred; native clipboard/keyboard verification pending.
 - [x] **F13 — Search and scrollback:** Per-tab literal search with case option, match navigation, capped highlights and counts; 3,000-line scrollback and return-to-bottom control. Static/build checks pass; tests written and deferred; interactive verification pending.
 - [x] **F14 — Appearance:** Per-tab theme, font, size, zoom, cursor shape and blink controls with reset and synchronized resizing. Settings remain in memory for the app session. Static/build checks pass; tests and visual/platform verification pending.
-- [ ] **F15 — Session lifecycle:** Shell exit, process cleanup, and orphan prevention.
-- [ ] **F16 — Performance:** Batched rendering and backpressure under heavy output.
+- [x] **F15 — Session lifecycle (implementation):** Shell exit, startup cancellation, close confirmation, and best-effort PTY/process cleanup. Detached or signal-ignoring descendants can survive; cross-platform verification remains pending.
+- [x] **F16 — Performance (implementation):** Bounded 64 Ki UTF-16-unit batches scheduled every 16 ms, renderer acknowledgements, high/low-water backpressure, and a 1 Mi-unit pending-output limit. Unit tests pass; desktop workload verification blocked.
 
 Completion criteria: Verify interactive programs, resizing, Unicode, heavy output, keyboard behavior, and process cleanup on each supported operating system. Include Vim, tmux where available, and interactive prompts in compatibility checks.
 
@@ -505,3 +505,25 @@ ignore hangup. F15 remains open until cleanup is validated on Linux, macOS, and
 Windows and the remaining orphan-prevention scope is resolved. A Unix foreground
 job desktop test and unit tests are written but not run before the Phase 1 test
 gate. Build, type, lint, and formatting checks pass.
+
+
+### F16 implementation and Phase 1 test gate
+
+The main process now sends at most 64 Ki UTF-16 units per 16 ms output tick,
+yielding between batches. New batch boundaries preserve surrogate pairs within
+an input chunk. Output stays ordered; exit drains remaining bounded batches
+before the exit event. Queue consumption avoids shifting each individual fragment.
+xterm acknowledges after parsing each batch; existing 256 Ki/64 Ki pause/resume
+thresholds and the 1 Mi-unit overflow limit remain in effect. Scrollback stays
+at 3,000 lines. These are text-unit limits, not total process-memory guarantees.
+
+All 86 unit tests passed on Linux, including batch bounds, ordering, exit flush,
+backpressure and lifecycle coverage. Build, type, lint and format checks pass.
+A 30,000-line Unix desktop workload is added. All 23 desktop tests failed during
+Electron launch because chrome-sandbox ownership/mode is invalid; no desktop
+behavior or throughput benchmark was verified. Sandbox settings were unchanged.
+Windows/macOS and interactive program verification remain pending.
+
+F15 and F16 checkboxes track implementation; Phase 1 acceptance remains open
+until its desktop and platform checks pass. F15 cleanup remains best effort for
+ordinary PTY jobs; detached or hangup-ignoring processes are outside that guarantee.

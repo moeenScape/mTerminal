@@ -613,3 +613,22 @@ test('closing a terminal hangs up its foreground job on Unix', async () => {
     })
     .toBe(false);
 });
+
+test('renders a sustained output burst and remains usable', async () => {
+  test.skip(process.platform === 'win32', 'Unix awk workload');
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type(
+    "awk 'BEGIN { for (i=0; i<30000; i++) print i, \"terminal output workload\" }'; printf '\\nF16_%s\\n' DONE",
+  );
+  await page.keyboard.press('Enter');
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await expect
+    .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '', {
+      timeout: 30000,
+    })
+    .toContain('F16_DONE');
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+});

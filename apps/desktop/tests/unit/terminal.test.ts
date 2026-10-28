@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IPty } from 'node-pty';
-import { TerminalSession, HIGH_WATER } from '../../src/main/terminal/session.js';
+import { TerminalSession, HIGH_WATER, OUTPUT_BATCH } from '../../src/main/terminal/session.js';
 import {
   validTerminalId,
   validTerminalSize,
@@ -51,8 +51,14 @@ describe('local terminal lifecycle', () => {
       fake.data('a'.repeat(HIGH_WATER));
       expect(fake.pty.pause).toHaveBeenCalledOnce();
       expect(events).toEqual([]);
-      vi.advanceTimersByTime(16);
-      expect(events).toEqual([{ kind: 'data', id, data: 'a'.repeat(HIGH_WATER) }]);
+      vi.advanceTimersByTime(64);
+      expect(events).toHaveLength(4);
+      expect(
+        events.every((event) => event.kind === 'data' && event.data.length <= OUTPUT_BATCH),
+      ).toBe(true);
+      expect(events.flatMap((event) => (event.kind === 'data' ? [event.data] : [])).join('')).toBe(
+        'a'.repeat(HIGH_WATER),
+      );
       expect(() => terminal.ack(id, HIGH_WATER + 1)).toThrow();
       terminal.ack(id, HIGH_WATER);
       expect(fake.pty.resume).toHaveBeenCalledOnce();
@@ -62,6 +68,30 @@ describe('local terminal lifecycle', () => {
       expect(fake.pty.write).toHaveBeenCalledWith('echo hello\r');
       terminal.resize(id, { cols: 100, rows: 40 });
       expect(fake.pty.resize).toHaveBeenLastCalledWith(100, 40);
+    } finally {
+      terminal.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('yields between bounded batches and drains final output before exit', async () => {
+    vi.useFakeTimers();
+    const fake = fakePty();
+    const events: TerminalEvent[] = [];
+    const terminal = new TerminalSession((event) => events.push(event));
+    try {
+      await terminal.open(id, size, async () => fake.pty);
+      const output = '😀বাংলা'.repeat(30000);
+      fake.data(output);
+      vi.advanceTimersByTime(16);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ kind: 'data' });
+      fake.exit(0);
+      expect(events.at(-1)).toEqual({ kind: 'exit', id, exitCode: 0 });
+      const data = events.flatMap((event) => (event.kind === 'data' ? [event.data] : []));
+      expect(data.every((chunk) => chunk.length <= OUTPUT_BATCH)).toBe(true);
+      expect(data.join('')).toBe(output);
+      vi.runAllTimers();
+      expect(events).toHaveLength(data.length + 1);
     } finally {
       terminal.dispose();
       vi.useRealTimers();
