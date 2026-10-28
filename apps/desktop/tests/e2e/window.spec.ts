@@ -1,3 +1,6 @@
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -6,8 +9,11 @@ const desktopDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const electronExecutable = createRequire(import.meta.url)('electron') as string;
 let application: ElectronApplication;
 let page: Page;
+let userData: string;
 
 test.beforeEach(async () => {
+  userData = await mkdtemp(join(tmpdir(), 'mterminal-e2e-'));
+
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
@@ -18,14 +24,19 @@ test.beforeEach(async () => {
 
   application = await _electron.launch({
     executablePath: electronExecutable,
+    chromiumSandbox: true,
     args: [desktopDirectory],
-    env,
+    env: { ...env, MTERMINAL_USER_DATA: userData },
   });
   page = await application.firstWindow();
 });
 
 test.afterEach(async () => {
-  await application?.close();
+  try {
+    await application?.close();
+  } finally {
+    if (userData) await rm(userData, { recursive: true, force: true });
+  }
 });
 
 test('opens the desktop window and reads app information through preload', async () => {
@@ -58,7 +69,7 @@ test('blocks popups and renderer-initiated navigation', async () => {
     const contents = BrowserWindow.getAllWindows()[0]?.webContents;
     if (!contents) throw new Error('Application window is missing.');
     return new Promise<boolean>((resolve, reject) => {
-      contents.once('will-navigate', (event) => resolve(event.defaultPrevented));
+      contents.once('will-frame-navigate', (event) => resolve(event.defaultPrevented));
       void contents
         .executeJavaScript("window.location.assign('https://example.com/')")
         .catch(reject);
@@ -139,8 +150,52 @@ test('keeps navigation and search usable at the minimum desktop window size', as
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(overflow).toBe(false);
+  await page.screenshot({ path: test.info().outputPath('hosts-minimum.png') });
   await page.getByRole('button', { name: 'Open workspace', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Browse hosts', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
+});
+
+test('saves appearance and rejects malformed preference IPC without changing saved values', async () => {
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
+  await page.getByLabel('Appearance', { exact: true }).selectOption('light');
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light');
+  const rejected = await page.evaluate(async () => {
+    try {
+      await window.mterminal.savePreferences({ appearance: 'invalid' } as never);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  expect(rejected).toBe(true);
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light');
+});
+
+test('keeps unsaved preferences on write failure and logs only a safe failure code', async () => {
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
+  const shell = page.getByLabel('Default shell executable', { exact: true });
+  await shell.fill('/private/test-shell');
+  const blocked = join(userData, 'preferences.json');
+  await mkdir(blocked);
+  try {
+    await page.getByRole('button', { name: 'Save preferences' }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Your changes are still in this form' }),
+    ).toBeVisible();
+    await expect(shell).toHaveValue('/private/test-shell');
+    const content = await readFile(join(userData, 'logs/diagnostics.log'), 'utf8');
+    expect(content).toContain('preferences-save-failed');
+    expect(content).not.toContain('/private/test-shell');
+  } finally {
+    await rm(blocked, { recursive: true, force: true });
+  }
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
 });

@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F05 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F06 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -92,13 +92,13 @@ npm run dev
 | `npm run format` | Format desktop source/configuration and root JSON/JS configuration |
 | `npm run build` | Type-check and compile main, preload, and renderer code |
 | `npm start` | Launch the compiled app after a build |
-| `npm run test:unit` | Execute security boundary and renderer-location unit tests |
+| `npm run test:unit` | Execute security, preferences, storage, and diagnostic unit tests |
 | `npm run test:e2e` | Build and execute Electron window/bridge tests using Playwright |
 | `npm test` | Run both test suites at the phase completion gate |
 
-**Testing cadence:** Write tests with each feature, but run them after the phase implementation is complete, as requested. Build, lint, formatting, and type checks can run during development. Tests are currently written and type-checked but have not been executed. Do not mark a feature verified merely because test code exists.
+**Testing cadence:** Write tests with each feature, but run them after the phase implementation is complete, as requested. Build, lint, formatting, and type checks can run during development. At the Phase 0 gate, all 37 unit tests passed on Linux/Node 24.12.0. Sandbox-enabled desktop tests are blocked at launch by this environment’s Chromium sandbox configuration; the phase is not fully verified.
 
-The end-to-end suite launches the installed Electron executable; it does not require downloading Playwright browsers. It needs a working desktop display, or a configured virtual display in CI, and permission to start Chromium's sandbox. Close other mTerminal instances before running it. Do not disable the application sandbox to work around a host configuration problem.
+The end-to-end suite launches the installed Electron executable; it does not require downloading Playwright browsers. It needs a working desktop display, or a configured virtual display in CI, and permission to start Chromium's sandbox. Tests use isolated temporary user data directories. Do not disable the application sandbox to work around a host configuration problem.
 
 ### Launch verification
 
@@ -106,7 +106,7 @@ The user reported that `npm run dev` opens the application on Ubuntu. This is us
 
 An earlier agent-run launch aborted with `The SUID sandbox helper binary was found, but is not configured correctly`, and a user-namespace probe returned `Operation not permitted`. If that error recurs in another execution environment, it needs an administrator-approved Chromium sandbox configuration. No system permissions or sandbox settings were changed by the implementation.
 
-The production build and static checks succeed. F03 visual inspection, automated runtime/security verification, and Windows/macOS checks remain pending. Tests are deferred until the Phase 0 completion gate. Roadmap checkboxes indicate implementation delivery; phase verification is recorded separately.
+The production build, static checks, and 37 unit tests pass. The sandbox-enabled desktop suite stops at launch because the chrome-sandbox helper is not configured correctly in this environment. Phase 0 implementation is complete; desktop/visual and Windows/macOS verification remain pending. Roadmap checkboxes indicate implementation delivery; phase verification is recorded separately.
 
 `npm run build` produces compiled application files, not distributable installers. Windows/macOS runtime checks, installer configuration, signing, and native terminal integration remain future work. Only the desktop workspace is enabled; the server and shared package will be added when implemented.
 
@@ -138,3 +138,7 @@ Ignore rules do not remove files already tracked by Git. The existing `.artifact
 ## Local database and recovery
 
 The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite currently holds migration history and the local workspace UUID. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for backup, recovery, and lock-file handling. Storage uses Node’s built-in `node:sqlite`; no additional native package or ABI rebuild is required. Runtime/platform verification remains pending.
+
+## Diagnostics
+
+Startup and storage failures show fixed recovery instructions and an event code. Diagnostics are stored under `userData/logs/diagnostics.log`, with bounded rotation and no raw error messages or application payloads. See [diagnostics and troubleshooting](docs/DIAGNOSTICS.md).

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import type { IpcMainInvokeEvent, WebContents, WebFrameMain } from 'electron';
 import { describe, expect, it } from 'vitest';
 import {
+  allowRendererReload,
   contentSecurityPolicy,
   getRendererUrl,
   validateAppInfoRequest,
@@ -104,5 +105,16 @@ describe('content security policy', () => {
     expect(policy).toContain('ws://127.0.0.1:5173');
     expect(policy).not.toContain('*');
     expect(policy).not.toContain('unsafe-eval');
+  });
+});
+
+describe('renderer reload policy', () => {
+  it.each([
+    [rendererUrl, true, true],
+    [rendererUrl, false, false],
+    ['https://example.com/', true, false],
+    [rendererUrl + '?redirect=https://example.com', true, false],
+  ])('checks destination %s and main-frame ownership %s', (url, main, allowed) => {
+    expect(allowRendererReload(url as string, main as boolean, rendererUrl)).toBe(allowed);
   });
 });

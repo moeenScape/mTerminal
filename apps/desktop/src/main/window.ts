@@ -1,14 +1,17 @@
+import { AppFailure, failureCode } from './failures.js';
+import type { DiagnosticLog } from './diagnostics.js';
+import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
 import { PreferencesStore } from './preferences.js';
 import { PREFERENCES_GET, PREFERENCES_SAVE, validatePreferences } from '../shared/preferences.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, session, dialog } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo } from '../shared/app-info.js';
-import { getRendererUrl, validateAppInfoRequest } from './security.js';
+import { allowRendererReload, getRendererUrl, validateAppInfoRequest } from './security.js';
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
-export async function createMainWindow(): Promise<BrowserWindow> {
+export async function createMainWindow(diagnostics: DiagnosticLog): Promise<BrowserWindow> {
   const rendererUrl = getRendererUrl(
     join(outputDirectory, '../renderer/index.html'),
     process.env.ELECTRON_RENDERER_URL,
@@ -21,7 +24,11 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   session.defaultSession.setPermissionCheckHandler(() => false);
 
   const store = new PreferencesStore(join(app.getPath('userData'), 'preferences.json'));
-  await store.load();
+  try {
+    await store.load();
+  } catch (error) {
+    throw new AppFailure(failureCode(error, 'preferences-invalid'));
+  }
   const saved = store.preferences.rememberWindow
     ? store.window
     : { width: 1200, height: 800, maximized: false };
@@ -44,9 +51,17 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     },
   });
 
+  window.webContents.on('render-process-gone', () => {
+    diagnostics.record('renderer-crashed', 'renderer-crashed');
+    dialog.showErrorBox('Interface stopped', failureMessages['renderer-crashed']);
+  });
+  window.on('unresponsive', () => {
+    diagnostics.record('renderer-unresponsive');
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.webContents.on('will-navigate', (event) => event.preventDefault());
-  window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
+  window.webContents.on('will-frame-navigate', (event) => {
+    if (!allowRendererReload(event.url, event.isMainFrame, rendererUrl)) event.preventDefault();
+  });
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
   ipcMain.handle(APP_INFO_CHANNEL, (event, ...args: unknown[]): AppInfo => {
@@ -58,13 +73,22 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     validateAppInfoRequest(event, window.webContents, rendererUrl, args);
     return store.preferences;
   });
-  ipcMain.handle(PREFERENCES_SAVE, async (event, ...args: unknown[]) => {
-    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
-    if (args.length !== 1) throw new Error('Invalid preferences request.');
-    const preferences = validatePreferences(args[0]);
-    await store.save(preferences);
-    return store.preferences;
-  });
+  ipcMain.handle(
+    PREFERENCES_SAVE,
+    async (event, ...args: unknown[]): Promise<PreferenceSaveResult> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      if (args.length !== 1) throw new Error('Invalid preferences request.');
+      const preferences = validatePreferences(args[0]);
+      try {
+        await store.save(preferences);
+        return { ok: true, preferences: store.preferences };
+      } catch (error) {
+        const code = failureCode(error, 'preferences-save');
+        diagnostics.record('preferences-save-failed', code);
+        return { ok: false, code };
+      }
+    },
+  );
   window.once('ready-to-show', () => {
     if (saved.maximized) window.maximize();
     window.show();
@@ -82,12 +106,15 @@ export async function createMainWindow(): Promise<BrowserWindow> {
         maximized: window.isMaximized(),
       })
       .then(() => window.close())
-      .catch(() => {
+      .catch((error: unknown) => {
+        const code = failureCode(error, 'preferences-save');
+        diagnostics.record('window-state-save-failed', code);
         closing = false;
         // Keep the window open so a failed write cannot silently discard the saved state.
         dialog.showErrorBox(
           'Unable to save window state',
-          'Check available disk space and try closing again. You can disable Remember window size in Settings.',
+          failureMessages[code] +
+            ' You can disable Remember window size in Settings to close without saving it.',
         );
       });
   });
@@ -100,7 +127,7 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     await window.loadURL(rendererUrl);
   } catch (error) {
     window.destroy();
-    throw error;
+    throw new AppFailure(failureCode(error, 'renderer-load'));
   }
 
   return window;

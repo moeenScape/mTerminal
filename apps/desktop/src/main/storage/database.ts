@@ -1,3 +1,4 @@
+import { AppFailure } from '../failures.ts';
 import { unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, rename, rm, stat, open, link } from 'node:fs/promises';
@@ -19,7 +20,13 @@ const migrations = [
 const SCHEMA_VERSION = migrations.length;
 
 async function acquireLock(path: string): Promise<() => void> {
-  const lock = await open(path + '.lock', 'wx', 0o600);
+  let lock;
+  try {
+    lock = await open(path + '.lock', 'wx', 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new AppFailure('database-locked');
+    throw error;
+  }
   try {
     await lock.writeFile(String(process.pid));
   } catch (error) {
@@ -38,7 +45,7 @@ function pragmaNumber(database: DatabaseSync, name: string): number {
 function checkIntegrity(database: DatabaseSync): void {
   const rows = database.prepare('PRAGMA quick_check').all();
   if (rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== 'ok') {
-    throw new Error('Database integrity check failed. Preserve the file for recovery.');
+    throw new AppFailure('database-invalid');
   }
 }
 
@@ -49,14 +56,14 @@ function validateDatabase(database: DatabaseSync): void {
     pragmaNumber(database, 'user_version') < 1 ||
     pragmaNumber(database, 'user_version') > SCHEMA_VERSION
   ) {
-    throw new Error('The database belongs to another application or schema version.');
+    throw new AppFailure('database-invalid');
   }
   const versions = database.prepare('SELECT version FROM schema_migrations ORDER BY version').all();
   if (
     versions.length !== pragmaNumber(database, 'user_version') ||
     versions.some((row, index) => row.version !== index + 1)
   ) {
-    throw new Error('Invalid migration history.');
+    throw new AppFailure('database-invalid');
   }
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
@@ -65,7 +72,7 @@ function validateDatabase(database: DatabaseSync): void {
     !/^[0-9a-f-]{36}$/.test(workspace[0].id) ||
     workspace[0].name !== 'Local workspace'
   ) {
-    throw new Error('Invalid local workspace.');
+    throw new AppFailure('database-invalid');
   }
 }
 
@@ -102,16 +109,13 @@ export class LocalDatabase {
         (version > 0 && application !== APPLICATION_ID) ||
         (application !== 0 && application !== APPLICATION_ID)
       ) {
-        throw new Error(
-          'Unsupported database. Preserve it and use the matching application version.',
-        );
+        throw new AppFailure('database-invalid');
       }
       if (version === 0) {
         const objects = connection
           .prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
           .all();
-        if (application !== 0 || objects.length)
-          throw new Error('Unrecognized database; refusing to modify it.');
+        if (application !== 0 || objects.length) throw new AppFailure('database-invalid');
       } else {
         validateDatabase(connection);
         if (version < SCHEMA_VERSION) await store.createBackup(join(dirname(path), 'backups'));

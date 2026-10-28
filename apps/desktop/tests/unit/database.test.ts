@@ -75,7 +75,7 @@ describe('local SQLite storage', () => {
       connection.exec('PRAGMA user_version = 999');
       connection.close();
       const newer = await readFile(path);
-      await expect(LocalDatabase.open(path)).rejects.toThrow('Unsupported');
+      await expect(LocalDatabase.open(path)).rejects.toThrow('unsupported schema');
       expect(await readFile(path)).toEqual(newer);
     });
   });

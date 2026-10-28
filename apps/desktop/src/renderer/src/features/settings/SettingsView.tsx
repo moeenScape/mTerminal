@@ -64,28 +64,31 @@ export function SettingsView({
               setMessage('');
               void onSave(draft)
                 .then(() => setMessage('Preferences saved.'))
-                .catch(() =>
-                  setMessage('Unable to save preferences. Check disk space and try again.'),
+                .catch((error: unknown) =>
+                  setMessage(
+                    error instanceof Error
+                      ? error.message
+                      : 'Unable to save preferences. Try again.',
+                  ),
                 )
                 .finally(() => setSaving(false));
             }}
           >
             <fieldset disabled={!ready || saving} className="preference-fields">
-              <label>
-                Appearance
-                <select
-                  value={draft.appearance}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      appearance: event.target.value as Preferences['appearance'],
-                    })
-                  }
-                >
-                  <option value="dark">Dark</option>
-                  <option value="light">Light</option>
-                </select>
-              </label>
+              <label htmlFor="appearance">Appearance</label>
+              <select
+                id="appearance"
+                value={draft.appearance}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    appearance: event.target.value as Preferences['appearance'],
+                  })
+                }
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
               <label>
                 Default shell executable
                 <input

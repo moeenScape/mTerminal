@@ -55,3 +55,11 @@ export function contentSecurityPolicy(isDevelopment: boolean): string {
     "form-action 'none'",
   ].join('; ');
 }
+
+export function allowRendererReload(
+  url: string,
+  isMainFrame: boolean,
+  rendererUrl: string,
+): boolean {
+  return isMainFrame && url === rendererUrl;
+}

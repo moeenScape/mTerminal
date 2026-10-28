@@ -24,12 +24,12 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F05 implementation delivered; Phase 0 remains in progress |
-| Next feature | F06 — Error handling |
-| Implementation status | F01–F05 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation; phase verification pending |
+| Active feature | F01–F06 implemented; Phase 0 verification incomplete |
+| Next feature | F07 — Local shell, after the outstanding Phase 0 desktop verification |
+| Implementation status | F01–F06 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures and safe diagnostics; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
-| Current blocker | No user-reported startup blocker; agent-side visual inspection unavailable |
-| Phase 0 verification | Unit/E2E tests written and type-checked, intentionally not executed until the phase implementation is complete |
+| Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
+| Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
 | Last roadmap update | 2026-10-28 |
 
 ## Selected technology stack
@@ -71,7 +71,7 @@ Dependencies: None.
 - [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
 - [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is stored for F07/F08; executable discovery and validation remain there. Runtime and phase tests pending.
 - [x] **F05 — Local database:** Main-process SQLite, ordered transactional schema migrations, persistent workspace UUID, integrity/version checks, startup snapshot, pre-upgrade backups, exclusive ownership, and offline backup/restore maintenance. Build/static checks passed; runtime and phase tests pending.
-- [ ] **F06 — Error handling:** Useful messages and diagnostic logs without secrets.
+- [x] **F06 — Error handling:** Fixed failure codes and recovery messages, sanitized preference-save results, bounded local diagnostic logs, fatal-process and renderer-crash handling. Unit/static/build checks pass; sandbox-enabled desktop verification blocked by the environment.
 
 Completion criteria: The application opens reliably, persists preferences, handles failures, and rejects invalid IPC requests. Keep process execution, filesystem access, and credentials outside the renderer.
 
@@ -249,11 +249,11 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 
 | Feature | Status | Issue/PR | Verification | Blocker/next action |
 | --- | --- | --- | --- | --- |
-| F01/F02 | Implementation complete | `apps/desktop/src/main/`, `apps/desktop/src/preload/` | Static/build checks passed; Ubuntu launch reported by user | Run lifecycle/security tests at the Phase 0 gate; Windows/macOS unverified |
-| F03 | Implementation complete | `apps/desktop/src/renderer/src/` | Static/build checks passed; navigation/search/keyboard/minimum-size E2E checks written but not executed | Visual review and phase tests pending |
-| F04 | Implementation complete | `apps/desktop/src/main/preferences.ts` | Static checks/build; focused tests written, execution deferred | Runtime/visual verification pending |
-| F05 | Implementation complete | `apps/desktop/src/main/storage/database.ts` | Build/type/lint/format passed; storage tests written but not run | Runtime recovery/platform checks pending |
-| F06 | Next | — | Not started | Useful error messages and diagnostic logs without secrets |
+| F01/F02 | Implementation complete | `apps/desktop/src/main/`, `apps/desktop/src/preload/` | Static/build checks passed; Ubuntu launch reported by user | Security unit tests pass; sandbox-enabled desktop lifecycle and Windows/macOS checks pending |
+| F03 | Implementation complete | `apps/desktop/src/renderer/src/` | Static/build checks passed; E2E smoke run found reload/navigation-test issues; fixes added with reload-policy unit tests | Visual review and phase tests pending |
+| F04 | Implementation complete | `apps/desktop/src/main/preferences.ts` | Static/build and preference unit tests pass | Runtime/visual verification pending |
+| F05 | Implementation complete | `apps/desktop/src/main/storage/database.ts` | Build/type/lint/format and storage unit tests pass | Runtime recovery/platform checks pending |
+| F06 | Implementation complete | `apps/desktop/src/main/diagnostics.ts`, `apps/desktop/src/shared/failures.ts` | 37 total unit tests pass; build/type/lint/format pass | Sandbox-enabled desktop tests blocked; Phase 0 verification remains incomplete |
 
 ## Progress log
 
@@ -288,3 +288,23 @@ Settings are versioned in `preferences.json` under Electron userData. Validated 
 ### F05 implementation update
 
 Added SQLite schema v1 with migration history and a stable local-workspace UUID. Startup initializes storage before opening the window and closes it at quit. Backups use SQLite’s snapshot API; recovery validates the staged database and preserves the replaced file. Offline maintenance commands and crash-lock recovery are documented in `docs/LOCAL_STORAGE.md`. No credentials are stored. Preferences remain in their F04 JSON file. Build/static checks pass; tests are written and deferred until Phase 0 completion. Electron SQLite runtime and Windows/macOS remain unverified. Next: F06.
+
+### F06 implementation and Phase 0 test gate
+
+Added fixed failure codes and recovery actions for database ownership/corruption,
+invalid preferences, permissions, disk exhaustion, backup support, and interface
+failures. Diagnostic logs contain timestamps and allowlisted codes only, rotate at
+256 KiB with one previous file, and fail without exposing raw exceptions. Preference
+write failures return sanitized results and retain the form. Desktop tests now use
+isolated temporary profiles and explicitly enable Chromium sandboxing.
+
+Validation on Linux / Node 24.12.0: 37/37 unit tests pass; type, lint, format,
+production build, and diff checks pass. The initial Playwright run (its default
+sandbox disabled) passed 6 tests and failed 3: it revealed blocked reloads, a test
+listening after navigation was cancelled, and an ambiguous Appearance label. Those
+issues were fixed, including reload-policy unit coverage. That smoke run is not a
+sandbox security pass. The final sandbox-enabled run aborted on the first launch
+because chrome-sandbox has invalid ownership/mode; 9 remaining tests did not run.
+No security settings or system permissions were changed. Phase 0 implementation
+is complete; desktop/visual and cross-platform verification remains incomplete.
+See `docs/DIAGNOSTICS.md` for diagnostics and the outstanding test command.

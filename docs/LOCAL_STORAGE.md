@@ -56,6 +56,5 @@ application after recovery. There is no automatic restore or GUI recovery yet.
 ## Verification boundary
 
 Unit tests cover stable IDs, rollback, exclusive ownership, backups, recovery,
-original-file preservation, and corrupt/newer-schema rejection. They are written
-but deferred to the Phase 0 test gate. Static checks and production compilation
+original-file preservation, and corrupt/newer-schema rejection. These tests passed at the Phase 0 gate. Static checks and production compilation
 passed; Electron runtime recovery and Windows/macOS checks remain pending.

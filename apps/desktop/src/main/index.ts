@@ -1,28 +1,59 @@
-import { join } from 'node:path';
+import { DiagnosticLog } from './diagnostics.js';
+import { AppFailure, failureCode } from './failures.js';
+import { failureMessages, type FailureCode } from '../shared/failures.js';
+import { join, resolve } from 'node:path';
 import { LocalDatabase } from './storage/database.js';
 import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
 import { createMainWindow } from './window.js';
 
 app.setName('mTerminal');
+// Isolate development/E2E profiles before the single-instance lock and any data access.
+if (!app.isPackaged && process.env.MTERMINAL_USER_DATA) {
+  app.setPath('userData', resolve(process.env.MTERMINAL_USER_DATA));
+}
 let database: LocalDatabase | undefined;
-app.on('will-quit', () => {
-  database?.close();
-  database = undefined;
-});
-
-function reportStartupError(error: unknown): void {
-  console.error('Unable to start mTerminal:', error);
+const diagnostics = new DiagnosticLog(join(app.getPath('userData'), 'logs/diagnostics.log'));
+let failing = false;
+function closeDatabase(): void {
+  try {
+    database?.close();
+  } catch (error) {
+    diagnostics.record('shutdown-failed', failureCode(error, 'unexpected'));
+  } finally {
+    database = undefined;
+  }
+}
+app.on('will-quit', closeDatabase);
+function reportFatalError(error: unknown, fallback: FailureCode = 'unexpected'): void {
+  if (failing) return;
+  failing = true;
+  const code = failureCode(error, fallback);
+  const logged = diagnostics.record('startup-failed', code);
   dialog.showErrorBox(
-    'Unable to open mTerminal',
-    'The application could not start. Please restart it.',
+    'Unable to continue mTerminal',
+    failureMessages[code] +
+      `\n\nCode: ${code}\nData directory: ${app.getPath('userData')}\n` +
+      (logged
+        ? 'Diagnostics: logs/diagnostics.log'
+        : 'Diagnostics could not be written. Check directory access and disk space.'),
   );
-  database?.close();
-  database = undefined;
+  closeDatabase();
   app.exit(1);
 }
-
+process.on('uncaughtException', (error) => {
+  diagnostics.record('unexpected-error', failureCode(error, 'unexpected'));
+  reportFatalError(error);
+});
+process.on('unhandledRejection', (error: unknown) => {
+  diagnostics.record('unexpected-error', failureCode(error, 'unexpected'));
+  reportFatalError(error);
+});
 function openMainWindow(): void {
-  void createMainWindow().catch(reportStartupError);
+  void createMainWindow(diagnostics)
+    .then(() => {
+      diagnostics.record('startup-ready');
+    })
+    .catch((error: unknown) => reportFatalError(error, 'renderer-load'));
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -47,7 +78,11 @@ if (!app.requestSingleInstanceLock()) {
   void app
     .whenReady()
     .then(async () => {
-      database = await LocalDatabase.open(join(app.getPath('userData'), 'mterminal.sqlite'));
+      try {
+        database = await LocalDatabase.open(join(app.getPath('userData'), 'mterminal.sqlite'));
+      } catch (error) {
+        throw new AppFailure(failureCode(error, 'database-open'));
+      }
       if (process.platform === 'win32') app.setAppUserModelId('com.mterminal.desktop');
 
       const template: MenuItemConstructorOptions[] = [
@@ -72,5 +107,5 @@ if (!app.requestSingleInstanceLock()) {
       Menu.setApplicationMenu(Menu.buildFromTemplate(template));
       openMainWindow();
     })
-    .catch(reportStartupError);
+    .catch((error: unknown) => reportFatalError(error));
 }
