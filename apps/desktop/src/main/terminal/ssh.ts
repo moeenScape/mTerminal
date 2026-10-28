@@ -7,10 +7,11 @@ import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../.
 import type { TerminalSize } from '../../shared/terminal.js';
 import { AppFailure } from '../failures.js';
 
+export function keyFingerprint(key: Buffer): string {
+  return 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
+}
 export function fingerprintMatches(key: Buffer, expected: string): boolean {
-  return (
-    'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '') === expected
-  );
+  return keyFingerprint(key) === expected;
 }
 
 export function openSsh(
@@ -19,6 +20,7 @@ export function openSsh(
   size: TerminalSize,
   signal: AbortSignal,
   ask?: (question: SshQuestion) => Promise<string[]>,
+  verifyKey?: (key: Buffer) => Promise<boolean>,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const client = new Client();
@@ -54,7 +56,8 @@ export function openSsh(
     const abort = () => finish();
     const interactive =
       credentials.method === 'keyboard-interactive' || credentials.keyboardInteractive === true;
-    const timer = setTimeout(finish, interactive ? 120000 : 20000);
+    const humanVerification = interactive || !!verifyKey;
+    const timer = setTimeout(finish, humanVerification ? 120000 : 20000);
     client.on('error', finish).on('close', finish);
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) {
@@ -169,11 +172,27 @@ export function openSsh(
               : interactive
                 ? ['password', 'keyboard-interactive']
                 : ['password'],
-        readyTimeout: interactive ? 120000 : 15000,
-        hostVerifier: (key: Buffer) => {
-          const match = fingerprintMatches(key, credentials.fingerprint);
-          if (!match) mismatch = true;
-          return match;
+        readyTimeout: humanVerification ? 120000 : 15000,
+        hostVerifier: (key: Buffer, verify: (accepted: boolean) => void) => {
+          if (verifyKey) {
+            void verifyKey(key)
+              .then((accepted) => {
+                if (!ended) {
+                  mismatch = !accepted;
+                  verify(accepted);
+                }
+              })
+              .catch(() => {
+                if (!ended) {
+                  mismatch = true;
+                  verify(false);
+                }
+              });
+          } else {
+            const match = fingerprintMatches(key, credentials.fingerprint);
+            if (!match) mismatch = true;
+            verify(match);
+          }
         },
       });
     } catch {

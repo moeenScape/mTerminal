@@ -163,10 +163,9 @@ export function SshPrompt({
           </label>
         )}
         <label>
-          Server fingerprint
+          Expected server fingerprint (optional)
           <input
             name="fingerprint"
-            required
             placeholder="SHA256:…"
             maxLength={50}
             spellCheck={false}
@@ -174,8 +173,9 @@ export function SshPrompt({
           />
         </label>
         <p>
-          Obtain the server fingerprint through a trusted channel. The password is used for this
-          connection only. Private keys, passphrases and challenge answers are not saved.
+          Unknown server keys require confirmation. If you have a fingerprint from a trusted
+          channel, enter it to require an exact match. Credentials are used only for this
+          connection.
         </p>
         {error && <p role="alert">{error}</p>}
         <div className="dialog-actions">

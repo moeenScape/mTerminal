@@ -1,3 +1,5 @@
+import { verifyKnownHost } from './known-hosts.js';
+import { knownHostAddress } from '../storage/database.js';
 import { SshChallenges } from './ssh-challenges.js';
 import { openSsh } from './ssh.js';
 import { validateSshCredentials } from '../../shared/ssh.js';
@@ -100,10 +102,25 @@ export function attachTerminal(
       const credentials = validateSshCredentials(value);
       const host = database.listHosts().find((item) => item.id === hostId);
       if (!host) throw new Error('Host missing.');
-      const effective = resolveHost(host, database.listHostGroups());
+      const resolved = resolveHost(host, database.listHostGroups());
+      const effective = { ...resolved, address: knownHostAddress(resolved.address, resolved.port) };
       await terminal.open(id, size, (signal) =>
-        openSsh(effective, credentials, size, signal, (question) =>
-          challenges.ask(id, question, signal),
+        openSsh(
+          effective,
+          credentials,
+          size,
+          signal,
+          (question) => challenges.ask(id, question, signal),
+          (key) =>
+            verifyKnownHost(
+              database,
+              effective.address,
+              effective.port,
+              key,
+              credentials.fingerprint,
+              signal,
+              (question) => challenges.ask(id, question, signal),
+            ),
         ),
       );
       return { ok: true };

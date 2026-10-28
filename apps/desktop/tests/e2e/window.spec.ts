@@ -777,3 +777,68 @@ test('offers session-only private-key and keyboard-interactive authentication', 
   expect(profiles[0]).not.toHaveProperty('privateKey');
   expect(profiles[0]).not.toHaveProperty('passphrase');
 });
+
+for (const changed of [false, true]) {
+  test(`shows ${changed ? 'changed' : 'unknown'} server identity before accepting trust`, async () => {
+    // Exercise the trust dialog through an isolated IPC fixture; no network connection is made.
+    await application.evaluate(({ ipcMain }, changed) => {
+      ipcMain.removeHandler('terminal:ssh');
+      ipcMain.handle(
+        'terminal:ssh',
+        (event, id: string) =>
+          new Promise((resolve) => {
+            const token = '12345678-1234-4123-8123-123456789abc';
+            const fingerprint = 'SHA256:' + 'b'.repeat(43);
+            ipcMain.once('terminal:ssh-answer', (_reply, replyId, replyToken, answers) => {
+              const correct =
+                replyId === id &&
+                replyToken === token &&
+                answers[0] === (changed ? fingerprint : 'trust');
+              event.sender.send('terminal:event', { kind: 'exit', id, exitCode: correct ? 0 : 1 });
+              resolve({ ok: true });
+            });
+            event.sender.send('terminal:ssh-challenge', {
+              id,
+              token,
+              title: 'Server identity',
+              instructions: '',
+              prompts: [{ prompt: 'Trust decision', echo: true }],
+              trust: {
+                address: 'example.com',
+                port: 22,
+                fingerprint,
+                ...(changed ? { previous: 'SHA256:' + 'a'.repeat(43) } : {}),
+              },
+            });
+          }),
+      );
+    }, changed);
+    await page.evaluate(async () => {
+      await window.mterminal.saveHost({
+        name: 'Trust fixture',
+        address: 'example.com',
+        port: 22,
+        username: 'deploy',
+        protocol: 'ssh',
+      });
+    });
+    await page.reload();
+    await page.getByRole('button', { name: 'Connect to Trust fixture' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading')).toContainText(
+      changed ? 'Server key changed' : 'Unknown server key',
+    );
+    if (changed) {
+      const replace = dialog.getByRole('button', {
+        name: 'Replace saved key and cancel connection',
+      });
+      await expect(replace).toBeDisabled();
+      await dialog.getByLabel('Type the verified new fingerprint').fill('SHA256:' + 'b'.repeat(43));
+      await replace.click();
+    } else await dialog.getByRole('button', { name: 'Trust and save key' }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Shell exited (code 0)' }),
+    ).toBeVisible();
+  });
+}

@@ -18,7 +18,7 @@ export function validateSshCredentials(value: unknown): SshCredentials {
     Array.from(c.username).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
     c.username.startsWith('-') ||
     typeof c.fingerprint !== 'string' ||
-    !/^SHA256:[A-Za-z0-9+/]{43}$/.test(c.fingerprint)
+    (c.fingerprint !== '' && !validFingerprint(c.fingerprint))
   )
     throw new Error('Invalid SSH credentials.');
   const method = c.method ?? 'password';
@@ -52,7 +52,17 @@ export function validateSshCredentials(value: unknown): SshCredentials {
   return base;
 }
 
+export function validFingerprint(value: unknown): value is string {
+  return typeof value === 'string' && /^SHA256:[A-Za-z0-9+/]{43}$/.test(value);
+}
+export interface HostKeyRequest {
+  address: string;
+  port: number;
+  fingerprint: string;
+  previous?: string;
+}
 export interface SshQuestion {
+  trust?: HostKeyRequest;
   title: string;
   instructions: string;
   prompts: { prompt: string; echo: boolean }[];
@@ -74,7 +84,19 @@ export function validateSshQuestion(value: SshQuestion): SshQuestion {
     )
   )
     throw new Error('Invalid server prompts.');
+  if (
+    value.trust &&
+    (typeof value.trust.address !== 'string' ||
+      value.trust.address.length > 253 ||
+      !Number.isInteger(value.trust.port) ||
+      value.trust.port < 1 ||
+      value.trust.port > 65535 ||
+      !validFingerprint(value.trust.fingerprint) ||
+      (value.trust.previous !== undefined && !validFingerprint(value.trust.previous)))
+  )
+    throw new Error('Invalid host identity.');
   return {
+    ...(value.trust ? { trust: { ...value.trust } } : {}),
     title: value.title,
     instructions: value.instructions,
     prompts: value.prompts.map((p) => ({ prompt: p.prompt, echo: p.echo })),

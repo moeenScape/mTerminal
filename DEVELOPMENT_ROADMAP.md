@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F20 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F21 — Known hosts; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F20 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions and password/key/interactive authentication; desktop verification pending |
+| Active feature | F21 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F22 — Connection state; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F21 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions and password/key/interactive authentication and saved host-key trust; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -104,7 +104,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 - [x] **F18 — Groups and tags (implementation):** Nested groups with port/username defaults, field-level inheritance and host overrides, normalized tags, descendant-aware group and exact tag filtering, and search across profile, effective username, group and tags. Tests written; Phase 2 execution and runtime verification pending.
 - [x] **F19 — SSH sessions (implementation):** Saved-host Connect opens a remote PTY through ssh2 with session-only password and explicitly pinned SHA256 fingerprint, input/output, resizing, backpressure, cancellation and cleanup. Tests written; execution deferred to Phase 2 gate.
 - [x] **F20 — Authentication (implementation):** Session-only passwords, selected private-key files with optional passphrases, multi-round keyboard-interactive prompts and optional challenge continuation after password/key authentication. Bounded, session/token-scoped replies; cancellation and expiry. Tests written; execution deferred to Phase 2 gate.
-- [ ] **F21 — Known hosts:** Trusted fingerprints, unknown-key confirmation, and changed-key handling.
+- [x] **F21 — Known hosts (implementation):** Persistent endpoint fingerprints, unknown-key confirmation, changed-key refusal with both fingerprints, explicit checked rotation followed by a new connection, optional pinning and cancellation. Tests written; execution deferred to Phase 2 gate.
 - [ ] **F22 — Connection state:** Connecting, authenticating, connected, disconnected, and failed.
 - [ ] **F23 — Keepalive and reconnect:** Detect connection loss and allow explicit reconnection.
 - [ ] **F24 — Cancellation:** Cancel pending connections and release resources.
@@ -628,3 +628,32 @@ expiry, cancellation, field exclusion and credential-method UI switching. Tests
 are deferred until the Phase 2 gate. Live OpenSSH, visual and cross-platform
 verification remain pending under the recorded desktop sandbox blocker. Agents,
 hardware keys and stored credentials are not part of F20. Next: F21.
+
+
+### F21 implementation update
+
+Schema v4 adds endpoint-scoped SHA256 trust records, with transactional migration
+and the existing pre-upgrade backup flow. Address matching lowercases names and
+removes outer IPv6 brackets; ports remain distinct. Trust survives profile removal
+and is shared by profiles using the same endpoint. One key is retained per
+endpoint; different negotiated server key algorithms produce a change warning.
+
+The SSH handshake now waits for asynchronous verification before authentication.
+Matching saved keys proceed; unknown keys require an explicit Trust and save key
+action. Changed keys show old/new fingerprints and refuse the current attempt.
+To approve a rotation, the user must type the complete new fingerprint; a checked
+transaction replaces only the expected previous key, then the connection ends.
+A fresh attempt is required. Optional manual pins remain authoritative and cannot
+override conflicting saved trust. Decline, expiry and cancelled starts do not save
+unknown keys. Dialogs reuse session/token-scoped challenge replies; key trust is
+constructed by the main process, separate from server authentication text.
+
+Desktop setup now allows 120 seconds for identity/authentication decisions and
+60 seconds per dialog. Build, type, lint, format and diff checks pass. Tests cover
+v1/v2 migration fixture compatibility, v3-to-v4 preservation, trust persistence,
+endpoint matching, refusal/rotation, stale approval rejection, pins/cancellation
+and asynchronous verification before authentication. Desktop trust dialogs use
+an isolated IPC fixture. Tests are written/type-checked but deferred to Phase 2
+completion; live SSH, visual and cross-platform verification remain pending.
+OpenSSH known_hosts import/export and multiple-key trust are not implemented.
+Next: F22.

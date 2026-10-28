@@ -1,3 +1,4 @@
+import { validFingerprint } from '../../shared/ssh.ts';
 import {
   validateHost,
   validHostId,
@@ -40,6 +41,12 @@ const migrations = [
       ALTER TABLE hosts ADD COLUMN inheritPort INTEGER NOT NULL DEFAULT 0 CHECK(inheritPort IN (0,1));
       ALTER TABLE hosts ADD COLUMN inheritUsername INTEGER NOT NULL DEFAULT 0 CHECK(inheritUsername IN (0,1));
     `);
+  },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE known_hosts (
+      address TEXT NOT NULL, port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535),
+      fingerprint TEXT NOT NULL, PRIMARY KEY(address, port)
+    ) STRICT;`);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -98,6 +105,8 @@ function validateDatabase(database: DatabaseSync): void {
       .prepare('SELECT groupPath, tags, inheritPort, inheritUsername FROM hosts LIMIT 0')
       .all();
   }
+  if (pragmaNumber(database, 'user_version') >= 4)
+    database.prepare('SELECT address, port, fingerprint FROM known_hosts LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -107,6 +116,11 @@ function validateDatabase(database: DatabaseSync): void {
   ) {
     throw new AppFailure('database-invalid');
   }
+}
+
+export function knownHostAddress(address: string, port: number): string {
+  const host = validateHost({ name: 'Identity', address, port, username: '', protocol: 'ssh' });
+  return host.address.replace(/^\[(.*)\]$/, '$1').toLowerCase();
 }
 
 export class LocalDatabase {
@@ -305,6 +319,30 @@ export class LocalDatabase {
       }
       for (const group of descendants)
         db.prepare('DELETE FROM host_groups WHERE path=?').run(group.path);
+    });
+  }
+
+  getKnownHost(address: string, port: number): string | undefined {
+    const endpoint = knownHostAddress(address, port);
+    const row = this.connection
+      .prepare('SELECT fingerprint FROM known_hosts WHERE address=? AND port=?')
+      .get(endpoint, port);
+    if (!row) return undefined;
+    if (!validFingerprint(row.fingerprint)) throw new AppFailure('database-invalid');
+    return row.fingerprint;
+  }
+
+  trustKnownHost(address: string, port: number, fingerprint: string, previous?: string): void {
+    const endpoint = knownHostAddress(address, port);
+    if (!validFingerprint(fingerprint) || (previous !== undefined && !validFingerprint(previous)))
+      throw new Error('Invalid fingerprint.');
+    this.transaction((db) => {
+      const current = this.getKnownHost(endpoint, port);
+      if (current === fingerprint) return;
+      if (current !== previous) throw new AppFailure('ssh-key-mismatch');
+      db.prepare(
+        'INSERT INTO known_hosts VALUES (?, ?, ?) ON CONFLICT(address,port) DO UPDATE SET fingerprint=excluded.fingerprint',
+      ).run(endpoint, port, fingerprint);
     });
   }
 

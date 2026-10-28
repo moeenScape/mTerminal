@@ -957,3 +957,12 @@ h2 {
   max-height: 90vh;
   overflow-y: auto;
 }
+
+.host-fingerprint {
+  display: block;
+  overflow-wrap: anywhere;
+  user-select: text;
+  padding: 8px;
+  background: var(--raised);
+  border-radius: 6px;
+}

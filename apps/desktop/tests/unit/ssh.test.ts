@@ -259,4 +259,31 @@ describe('SSH terminal transport', () => {
       },
     );
   });
+  it('waits for asynchronous identity verification before authentication', async () => {
+    await fixture(async (port, fingerprint, authCount) => {
+      await expect(
+        openSsh(
+          { ...host, port },
+          { username: 'user', password: 'test-password', fingerprint: '' },
+          size,
+          new AbortController().signal,
+          undefined,
+          async () => {
+            expect(authCount()).toBe(0);
+            return false;
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'ssh-key-mismatch' });
+      expect(authCount()).toBe(0);
+      const transport = await openSsh(
+        { ...host, port },
+        { username: 'user', password: 'test-password', fingerprint: '' },
+        size,
+        new AbortController().signal,
+        undefined,
+        async (key) => fingerprintMatches(key, fingerprint),
+      );
+      transport.kill();
+    });
+  });
 });

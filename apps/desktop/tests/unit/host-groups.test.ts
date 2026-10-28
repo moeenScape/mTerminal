@@ -81,12 +81,12 @@ describe('host organization', () => {
       const host = db.saveHost(draft);
       db.transaction((connection) =>
         connection.exec(`
-        DROP TABLE host_groups;
+        DROP TABLE host_groups; DROP TABLE known_hosts;
         ALTER TABLE hosts DROP COLUMN groupPath;
         ALTER TABLE hosts DROP COLUMN tags;
         ALTER TABLE hosts DROP COLUMN inheritPort;
         ALTER TABLE hosts DROP COLUMN inheritUsername;
-        DELETE FROM schema_migrations WHERE version=3;
+        DELETE FROM schema_migrations WHERE version>=3;
         PRAGMA user_version=2;
       `),
       );

@@ -200,11 +200,12 @@ F14 adds per-tab terminal appearance controls for theme, font, size, zoom, curso
 
 ## SSH sessions
 
-Save an SSH profile in Hosts, then choose Connect. Supply a username, session-only
-authentication details and the server's SHA256 host fingerprint obtained through
-a trusted channel. Matching fingerprints are required on every connection; credentials and
-key trust are not saved. See [SSH session setup](docs/SSH_SESSIONS.md) for details
-and current limitations. Group port/username defaults apply to new connections.
+Save an SSH profile in Hosts, then choose Connect. Supply a username and session-only
+authentication details. Unknown server keys require confirmation after comparing
+the fingerprint through a trusted channel. Approved keys are saved by address
+and port; changed keys refuse the current connection. An optional expected
+fingerprint adds an explicit pin. Credentials are not saved.
+See [SSH session setup](docs/SSH_SESSIONS.md) for details and current limitations. Group port/username defaults apply to new connections.
 
 SSH authentication supports passwords, private-key files with optional passphrases,
 and keyboard-interactive challenges (including optional MFA continuation after

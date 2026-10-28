@@ -25,7 +25,13 @@ remain ungrouped with explicit connection settings. Parent groups must exist;
 paths use `/` separators with at most eight levels. Removing a group subtree moves
 its hosts to Ungrouped and materializes their effective settings transactionally.
 Tags are normalized to lowercase, deduplicated, and limited to 20 per host.
-Group defaults and organization are included in backups. New tables belong in subsequent
+Group defaults and organization are included in backups.
+
+Schema v4 adds `known_hosts`, keyed by normalized server address and port, with a
+SHA256 fingerprint. Trust records are separate from profiles and usernames and
+are included in backups. Initial approval and checked replacement are transactional;
+a changed key cannot silently overwrite a saved identity. No private keys or
+credentials are stored in this table. New tables belong in subsequent
 ordered migrations. Each migration and version update commits together; failed
 transactions roll back. Transaction callbacks must be synchronous and must not
 start asynchronous work. SQLite foreign keys are enabled.
