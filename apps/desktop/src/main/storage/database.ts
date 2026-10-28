@@ -1,3 +1,4 @@
+import { validateHost, validHostId, type SavedHost } from '../../shared/hosts.ts';
 import { AppFailure } from '../failures.ts';
 import { unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -15,6 +16,13 @@ const migrations = [
     connection
       .prepare('INSERT INTO workspaces VALUES (?, ?, ?)')
       .run(randomUUID(), 'Local workspace', new Date().toISOString());
+  },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE hosts (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL,
+      port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535), username TEXT NOT NULL,
+      protocol TEXT NOT NULL CHECK(protocol = 'ssh')
+    ) STRICT;`);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -65,6 +73,8 @@ function validateDatabase(database: DatabaseSync): void {
   ) {
     throw new AppFailure('database-invalid');
   }
+  if (pragmaNumber(database, 'user_version') >= 2)
+    database.prepare('SELECT id, name, address, port, username, protocol FROM hosts LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -161,6 +171,45 @@ export class LocalDatabase {
       this.connection.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  listHosts(): SavedHost[] {
+    return this.connection
+      .prepare('SELECT * FROM hosts ORDER BY name COLLATE NOCASE, id')
+      .all()
+      .map((row) => {
+        if (!validHostId(row.id)) throw new Error('Invalid saved host.');
+        return { ...validateHost(row), id: row.id };
+      });
+  }
+
+  saveHost(value: unknown, id?: string): SavedHost {
+    const host = validateHost(value);
+    if (id !== undefined && !validHostId(id)) throw new Error('Invalid host ID.');
+    const key = id ?? randomUUID();
+    this.transaction((db) => {
+      if (id) {
+        const result = db
+          .prepare('UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=? WHERE id=?')
+          .run(host.name, host.address, host.port, host.username, host.protocol, key);
+        if (result.changes !== 1) throw new Error('Host no longer exists.');
+      } else {
+        db.prepare('INSERT INTO hosts VALUES (?, ?, ?, ?, ?, ?)').run(
+          key,
+          host.name,
+          host.address,
+          host.port,
+          host.username,
+          host.protocol,
+        );
+      }
+    });
+    return { ...host, id: key };
+  }
+
+  deleteHost(id: unknown): void {
+    if (!validHostId(id)) throw new Error('Invalid host ID.');
+    this.connection.prepare('DELETE FROM hosts WHERE id=?').run(id);
   }
 
   get workspaceId(): string {

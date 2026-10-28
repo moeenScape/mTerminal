@@ -62,6 +62,9 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'listHosts',
+      'saveHost',
+      'deleteHost',
       'readClipboardText',
       'writeClipboardText',
       'getShells',
@@ -631,4 +634,52 @@ test('renders a sustained output burst and remains usable', async () => {
     })
     .toContain('F16_DONE');
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+});
+
+test('persists, searches, edits and confirms deletion of saved hosts', async () => {
+  await page.getByRole('button', { name: 'New host', exact: true }).click();
+  const form = page.getByRole('dialog');
+  await form.getByLabel('Name', { exact: true }).fill('Build server');
+  await form.getByLabel('Address').fill('build.example.com');
+  await form.getByLabel('Username').fill('deploy');
+  await form.getByRole('button', { name: 'Save host' }).click();
+  await expect(page.getByText('Build server', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Build server', { exact: true })).toBeVisible();
+  await page.getByLabel('Search hosts').fill('missing');
+  await expect(page.getByRole('heading', { name: 'No matching hosts' })).toBeVisible();
+  await page.getByLabel('Clear host search').click();
+  await page.getByRole('button', { name: 'Edit Build server' }).click();
+  await form.getByLabel('Port').fill('2222');
+  await form.getByRole('button', { name: 'Save host' }).click();
+  await expect(page.getByText('deploy@build.example.com:2222 · SSH')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete Build server' }).click();
+  await form.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Build server', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete Build server' }).click();
+  await form.getByRole('button', { name: 'Delete host', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your connections start here' })).toBeVisible();
+});
+
+test('rejects malformed host writes without changing saved profiles', async () => {
+  const result = await page.evaluate(async () => {
+    const before = await window.mterminal.listHosts();
+    let rejected = false;
+    try {
+      await window.mterminal.saveHost({
+        name: 'Invalid',
+        address: 'example.com',
+        port: 0,
+        username: '',
+        protocol: 'ssh',
+      });
+    } catch {
+      rejected = true;
+    }
+    return {
+      rejected,
+      unchanged: JSON.stringify(before) === JSON.stringify(await window.mterminal.listHosts()),
+    };
+  });
+  expect(result).toEqual({ rejected: true, unchanged: true });
 });

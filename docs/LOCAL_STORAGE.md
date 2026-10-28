@@ -15,7 +15,9 @@ The database is not encrypted. Never store passwords, private keys, or tokens he
 ## Schema and transactions
 
 Schema v1 contains `schema_migrations` and one `workspaces` record with a generated
-UUID. The UUID survives restarts and restores. New tables belong in subsequent
+UUID. Schema v2 adds `hosts` with a UUID, name, address, SSH port, username, and
+protocol. Host profiles contain no credentials and are included in backups. The
+workspace UUID survives restarts and restores. New tables belong in subsequent
 ordered migrations. Each migration and version update commits together; failed
 transactions roll back. Transaction callbacks must be synchronous and must not
 start asynchronous work. SQLite foreign keys are enabled.

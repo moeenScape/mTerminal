@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F01–F16 implementation complete; Phase 1 verification blocked on desktop launch |
-| Next feature | Resolve desktop verification blocker, then F17 — Saved hosts |
-| Implementation status | F01–F16 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, and bounded output batching; desktop verification pending |
+| Active feature | F17 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F18 — Groups and tags; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F17 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, and saved SSH profiles; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -100,7 +100,7 @@ Completion criteria: Verify interactive programs, resizing, Unicode, heavy outpu
 
 Dependencies: Phases 0–1. Prompt for secrets until secure storage is implemented.
 
-- [ ] **F17 — Saved hosts:** Addresses, ports, usernames, labels, and protocol settings.
+- [x] **F17 — Saved hosts (implementation):** Create/edit/delete SSH profiles with names, addresses, ports and usernames; searchable host list, confirmation before deletion, schema v2 persistence and validated IPC. Tests written and deferred to the Phase 2 gate; visual/runtime verification pending.
 - [ ] **F18 — Groups and tags:** Nesting, search, filtering, inheritance, and overrides.
 - [ ] **F19 — SSH sessions:** Connect remote shell channels to the terminal.
 - [ ] **F20 — Authentication:** Passwords, private keys, passphrases, and keyboard-interactive prompts.
@@ -527,3 +527,26 @@ Windows/macOS and interactive program verification remain pending.
 F15 and F16 checkboxes track implementation; Phase 1 acceptance remains open
 until its desktop and platform checks pass. F15 cleanup remains best effort for
 ordinary PTY jobs; detached or hangup-ignoring processes are outside that guarantee.
+
+
+### F17 implementation update
+
+Hosts now provides New host, Edit and Delete actions with a native modal form,
+loading/error/retry states, profile counts, and case-insensitive search across
+name, address and username. Deletion identifies the profile and remote address
+and requires confirmation. Profiles store SSH settings only; remote connections
+remain F19, and no passwords or key material are persisted.
+
+SQLite schema v2 adds a strict hosts table through the existing transactional
+migration and pre-upgrade backup flow. UUIDs survive reopen; updates refuse
+missing records instead of recreating them. IPC validates the owning main frame,
+argument counts, IDs and bounded fields. SQL uses bound parameters. Diagnostics
+contain a fixed event only. Storage documentation and the bridge allowlist fixture
+are updated.
+
+Build, type, lint, formatting and diff checks pass. Tests cover validation,
+unknown-field exclusion, persistence, targeted updates/deletion, v1 migration,
+malformed IPC writes and the create/search/edit/delete desktop workflow. Tests
+are written/type-checked but not executed before the Phase 2 gate. Visual and
+Windows/macOS checks remain pending; the existing desktop sandbox blocker is
+unchanged. Next: F18.

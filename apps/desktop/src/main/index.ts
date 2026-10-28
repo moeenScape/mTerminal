@@ -50,7 +50,8 @@ process.on('unhandledRejection', (error: unknown) => {
   reportFatalError(error);
 });
 function openMainWindow(): void {
-  void createMainWindow(diagnostics)
+  if (!database) throw new Error('Database unavailable.');
+  void createMainWindow(diagnostics, database)
     .then(() => {
       diagnostics.record('startup-ready');
     })

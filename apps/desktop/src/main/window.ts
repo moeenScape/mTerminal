@@ -1,3 +1,5 @@
+import { hostChannels, validHostId } from '../shared/hosts.js';
+import type { LocalDatabase } from './storage/database.js';
 import { attachClipboard } from './clipboard.js';
 import { validateShellOverride } from './terminal/shells.js';
 import { attachTerminal } from './terminal/ipc.js';
@@ -14,7 +16,10 @@ import { allowRendererReload, getRendererUrl, validateAppInfoRequest } from './s
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
-export async function createMainWindow(diagnostics: DiagnosticLog): Promise<BrowserWindow> {
+export async function createMainWindow(
+  diagnostics: DiagnosticLog,
+  database: LocalDatabase,
+): Promise<BrowserWindow> {
   const rendererUrl = getRendererUrl(
     join(outputDirectory, '../renderer/index.html'),
     process.env.ELECTRON_RENDERER_URL,
@@ -52,6 +57,30 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
       webSecurity: true,
       webviewTag: false,
     },
+  });
+
+  for (const channel of Object.values(hostChannels)) {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      try {
+        if (channel === hostChannels.list && args.length === 0) return database.listHosts();
+        if (
+          channel === hostChannels.save &&
+          args.length === 2 &&
+          (args[1] === undefined || validHostId(args[1]))
+        )
+          return database.saveHost(args[0], args[1]);
+        if (channel === hostChannels.delete && args.length === 1)
+          return database.deleteHost(args[0]);
+        throw new Error('Invalid request.');
+      } catch {
+        diagnostics.record('host-operation-failed');
+        throw new Error('Host operation failed. Check the fields and local storage, then retry.');
+      }
+    });
+  }
+  window.once('closed', () => {
+    for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
   });
 
   attachClipboard(window, rendererUrl, diagnostics);

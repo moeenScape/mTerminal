@@ -1,3 +1,4 @@
+import type { HostsApi } from './hosts.js';
 import type { TerminalApi } from './terminal.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
@@ -7,7 +8,7 @@ export interface AppInfo {
   platform: string;
 }
 
-export interface DesktopApi extends TerminalApi {
+export interface DesktopApi extends TerminalApi, HostsApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
