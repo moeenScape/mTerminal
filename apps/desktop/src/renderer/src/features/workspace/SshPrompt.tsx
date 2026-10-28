@@ -4,11 +4,13 @@ import { validateSshCredentials, type SshCredentials } from '../../../../shared/
 
 export function SshPrompt({
   title,
+  reconnect,
   hostId,
   onConnect,
   onCancel,
 }: {
   title: string;
+  reconnect: boolean;
   hostId: string;
   onConnect: (credentials: SshCredentials) => void;
   onCancel: () => void;
@@ -64,7 +66,15 @@ export function SshPrompt({
           }
         }}
       >
-        <h2 id="ssh-title">Connect to “{title}”</h2>
+        <h2 id="ssh-title">
+          {reconnect ? 'Reconnect' : 'Connect'} to “{title}”
+        </h2>
+        {reconnect && (
+          <p>
+            Reconnect starts a new remote shell and clears the displayed terminal output. The
+            previous session is lost. Commands are never replayed. Cancel keeps the current output.
+          </p>
+        )}
         <label>
           SSH username
           <input
@@ -183,7 +193,7 @@ export function SshPrompt({
             Cancel
           </button>
           <button type="submit" disabled={keyLoading || (method === 'privateKey' && !privateKey)}>
-            Connect
+            {reconnect ? 'Reconnect' : 'Connect'}
           </button>
         </div>
       </form>

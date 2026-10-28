@@ -919,7 +919,7 @@ for (const outcome of ['disconnected', 'failed'] as const) {
       .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '')
       .toContain('F22_FINAL_OUTPUT');
     await expect(page.getByRole('button', { name: 'Paste', exact: true })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Connect SSH', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reconnect SSH', exact: true })).toBeVisible();
   });
 }
 
@@ -942,5 +942,108 @@ test('marks a rejected SSH startup as failed rather than disconnected', async ()
   await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
   await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'SSH failed.' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Connect SSH', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reconnect SSH', exact: true })).toBeVisible();
+});
+
+test('reconnect asks for fresh credentials, preserves output on cancel and never replays input', async () => {
+  // Isolated IPC fixture: verify reconnect behavior without contacting a server.
+  await application.evaluate(({ ipcMain }) => {
+    const attempts: string[] = [];
+    const writes: { id: string; data: string }[] = [];
+    const supplied: boolean[] = [];
+    let drop: () => void = () => {};
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', (event, id: string, _size, _host, credentials) => {
+      attempts.push(id);
+      supplied.push(credentials.password === `fixture-${attempts.length}`);
+      event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+      event.sender.send('terminal:event', {
+        kind: 'data',
+        id,
+        data: `F23_OUTPUT_${attempts.length}\r\n`,
+      });
+      drop = () =>
+        event.sender.send('terminal:event', {
+          kind: 'exit',
+          id,
+          exitCode: 255,
+          connectionState: 'failed',
+          failureCode: 'ssh-keepalive-timeout',
+        });
+      return { ok: true };
+    });
+    ipcMain.on('terminal:write', (_event, id, input) => writes.push({ id, data: input.data }));
+    ipcMain.on('fixture:drop', () => drop());
+    ipcMain.on(
+      'fixture:inspect',
+      (
+        _event,
+        reply: (value: {
+          attempts: string[];
+          writes: { id: string; data: string }[];
+          supplied: boolean[];
+        }) => void,
+      ) => reply({ attempts, writes, supplied }),
+    );
+  });
+  const inspect = () =>
+    application.evaluate(
+      ({ ipcMain }) =>
+        new Promise<{
+          attempts: string[];
+          writes: { id: string; data: string }[];
+          supplied: boolean[];
+        }>((resolve) => {
+          ipcMain.emit('fixture:inspect', null, resolve);
+        }),
+    );
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Reconnect fixture',
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to Reconnect fixture' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
+  await dialog.getByLabel('Session password').fill('fixture-1');
+  await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  await page.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('echo DO_NOT_REPLAY');
+  await expect
+    .poll(async () => (await inspect()).writes.map((write) => write.data).join(''))
+    .toContain('echo DO_NOT_REPLAY');
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.emit('fixture:drop');
+  });
+  await expect(
+    page.getByRole('status').filter({ hasText: 'stopped responding to keepalive' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Reconnect SSH' }).click();
+  await expect(dialog.getByLabel('Session password')).toHaveValue('');
+  await expect(dialog).toContainText('previous session is lost');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect
+    .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '')
+    .toContain('F23_OUTPUT_1');
+  expect((await inspect()).attempts).toHaveLength(1);
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  expect((await inspect()).attempts).toHaveLength(1);
+  await page.getByRole('button', { name: 'Reconnect SSH' }).click();
+  await expect(dialog.getByLabel('Session password')).toHaveValue('');
+  await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
+  await dialog.getByLabel('Session password').fill('fixture-2');
+  await dialog.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  const result = await inspect();
+  expect(result.attempts).toHaveLength(2);
+  expect(result.attempts[0]).not.toBe(result.attempts[1]);
+  expect(result.writes.filter((write) => write.id === result.attempts[1])).toEqual([]);
+  expect(result.supplied).toEqual([true, true]);
 });

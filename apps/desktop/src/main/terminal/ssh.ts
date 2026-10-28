@@ -31,6 +31,7 @@ export function openSsh(
     let exitCode = 255;
     let mismatch = false;
     let failed = false;
+    let failureCode: TerminalExit['failureCode'];
     let lastState: SshConnectionState | undefined;
     const progress = (state: SshConnectionState) => {
       if (!ended && !settled && lastState !== state) {
@@ -41,6 +42,7 @@ export function openSsh(
     const outcome = (): TerminalExit => ({
       exitCode,
       connectionState: failed ? 'failed' : 'disconnected',
+      ...(failureCode ? { failureCode } : {}),
     });
     const dataListeners = new Set<(data: string) => void>();
     const exitListeners = new Set<(event: TerminalExit) => void>();
@@ -66,8 +68,16 @@ export function openSsh(
       stream?.destroy();
       client.destroy();
     };
-    const fail = () => {
+    const fail = (error?: unknown) => {
       if (!ended) {
+        if (
+          settled &&
+          error &&
+          typeof error === 'object' &&
+          'level' in error &&
+          error.level === 'client-timeout'
+        )
+          failureCode = 'ssh-keepalive-timeout';
         failed = true;
         finish();
       }
@@ -178,6 +188,8 @@ export function openSsh(
         host: host.address,
         port: host.port,
         username: credentials.username,
+        keepaliveInterval: 15000,
+        keepaliveCountMax: 3,
         ...(credentials.method === 'privateKey'
           ? { privateKey: credentials.privateKey!, passphrase: credentials.passphrase! }
           : credentials.method === 'keyboard-interactive'

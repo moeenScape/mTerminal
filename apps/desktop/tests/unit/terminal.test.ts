@@ -14,6 +14,7 @@ function fakePty() {
   let exit: (event: {
     exitCode: number;
     connectionState?: 'disconnected' | 'failed';
+    failureCode?: 'ssh-keepalive-timeout';
   }) => void = () => {};
   const disposeData = vi.fn();
   const disposeExit = vi.fn();
@@ -37,8 +38,16 @@ function fakePty() {
     pty: pty as unknown as IPty,
     destroy: pty.destroy,
     data: (value: string) => data(value),
-    exit: (exitCode: number, connectionState?: 'disconnected' | 'failed') =>
-      exit({ exitCode, ...(connectionState ? { connectionState } : {}) }),
+    exit: (
+      exitCode: number,
+      connectionState?: 'disconnected' | 'failed',
+      failureCode?: 'ssh-keepalive-timeout',
+    ) =>
+      exit({
+        exitCode,
+        ...(connectionState ? { connectionState } : {}),
+        ...(failureCode ? { failureCode } : {}),
+      }),
     disposeData,
     disposeExit,
   };

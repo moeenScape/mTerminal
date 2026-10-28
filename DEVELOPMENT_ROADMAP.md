@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F22 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F23 — Keepalive and reconnect; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F22 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust and explicit SSH connection states; desktop verification pending |
+| Active feature | F23 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F24 — Cancellation; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F23 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive and explicit reconnect; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -106,7 +106,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 - [x] **F20 — Authentication (implementation):** Session-only passwords, selected private-key files with optional passphrases, multi-round keyboard-interactive prompts and optional challenge continuation after password/key authentication. Bounded, session/token-scoped replies; cancellation and expiry. Tests written; execution deferred to Phase 2 gate.
 - [x] **F21 — Known hosts (implementation):** Persistent endpoint fingerprints, unknown-key confirmation, changed-key refusal with both fingerprints, explicit checked rotation followed by a new connection, optional pinning and cancellation. Tests written; execution deferred to Phase 2 gate.
 - [x] **F22 — Connection state (implementation):** Main-owned connecting, identity verification, authenticating, opening-shell and connected progress; disconnected/failed outcomes, retained terminal output, active-session counts and close guards. Tests written; execution deferred to Phase 2 gate.
-- [ ] **F23 — Keepalive and reconnect:** Detect connection loss and allow explicit reconnection.
+- [x] **F23 — Keepalive and reconnect (implementation):** SSH keepalive probes, a specific lost-peer failure message, and explicit reconnect with new session IDs, fresh credentials, profile/trust re-evaluation and no command replay. Tests written; execution deferred to Phase 2 gate.
 - [ ] **F24 — Cancellation:** Cancel pending connections and release resources.
 
 Completion criteria: Test valid/invalid credentials, changed fingerprints, disconnects, cancellation, and remote terminal resizing against disposable servers. Reconnection must not silently repeat previous commands.
@@ -682,3 +682,28 @@ final output delivery, close guards and isolated desktop IPC lifecycle fixtures
 covering disconnected and failed outcomes. Tests remain deferred to the Phase 2
 gate. Live SSH, visual and platform verification remain pending under the
 existing sandbox blocker. Next: F23.
+
+
+### F23 implementation update
+
+ssh2 keepalive requests run at 15-second intervals with three unanswered requests
+allowed; closure normally occurs at the next interval (about 60 seconds, subject
+to scheduling). Post-connection client-timeout errors carry a fixed keepalive
+failure code through the owned terminal exit event. The renderer retains output,
+disables input/paste and reports that the server stopped responding. Other
+transport errors and normal disconnections retain their F22 behavior.
+
+After an SSH attempt ends, Reconnect SSH opens fresh authentication fields. The
+dialog explains that confirming starts a new shell, clears displayed output
+and loses the previous session. Cancelling keeps output and performs no attempt.
+Confirmed reconnects use a new UUID, resolve current host/group settings and
+verify host trust again. Credentials and prior input are not retained/replayed.
+View changes cannot trigger automatic reconnect. Local shell behavior is unchanged.
+
+Build, type, lint, format and diff checks pass. An SSH loopback/proxy test blocks
+traffic and advances only interval timers to exercise unanswered keepalive loss.
+A desktop IPC fixture covers the lost-peer message, fresh credentials, cancelled
+reconnect preserving output, view changes, new session IDs and zero input replay.
+Tests are written/type-checked but deferred to the Phase 2 gate. Real timing, live
+network-loss, desktop visual and Windows/macOS checks remain pending under the
+recorded sandbox blocker. Next: F24.

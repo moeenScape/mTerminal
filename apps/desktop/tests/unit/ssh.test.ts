@@ -1,6 +1,8 @@
+import { createServer, connect, type Socket } from 'node:net';
+import type { TerminalTransport, TerminalExit } from '../../src/main/terminal/transport.js';
 import { generateKeyPairSync, createHash } from 'node:crypto';
 import { Server, utils, type Connection, type AuthContext } from 'ssh2';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { openSsh, fingerprintMatches } from '../../src/main/terminal/ssh.js';
 import type { SshConnectionState } from '../../src/shared/terminal.js';
 import { validateSshCredentials } from '../../src/shared/ssh.js';
@@ -290,6 +292,55 @@ describe('SSH terminal transport', () => {
         async (key) => fingerprintMatches(key, fingerprint),
       );
       transport.kill();
+    });
+  });
+  it('closes a blackholed connection after unanswered keepalive probes', async () => {
+    await fixture(async (port, fingerprint) => {
+      let blackhole = false;
+      const sockets = new Set<Socket>();
+      const proxy = createServer((downstream) => {
+        const upstream = connect(port, '127.0.0.1');
+        sockets.add(downstream);
+        sockets.add(upstream);
+        downstream.on('error', () => {});
+        upstream.on('error', () => {});
+        downstream.on('data', (data: Buffer) => {
+          if (!blackhole) upstream.write(data);
+        });
+        upstream.on('data', (data: Buffer) => {
+          if (!blackhole) downstream.write(data);
+        });
+        downstream.on('close', () => upstream.destroy());
+        upstream.on('close', () => downstream.destroy());
+      });
+      await new Promise<void>((resolve, reject) => {
+        proxy.once('error', reject);
+        proxy.listen(0, '127.0.0.1', resolve);
+      });
+      let transport: TerminalTransport | undefined;
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      try {
+        const address = proxy.address();
+        if (!address || typeof address === 'string') throw new Error('Missing proxy address');
+        transport = await openSsh(
+          { ...host, port: address.port },
+          { username: 'user', password: 'test-password', fingerprint },
+          size,
+          new AbortController().signal,
+        );
+        const ended = new Promise<TerminalExit>((resolve) => transport!.onExit(resolve));
+        blackhole = true;
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(await ended).toMatchObject({
+          connectionState: 'failed',
+          failureCode: 'ssh-keepalive-timeout',
+        });
+      } finally {
+        transport?.kill();
+        vi.useRealTimers();
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => proxy.close(() => resolve()));
+      }
     });
   });
 });

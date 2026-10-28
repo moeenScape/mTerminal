@@ -62,7 +62,7 @@ both the channel and terminal owner are ready. Setup rejection displays Failed
 with a fixed error message. Shell/channel or network close displays Disconnected
 with its exit code (255 when no exit status is available); transport errors after
 connection display Failed. Output remains visible, input/paste is disabled, and
-Connect SSH starts a fresh attempt. Active verification/authentication tabs still
+Reconnect SSH starts a fresh attempt. Active verification/authentication tabs still
 require close confirmation. Connected SSH tabs contribute to the session count.
 Local terminal statuses retain their existing behavior.
 
@@ -87,3 +87,26 @@ final-output-before-exit delivery and active close guards. Desktop lifecycle tes
 use an isolated IPC fixture for both disconnection and runtime failure. These
 tests remain deferred until the Phase 2 gate. No live networking or visual pass
 is inferred from the static/build checks.
+
+## Keepalive and reconnect
+
+SSH connections send a keepalive request every 15 seconds. Three unanswered
+requests are allowed; the next interval closes the transport (normally about
+60 seconds without replies, subject to scheduling). The terminal reports that
+the server stopped responding, marks the session Failed, disables input/paste
+and keeps the displayed output. Probes use ssh2 protocol requests, not shell
+commands. Ordinary remote shell exit still reports Disconnected.
+
+Reconnect SSH is available only after an attempt ends. It opens a fresh
+authentication dialog with no retained password, private key, passphrase or
+challenge answers, and uses the current saved profile/group defaults. Saved
+endpoint trust and any newly supplied pin are verified again. Confirming the
+dialog clears displayed output and starts a new session with a new ID; it does
+not resume the old shell or replay input. Cancelling the dialog preserves output
+and starts no connection. Switching views never triggers an automatic reconnect.
+
+The loopback test includes a proxy that stops forwarding SSH traffic and an
+accelerated interval clock to exercise keepalive loss. A desktop IPC fixture
+covers fresh credentials, cancellation, new IDs and absence of input replay.
+These tests are written/type-checked and deferred to the Phase 2 gate; real
+network-loss timing and cross-platform behavior remain unverified.

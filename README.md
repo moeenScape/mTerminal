@@ -214,3 +214,9 @@ password/key authentication). Credentials remain session-only.
 SSH tabs display Connecting, Verifying key, Authenticating, Opening shell and
 Connected progress. Completed connections retain output and show Disconnected
 or Failed; retry is explicit.
+
+F23 enables 15-second SSH keepalive probes with three unanswered probes allowed.
+A stalled peer is normally closed on the following probe (about 60 seconds).
+After loss/exit, **Reconnect SSH** requests fresh credentials and starts a new
+shell. Its prompt warns that submitting clears displayed output; cancelling
+keeps it. Connections and previous commands are never replayed automatically.

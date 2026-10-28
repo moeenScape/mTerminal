@@ -76,6 +76,7 @@ export function TerminalPane({
   const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [status, setStatus] = useState('No active session');
   const [sshPrompt, setSshPrompt] = useState(false);
   const [sshChallenge, setSshChallenge] = useState<SshChallenge | null>(null);
@@ -185,9 +186,11 @@ export function TerminalPane({
         );
         setStatus(
           event.kind === 'exit'
-            ? hostId
-              ? `SSH ${event.connectionState === 'failed' ? 'failed' : 'disconnected'} (code ${event.exitCode})`
-              : `Shell exited (code ${event.exitCode})`
+            ? event.failureCode
+              ? failureMessages[event.failureCode]
+              : hostId
+                ? `SSH ${event.connectionState === 'failed' ? 'failed' : 'disconnected'} (code ${event.exitCode})`
+                : `Shell exited (code ${event.exitCode})`
             : failureMessages[event.code],
         );
       }
@@ -282,6 +285,7 @@ export function TerminalPane({
       term.reset();
       const sessionId = crypto.randomUUID();
       session.current = sessionId;
+      setAttempted(true);
       setStarting(true);
       onPhaseChange(id, hostId ? 'connecting' : 'starting');
       setStatus(hostId ? 'Connecting SSH…' : 'Starting local shell…');
@@ -357,6 +361,7 @@ export function TerminalPane({
       {sshPrompt && (
         <SshPrompt
           title={title}
+          reconnect={attempted}
           hostId={hostId!}
           onConnect={(credentials) => void start(credentials)}
           onCancel={() => setSshPrompt(false)}
@@ -404,7 +409,7 @@ export function TerminalPane({
           </button>
         ) : (
           <button type="button" className="secondary-button" onClick={() => void start()}>
-            {hostId ? 'Connect SSH' : 'Start local shell'}
+            {hostId ? (attempted ? 'Reconnect SSH' : 'Connect SSH') : 'Start local shell'}
           </button>
         )}
       </header>

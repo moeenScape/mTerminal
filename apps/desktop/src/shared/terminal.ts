@@ -30,7 +30,13 @@ export type SshConnectionState = keyof typeof sshStateMessages;
 export type TerminalEvent =
   | { kind: 'state'; id: string; state: SshConnectionState }
   | { kind: 'data'; id: string; data: string }
-  | { kind: 'exit'; id: string; exitCode: number; connectionState?: 'disconnected' | 'failed' }
+  | {
+      kind: 'exit';
+      id: string;
+      exitCode: number;
+      connectionState?: 'disconnected' | 'failed';
+      failureCode?: 'ssh-keepalive-timeout';
+    }
   | { kind: 'error'; id: string; code: 'terminal-failed' | 'terminal-overflow' };
 export const terminalLimits = { minCols: 2, maxCols: 500, minRows: 1, maxRows: 300 } as const;
 export interface TerminalSize {

@@ -6,4 +6,5 @@ export type TerminalTransport = Pick<
 export interface TerminalExit {
   exitCode: number;
   connectionState?: 'disconnected' | 'failed';
+  failureCode?: 'ssh-keepalive-timeout';
 }
