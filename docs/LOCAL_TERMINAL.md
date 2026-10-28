@@ -307,3 +307,7 @@ References: [Electron clipboard API](https://www.electronjs.org/docs/latest/api/
 ## Search and scrollback (F13)
 
 Each terminal tab has its own literal search and query. Search is case-insensitive by default; Match case changes it. Ctrl+Shift+F or Command+F opens search, Enter/Shift+Enter navigate, and Escape closes it. Search queries are limited to 256 UTF-16 units. Highlights are capped at 1,000; the displayed count says “at least” at the cap. Bottom returns to live output. Scrollback keeps 3,000 lines per tab plus the visible screen; older lines are discarded. Queries and output remain in memory and are not logged. Regex search, persistence, native visual checks and phase tests remain pending.
+
+## Terminal appearance (F14)
+
+Each tab offers Terminal appearance controls for following the app theme or choosing dark/light, font family, font size, zoom, cursor shape and blinking. Reset restores defaults for that tab. Font/zoom changes request a new synchronized terminal and PTY fit. Choices remain in memory across tab/view changes and are discarded when the tab or app closes; persistent appearance profiles are not implemented. Tests are written but deferred to the Phase 1 gate, and native visual/platform behavior remains unverified.

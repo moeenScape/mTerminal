@@ -1,3 +1,10 @@
+import {
+  defaultTerminalAppearance,
+  terminalOptions,
+  type TerminalTheme,
+  type TerminalFont,
+  type TerminalCursor,
+} from './appearance';
 import { SearchAddon } from '@xterm/addon-search';
 import { TERMINAL_SCROLLBACK_LINES } from '../../../../shared/terminal';
 import {
@@ -61,6 +68,7 @@ export function TerminalPane({
   const inputReady = useRef(false);
   const autoStarted = useRef(false);
   const session = useRef<string | null>(null);
+  const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState('No active session');
@@ -180,11 +188,9 @@ export function TerminalPane({
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
-    term.options.theme =
-      appearance === 'light'
-        ? { background: '#f5f6fa', foreground: '#182230', cursor: '#136c56' }
-        : { background: '#141620', foreground: '#edf0f7', cursor: '#8bd8c0' };
-  }, [appearance]);
+    term.options = terminalOptions(terminalAppearance, appearance);
+    sizing.current?.schedule();
+  }, [appearance, terminalAppearance]);
   useEffect(() => {
     terminal.current?.attachCustomKeyEventHandler((event) => {
       if (isTerminalSearchShortcut(event)) {
@@ -336,6 +342,106 @@ export function TerminalPane({
           </button>
         )}
       </header>
+      <details className="terminal-appearance">
+        <summary>Terminal appearance</summary>
+        <div className="appearance-controls">
+          <label>
+            Theme
+            <select
+              value={terminalAppearance.theme}
+              onChange={(event) =>
+                setTerminalAppearance({
+                  ...terminalAppearance,
+                  theme: event.target.value as TerminalTheme,
+                })
+              }
+            >
+              <option value="system">Follow app</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+          <label>
+            Font
+            <select
+              value={terminalAppearance.font}
+              onChange={(event) =>
+                setTerminalAppearance({
+                  ...terminalAppearance,
+                  font: event.target.value as TerminalFont,
+                })
+              }
+            >
+              <option value="default">Default</option>
+              <option value="monospace">System monospace</option>
+              <option value="dejavu">DejaVu Sans Mono</option>
+            </select>
+          </label>
+          <label>
+            Font size
+            <select
+              value={terminalAppearance.fontSize}
+              onChange={(event) =>
+                setTerminalAppearance({
+                  ...terminalAppearance,
+                  fontSize: Number(event.target.value),
+                })
+              }
+            >
+              {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((size) => (
+                <option key={size} value={size}>
+                  {size}px
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Zoom
+            <select
+              value={terminalAppearance.zoom}
+              onChange={(event) =>
+                setTerminalAppearance({ ...terminalAppearance, zoom: Number(event.target.value) })
+              }
+            >
+              {[75, 90, 100, 110, 125, 150].map((zoom) => (
+                <option key={zoom} value={zoom}>
+                  {zoom}%
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Cursor
+            <select
+              value={terminalAppearance.cursor}
+              onChange={(event) =>
+                setTerminalAppearance({
+                  ...terminalAppearance,
+                  cursor: event.target.value as TerminalCursor,
+                })
+              }
+            >
+              <option value="block">Block</option>
+              <option value="bar">Bar</option>
+              <option value="underline">Underline</option>
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={terminalAppearance.blink}
+              onChange={(event) =>
+                setTerminalAppearance({ ...terminalAppearance, blink: event.target.checked })
+              }
+            />
+            Blink cursor
+          </label>
+          <button type="button" onClick={() => setTerminalAppearance(defaultTerminalAppearance)}>
+            Reset appearance
+          </button>
+        </div>
+        <p>Changes apply to this terminal tab for this app session.</p>
+      </details>
       {searchOpen && (
         <form
           className="terminal-search"

@@ -26,6 +26,7 @@
     "src/main/terminal/registry.ts",
     "src/renderer/src/features/workspace/tabs.ts",
     "src/main/clipboard.ts",
-    "src/renderer/src/features/workspace/terminal-search.ts"
+    "src/renderer/src/features/workspace/terminal-search.ts",
+    "src/renderer/src/features/workspace/appearance.ts"
   ]
 }

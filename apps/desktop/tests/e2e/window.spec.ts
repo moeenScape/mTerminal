@@ -539,3 +539,24 @@ test('searches retained terminal output and keeps searches isolated by tab', asy
   await page.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
   await expect(search.getByLabel('Find output')).toHaveValue('SEARCH_F13_MARKER');
 });
+
+test('keeps terminal appearance settings independent between tabs', async () => {
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const first = page.getByRole('tabpanel', { name: 'Terminal 1' });
+  await first.getByText('Terminal appearance').click();
+  await first.getByLabel('Theme', { exact: true }).selectOption('light');
+  await first.getByLabel('Font size').selectOption('20');
+  await first.getByLabel('Zoom', { exact: true }).selectOption('125');
+  await first.getByLabel('Cursor', { exact: true }).selectOption('bar');
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2' });
+  await second.getByText('Terminal appearance').click();
+  await expect(second.getByLabel('Theme', { exact: true })).toHaveValue('system');
+  await expect(second.getByLabel('Font size')).toHaveValue('14');
+  await page.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
+  await expect(first.getByLabel('Theme', { exact: true })).toHaveValue('light');
+  await expect(first.getByLabel('Font size')).toHaveValue('20');
+  await first.getByRole('button', { name: 'Reset appearance' }).click();
+  await expect(first.getByLabel('Cursor', { exact: true })).toHaveValue('block');
+});
