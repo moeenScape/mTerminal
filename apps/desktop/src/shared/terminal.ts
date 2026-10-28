@@ -19,9 +19,18 @@ export interface ShellInfo {
   path: string;
   name: string;
 }
+export const sshStateMessages = {
+  connecting: 'SSH connecting…',
+  verifying: 'SSH verifying server identity…',
+  authenticating: 'SSH authenticating…',
+  'opening-shell': 'SSH opening remote shell…',
+  connected: 'SSH connected',
+} as const;
+export type SshConnectionState = keyof typeof sshStateMessages;
 export type TerminalEvent =
+  | { kind: 'state'; id: string; state: SshConnectionState }
   | { kind: 'data'; id: string; data: string }
-  | { kind: 'exit'; id: string; exitCode: number }
+  | { kind: 'exit'; id: string; exitCode: number; connectionState?: 'disconnected' | 'failed' }
   | { kind: 'error'; id: string; code: 'terminal-failed' | 'terminal-overflow' };
 export const terminalLimits = { minCols: 2, maxCols: 500, minRows: 1, maxRows: 300 } as const;
 export interface TerminalSize {

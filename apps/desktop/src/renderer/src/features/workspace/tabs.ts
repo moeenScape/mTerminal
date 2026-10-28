@@ -1,5 +1,38 @@
-import { MAX_TERMINAL_TABS } from '../../../../shared/terminal.js';
-export type TabPhase = 'idle' | 'starting' | 'running' | 'exited' | 'error';
+import { MAX_TERMINAL_TABS, type SshConnectionState } from '../../../../shared/terminal.js';
+export type TabPhase =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'exited'
+  | 'error'
+  | SshConnectionState
+  | 'disconnected'
+  | 'failed';
+export const tabPhaseLabels: Record<TabPhase, string> = {
+  idle: 'Ready',
+  starting: 'Starting',
+  running: 'Running',
+  exited: 'Exited',
+  error: 'Error',
+  connecting: 'Connecting',
+  verifying: 'Verifying key',
+  authenticating: 'Authenticating',
+  'opening-shell': 'Opening shell',
+  connected: 'Connected',
+  disconnected: 'Disconnected',
+  failed: 'Failed',
+};
+export function isLiveTab(phase: TabPhase): boolean {
+  return [
+    'starting',
+    'running',
+    'connecting',
+    'verifying',
+    'authenticating',
+    'opening-shell',
+    'connected',
+  ].includes(phase);
+}
 export interface TerminalTab {
   id: string;
   title: string;

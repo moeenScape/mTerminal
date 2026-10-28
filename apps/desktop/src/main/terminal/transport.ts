@@ -1,5 +1,9 @@
-import type { IPty } from 'node-pty';
+import type { IDisposable, IPty } from 'node-pty';
 export type TerminalTransport = Pick<
   IPty,
-  'write' | 'resize' | 'kill' | 'onData' | 'onExit' | 'pause' | 'resume'
->;
+  'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
+> & { onExit: (listener: (event: TerminalExit) => void) => IDisposable };
+export interface TerminalExit {
+  exitCode: number;
+  connectionState?: 'disconnected' | 'failed';
+}

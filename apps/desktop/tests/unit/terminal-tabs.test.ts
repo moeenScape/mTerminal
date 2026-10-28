@@ -1,3 +1,4 @@
+import { isLiveTab } from '../../src/renderer/src/features/workspace/tabs.js';
 import { describe, expect, it } from 'vitest';
 import {
   tabsReducer,
@@ -47,5 +48,20 @@ describe('terminal tab state', () => {
     for (let n = 0; n < MAX_TERMINAL_TABS; n++)
       full = tabsReducer(full, { type: 'add', id: String(n), title: `Terminal ${n}` });
     expect(tabsReducer(full, { type: 'add', id: 'extra', title: 'Extra' })).toBe(full);
+  });
+});
+
+describe('SSH tab lifecycle', () => {
+  it('requires close confirmation during every active SSH phase', () => {
+    for (const phase of [
+      'connecting',
+      'verifying',
+      'authenticating',
+      'opening-shell',
+      'connected',
+    ] as const)
+      expect(isLiveTab(phase)).toBe(true);
+    for (const phase of ['idle', 'failed', 'disconnected', 'exited'] as const)
+      expect(isLiveTab(phase)).toBe(false);
   });
 });

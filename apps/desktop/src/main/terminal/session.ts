@@ -75,11 +75,16 @@ export class TerminalSession {
       pty.resize(session.size.cols, session.size.rows);
       session.listeners.push(pty.onData((data) => this.output(session, data)));
       session.listeners.push(
-        pty.onExit(({ exitCode }) => {
+        pty.onExit(({ exitCode, connectionState }) => {
           if (this.session !== session) return;
           this.flush(session, true);
           this.release(session, false);
-          this.send({ kind: 'exit', id, exitCode });
+          this.send({
+            kind: 'exit',
+            id,
+            exitCode,
+            ...(connectionState ? { connectionState } : {}),
+          });
         }),
       );
     } catch (error) {

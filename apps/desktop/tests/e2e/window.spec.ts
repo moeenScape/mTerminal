@@ -824,6 +824,7 @@ for (const changed of [false, true]) {
     });
     await page.reload();
     await page.getByRole('button', { name: 'Connect to Trust fixture' }).click();
+    await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
     await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading')).toContainText(
@@ -838,7 +839,108 @@ for (const changed of [false, true]) {
       await replace.click();
     } else await dialog.getByRole('button', { name: 'Trust and save key' }).click();
     await expect(
-      page.getByRole('status').filter({ hasText: 'Shell exited (code 0)' }),
+      page.getByRole('status').filter({ hasText: 'SSH disconnected (code 0)' }),
     ).toBeVisible();
   });
 }
+
+for (const outcome of ['disconnected', 'failed'] as const) {
+  test(`shows SSH progress and preserves output when ${outcome}`, async () => {
+    // Control IPC progress without using the network or weakening host-key verification.
+    await application.evaluate(({ ipcMain }, outcome) => {
+      ipcMain.removeHandler('terminal:ssh');
+      ipcMain.handle(
+        'terminal:ssh',
+        (event, id: string) =>
+          new Promise((resolve) => {
+            event.sender.send('terminal:event', { kind: 'state', id, state: 'connecting' });
+            ipcMain.on('fixture:ssh-step', (_event, state: string) => {
+              if (state === 'end') {
+                event.sender.send('terminal:event', {
+                  kind: 'data',
+                  id,
+                  data: 'F22_FINAL_OUTPUT\r\n',
+                });
+                event.sender.send('terminal:event', {
+                  kind: 'exit',
+                  id,
+                  exitCode: outcome === 'failed' ? 255 : 0,
+                  connectionState: outcome,
+                });
+              } else {
+                event.sender.send('terminal:event', { kind: 'state', id, state });
+                if (state === 'connected') resolve({ ok: true });
+              }
+            });
+          }),
+      );
+    }, outcome);
+    await page.evaluate(async () => {
+      await window.mterminal.saveHost({
+        name: 'State fixture',
+        address: 'example.com',
+        port: 22,
+        username: 'deploy',
+        protocol: 'ssh',
+      });
+    });
+    await page.reload();
+    await page.getByRole('button', { name: 'Connect to State fixture' }).click();
+    await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
+    await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'SSH connecting…' })).toBeVisible();
+    for (const [state, message] of [
+      ['verifying', 'SSH verifying server identity…'],
+      ['authenticating', 'SSH authenticating…'],
+      ['opening-shell', 'SSH opening remote shell…'],
+      ['connected', 'SSH connected'],
+    ] as const) {
+      await application.evaluate(({ ipcMain }, state) => {
+        ipcMain.emit('fixture:ssh-step', null, state);
+      }, state);
+      await expect(page.getByRole('status').filter({ hasText: message })).toBeVisible();
+      if (state === 'authenticating') {
+        await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(page.getByRole('dialog').getByRole('heading')).toHaveText(
+          'Close “State fixture”?',
+        );
+        await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+      }
+    }
+    await application.evaluate(({ ipcMain }) => {
+      ipcMain.emit('fixture:ssh-step', null, 'end');
+    });
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: `SSH ${outcome} (code ${outcome === 'failed' ? 255 : 0})` }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '')
+      .toContain('F22_FINAL_OUTPUT');
+    await expect(page.getByRole('button', { name: 'Paste', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Connect SSH', exact: true })).toBeVisible();
+  });
+}
+
+test('marks a rejected SSH startup as failed rather than disconnected', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', () => ({ ok: false, code: 'ssh-failed' }));
+  });
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Failed startup',
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to Failed startup' }).click();
+  await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
+  await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH failed.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect SSH', exact: true })).toBeVisible();
+});

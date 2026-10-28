@@ -122,4 +122,27 @@ describe('owned terminal registry', () => {
     await registry.open('allowed', size, async () => fakePty().pty);
     registry.dispose();
   });
+  it('keeps sessions alive through progress and ignores reports from replaced owners', async () => {
+    const send = vi.fn();
+    const registry = new TerminalRegistry(send);
+    let report!: (state: 'connecting' | 'connected') => void;
+    const old = fakePty();
+    await registry.open('reused', size, async (_signal, notify) => {
+      report = notify;
+      notify('connecting');
+      return old.pty;
+    });
+    expect(registry.count).toBe(1);
+    registry.write('reused', { kind: 'text', data: 'still owned' });
+    expect(old.pty.write).toHaveBeenCalledWith('still owned');
+    expect(send).toHaveBeenCalledWith({ kind: 'state', id: 'reused', state: 'connecting' });
+    registry.close('reused');
+    const current = fakePty();
+    await registry.open('reused', size, async () => current.pty);
+    send.mockClear();
+    report('connected');
+    expect(send).not.toHaveBeenCalled();
+    expect(current.destroy).not.toHaveBeenCalled();
+    registry.dispose();
+  });
 });

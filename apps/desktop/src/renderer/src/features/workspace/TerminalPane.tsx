@@ -9,7 +9,7 @@ import {
   type TerminalCursor,
 } from './appearance';
 import { SearchAddon } from '@xterm/addon-search';
-import { TERMINAL_SCROLLBACK_LINES } from '../../../../shared/terminal';
+import { TERMINAL_SCROLLBACK_LINES, sshStateMessages } from '../../../../shared/terminal';
 import {
   TerminalSearch,
   MAX_SEARCH_QUERY,
@@ -158,7 +158,11 @@ export function TerminalPane({
     const binary = term.onBinary((data) => sendInput(data, 'binary'));
     const unsubscribe = window.mterminal.onTerminalEvent((event) => {
       if (event.id !== session.current) return;
-      if (event.kind === 'data') {
+      if (event.kind === 'state') {
+        if (!hostId) return;
+        onPhaseChange(id, event.state);
+        setStatus(sshStateMessages[event.state]);
+      } else if (event.kind === 'data') {
         term.write(event.data, () => {
           if (!disposed && session.current === event.id)
             window.mterminal.ackTerminal(event.id, event.data.length);
@@ -169,10 +173,21 @@ export function TerminalPane({
         session.current = null;
         setRunning(false);
         setStarting(false);
-        onPhaseChange(id, event.kind === 'exit' ? 'exited' : 'error');
+        onPhaseChange(
+          id,
+          hostId
+            ? event.kind === 'exit'
+              ? (event.connectionState ?? 'disconnected')
+              : 'failed'
+            : event.kind === 'exit'
+              ? 'exited'
+              : 'error',
+        );
         setStatus(
           event.kind === 'exit'
-            ? `Shell exited (code ${event.exitCode})`
+            ? hostId
+              ? `SSH ${event.connectionState === 'failed' ? 'failed' : 'disconnected'} (code ${event.exitCode})`
+              : `Shell exited (code ${event.exitCode})`
             : failureMessages[event.code],
         );
       }
@@ -199,7 +214,7 @@ export function TerminalPane({
       sizing.current = null;
       term.dispose();
     };
-  }, [id, onPhaseChange, attachClipboard]);
+  }, [id, hostId, onPhaseChange, attachClipboard]);
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
@@ -257,7 +272,7 @@ export function TerminalPane({
         setStatus(
           'Terminal layout is not ready. Wait for fonts or resize the window, then try again.',
         );
-        onPhaseChange(id, 'error');
+        onPhaseChange(id, hostId ? 'failed' : 'error');
         return;
       }
       inputReady.current = false;
@@ -268,7 +283,7 @@ export function TerminalPane({
       const sessionId = crypto.randomUUID();
       session.current = sessionId;
       setStarting(true);
-      onPhaseChange(id, 'starting');
+      onPhaseChange(id, hostId ? 'connecting' : 'starting');
       setStatus(hostId ? 'Connecting SSH…' : 'Starting local shell…');
       try {
         if (hostId && credentials)
@@ -279,7 +294,7 @@ export function TerminalPane({
         inputReady.current = true;
         setRunning(true);
         setStarting(false);
-        onPhaseChange(id, 'running');
+        onPhaseChange(id, hostId ? 'connected' : 'running');
         setStatus(hostId ? 'SSH connected' : 'Local shell running');
         const panel = document.getElementById(`terminal-panel-${id}`);
         if (
@@ -294,13 +309,13 @@ export function TerminalPane({
         inputReady.current = false;
         session.current = null;
         setStarting(false);
-        onPhaseChange(id, 'error');
+        onPhaseChange(id, hostId ? 'failed' : 'error');
         const message =
           error instanceof Error &&
           Object.values(failureMessages).some((value) => value === error.message)
             ? error.message
             : failureMessages['terminal-failed'];
-        setStatus(message);
+        setStatus(hostId ? `SSH failed. ${message}` : message);
       }
     },
     [id, onPhaseChange, hostId],

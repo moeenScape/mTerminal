@@ -11,7 +11,10 @@ const id = '12345678-1234-4123-8123-123456789abc';
 const size = { cols: 80, rows: 24 };
 function fakePty() {
   let data: (value: string) => void = () => {};
-  let exit: (event: { exitCode: number }) => void = () => {};
+  let exit: (event: {
+    exitCode: number;
+    connectionState?: 'disconnected' | 'failed';
+  }) => void = () => {};
   const disposeData = vi.fn();
   const disposeExit = vi.fn();
   const pty = {
@@ -34,7 +37,8 @@ function fakePty() {
     pty: pty as unknown as IPty,
     destroy: pty.destroy,
     data: (value: string) => data(value),
-    exit: (exitCode: number) => exit({ exitCode }),
+    exit: (exitCode: number, connectionState?: 'disconnected' | 'failed') =>
+      exit({ exitCode, ...(connectionState ? { connectionState } : {}) }),
     disposeData,
     disposeExit,
   };
@@ -107,6 +111,19 @@ describe('local terminal lifecycle', () => {
       }),
     ).rejects.toThrow('failed');
     expect(signal.aborted).toBe(true);
+    terminal.dispose();
+  });
+  it('retains remote final output before reporting its disconnected state', async () => {
+    const fake = fakePty();
+    const events: TerminalEvent[] = [];
+    const terminal = new TerminalSession((event) => events.push(event));
+    await terminal.open(id, size, async () => fake.pty);
+    fake.data('final remote output');
+    fake.exit(0, 'disconnected');
+    expect(events).toEqual([
+      { kind: 'data', id, data: 'final remote output' },
+      { kind: 'exit', id, exitCode: 0, connectionState: 'disconnected' },
+    ]);
     terminal.dispose();
   });
   it('writes text controls unchanged and preserves eight-bit binary input', async () => {

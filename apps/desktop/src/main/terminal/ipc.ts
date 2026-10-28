@@ -14,6 +14,7 @@ import {
   validTerminalId,
   validTerminalSize,
   type TerminalSize,
+  type SshConnectionState,
   type TerminalOpenResult,
 } from '../../shared/terminal.js';
 import { validateAppInfoRequest } from '../security.js';
@@ -104,8 +105,10 @@ export function attachTerminal(
       if (!host) throw new Error('Host missing.');
       const resolved = resolveHost(host, database.listHostGroups());
       const effective = { ...resolved, address: knownHostAddress(resolved.address, resolved.port) };
-      await terminal.open(id, size, (signal) =>
-        openSsh(
+      let reportReady: ((state: SshConnectionState) => void) | undefined;
+      await terminal.open(id, size, (signal, report) => {
+        reportReady = report;
+        return openSsh(
           effective,
           credentials,
           size,
@@ -121,8 +124,10 @@ export function attachTerminal(
               signal,
               (question) => challenges.ask(id, question, signal),
             ),
-        ),
-      );
+          report,
+        );
+      });
+      reportReady?.('connected');
       return { ok: true };
     } catch (error) {
       const code = failureCode(error, 'ssh-failed');

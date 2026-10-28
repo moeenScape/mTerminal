@@ -210,3 +210,7 @@ See [SSH session setup](docs/SSH_SESSIONS.md) for details and current limitation
 SSH authentication supports passwords, private-key files with optional passphrases,
 and keyboard-interactive challenges (including optional MFA continuation after
 password/key authentication). Credentials remain session-only.
+
+SSH tabs display Connecting, Verifying key, Authenticating, Opening shell and
+Connected progress. Completed connections retain output and show Disconnected
+or Failed; retry is explicit.

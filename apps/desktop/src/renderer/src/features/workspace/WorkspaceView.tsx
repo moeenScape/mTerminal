@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { MAX_TERMINAL_TABS } from '../../../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
-import { tabsReducer, tabTitle, type TerminalTab, type TabPhase } from './tabs';
+import {
+  tabsReducer,
+  tabTitle,
+  tabPhaseLabels,
+  isLiveTab,
+  type TerminalTab,
+  type TabPhase,
+} from './tabs';
 
 function TabDialog({
   tab,
@@ -97,7 +104,9 @@ export function WorkspaceView({
   const dragged = useRef<string | null>(null);
   const focusFrame = useRef<number | undefined>(undefined);
   const current = state.tabs.find((tab) => tab.id === state.activeId);
-  const running = state.tabs.filter((tab) => tab.phase === 'running').length;
+  const running = state.tabs.filter(
+    (tab) => tab.phase === 'running' || tab.phase === 'connected',
+  ).length;
   const dialogTab = state.tabs.find((tab) => tab.id === dialog?.id);
   const phaseChanged = useCallback(
     (id: string, phase: TabPhase) => dispatch({ type: 'phase', id, phase }),
@@ -166,7 +175,7 @@ export function WorkspaceView({
   }
   const requestClose = (id: string) => {
     const tab = state.tabs.find((item) => item.id === id);
-    if (tab?.phase === 'running' || tab?.phase === 'starting') setDialog({ id, mode: 'close' });
+    if (tab && isLiveTab(tab.phase)) setDialog({ id, mode: 'close' });
     else close(id);
   };
   function keyDown(event: React.KeyboardEvent, index: number) {
@@ -274,15 +283,7 @@ export function WorkspaceView({
                     {tab.title}
                   </span>
                   <span id={`terminal-phase-${tab.id}`} className="terminal-tab-phase">
-                    {
-                      {
-                        idle: 'Ready',
-                        starting: 'Starting',
-                        running: 'Running',
-                        exited: 'Exited',
-                        error: 'Error',
-                      }[tab.phase]
-                    }
+                    {tabPhaseLabels[tab.phase]}
                   </span>
                 </button>
                 <button

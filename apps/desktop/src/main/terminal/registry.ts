@@ -1,5 +1,10 @@
 import type { TerminalTransport } from './transport.js';
-import { MAX_TERMINAL_TABS, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
+import {
+  MAX_TERMINAL_TABS,
+  type TerminalEvent,
+  type TerminalSize,
+  type SshConnectionState,
+} from '../../shared/terminal.js';
 import type { TerminalInput } from '../../shared/terminal-input.js';
 import { AppFailure } from '../failures.js';
 import { TerminalSession } from './session.js';
@@ -18,14 +23,17 @@ export class TerminalRegistry {
   async open(
     id: string,
     size: TerminalSize,
-    create: (signal: AbortSignal) => Promise<TerminalTransport>,
+    create: (
+      signal: AbortSignal,
+      report: (state: SshConnectionState) => void,
+    ) => Promise<TerminalTransport>,
   ): Promise<void> {
     if (this.disposed || this.suspended || this.sessions.has(id))
       throw new Error('Duplicate or disposed terminal.');
     if (this.sessions.size >= MAX_TERMINAL_TABS) throw new AppFailure('terminal-limit');
     const session = new TerminalSession((event) => {
       if (this.sessions.get(id) !== session) return;
-      if (event.kind !== 'data') {
+      if (event.kind === 'exit' || event.kind === 'error') {
         this.sessions.delete(id);
         session.dispose();
       }
@@ -33,7 +41,12 @@ export class TerminalRegistry {
     });
     this.sessions.set(id, session);
     try {
-      await session.open(id, size, create);
+      await session.open(id, size, (signal) =>
+        create(signal, (state) => {
+          if (!signal.aborted && this.sessions.get(id) === session)
+            this.send({ kind: 'state', id, state });
+        }),
+      );
     } catch (error) {
       if (this.sessions.get(id) === session) this.sessions.delete(id);
       session.dispose();

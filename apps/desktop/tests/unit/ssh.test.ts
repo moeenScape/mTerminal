@@ -2,6 +2,7 @@ import { generateKeyPairSync, createHash } from 'node:crypto';
 import { Server, utils, type Connection, type AuthContext } from 'ssh2';
 import { describe, expect, it } from 'vitest';
 import { openSsh, fingerprintMatches } from '../../src/main/terminal/ssh.js';
+import type { SshConnectionState } from '../../src/shared/terminal.js';
 import { validateSshCredentials } from '../../src/shared/ssh.js';
 
 const host = {
@@ -105,12 +106,17 @@ describe('SSH terminal transport', () => {
   });
   it('opens a PTY, streams Unicode input/output, resizes and reports exit', async () => {
     await fixture(async (port, fingerprint, _authCount, windows) => {
+      const states: SshConnectionState[] = [];
       const transport = await openSsh(
         { ...host, port },
         { username: 'user', password: 'test-password', fingerprint },
         size,
         new AbortController().signal,
+        undefined,
+        undefined,
+        (state) => states.push(state),
       );
+      expect(states).toEqual(['connecting', 'verifying', 'authenticating', 'opening-shell']);
       const data: string[] = [];
       const output = transport.onData((value) => data.push(value));
       const exited = new Promise<number>((resolve) =>

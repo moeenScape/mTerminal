@@ -56,7 +56,15 @@ appearance controls through the same workspace as local terminals. Closing a tab
 closes its SSH channel and connection; it cannot guarantee that detached remote
 processes stop. Output remains capped by the existing scrollback and pending-data
 limits. Shell exit retains displayed output. Reconnect is explicit and never
-replays commands. Network failures currently end with a nonzero shell status.
+replays commands. Connection progress comes from the main process: Connecting, Verifying key,
+Authenticating, Opening shell and Connected. Connected is reported only after
+both the channel and terminal owner are ready. Setup rejection displays Failed
+with a fixed error message. Shell/channel or network close displays Disconnected
+with its exit code (255 when no exit status is available); transport errors after
+connection display Failed. Output remains visible, input/paste is disabled, and
+Connect SSH starts a fresh attempt. Active verification/authentication tabs still
+require close confirmation. Connected SSH tabs contribute to the session count.
+Local terminal statuses retain their existing behavior.
 
 The desktop flow allows up to 120 seconds for handshake/overall setup, including
 identity confirmation and interactive authentication; each confirmation expires
@@ -73,3 +81,9 @@ passphrases and multiple interactive rounds. Challenge broker tests cover reply
 ownership, cancellation and expiry. These and desktop prompt tests are deferred
 until the Phase 2 gate. Live OpenSSH, interactive program and Windows/macOS checks remain
 pending. The existing Electron sandbox issue blocks desktop validation here.
+
+F22 tests cover progress ordering, session ownership across progress/replacement,
+final-output-before-exit delivery and active close guards. Desktop lifecycle tests
+use an isolated IPC fixture for both disconnection and runtime failure. These
+tests remain deferred until the Phase 2 gate. No live networking or visual pass
+is inferred from the static/build checks.

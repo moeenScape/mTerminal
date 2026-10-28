@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F21 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F22 — Connection state; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F21 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions and password/key/interactive authentication and saved host-key trust; desktop verification pending |
+| Active feature | F22 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F23 — Keepalive and reconnect; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F22 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust and explicit SSH connection states; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -105,7 +105,7 @@ Dependencies: Phases 0–1. Prompt for secrets until secure storage is implement
 - [x] **F19 — SSH sessions (implementation):** Saved-host Connect opens a remote PTY through ssh2 with session-only password and explicitly pinned SHA256 fingerprint, input/output, resizing, backpressure, cancellation and cleanup. Tests written; execution deferred to Phase 2 gate.
 - [x] **F20 — Authentication (implementation):** Session-only passwords, selected private-key files with optional passphrases, multi-round keyboard-interactive prompts and optional challenge continuation after password/key authentication. Bounded, session/token-scoped replies; cancellation and expiry. Tests written; execution deferred to Phase 2 gate.
 - [x] **F21 — Known hosts (implementation):** Persistent endpoint fingerprints, unknown-key confirmation, changed-key refusal with both fingerprints, explicit checked rotation followed by a new connection, optional pinning and cancellation. Tests written; execution deferred to Phase 2 gate.
-- [ ] **F22 — Connection state:** Connecting, authenticating, connected, disconnected, and failed.
+- [x] **F22 — Connection state (implementation):** Main-owned connecting, identity verification, authenticating, opening-shell and connected progress; disconnected/failed outcomes, retained terminal output, active-session counts and close guards. Tests written; execution deferred to Phase 2 gate.
 - [ ] **F23 — Keepalive and reconnect:** Detect connection loss and allow explicit reconnection.
 - [ ] **F24 — Cancellation:** Cancel pending connections and release resources.
 
@@ -657,3 +657,28 @@ an isolated IPC fixture. Tests are written/type-checked but deferred to Phase 2
 completion; live SSH, visual and cross-platform verification remain pending.
 OpenSSH known_hosts import/export and multiple-key trust are not implemented.
 Next: F22.
+
+
+### F22 implementation update
+
+SSH progress is emitted by the main process, scoped to its exact registry owner
+and session ID. Connecting precedes socket setup, Verifying key covers host
+identity checks, Authenticating begins only after key acceptance, Opening shell
+follows authentication, and Connected follows successful channel and terminal
+setup. Progress cannot remove a live session; callbacks from cancelled or
+replaced owners are ignored. Repeated transport stages are deduplicated.
+
+Tabs/status text expose the new stages. Connected SSH tabs count as active
+sessions; every setup stage retains close confirmation. Setup failures show
+Failed with sanitized messages. Normal shell/channel/network close shows
+Disconnected and the exit code; transport errors show Failed. Remote terminal
+exit metadata flows after final output through the existing bounded queue, so
+output remains available while input/paste is disabled. Reconnecting remains an
+explicit new attempt; local shell states are preserved.
+
+Build, type, lint, format and diff checks pass. Tests are written/type-checked for
+real loopback transport progress order, registry ownership/stale progress,
+final output delivery, close guards and isolated desktop IPC lifecycle fixtures
+covering disconnected and failed outcomes. Tests remain deferred to the Phase 2
+gate. Live SSH, visual and platform verification remain pending under the
+existing sandbox blocker. Next: F23.

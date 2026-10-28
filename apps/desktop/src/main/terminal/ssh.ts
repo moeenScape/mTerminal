@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Client } from 'ssh2';
 import type { ClientChannel } from 'ssh2';
-import type { TerminalTransport } from './transport.js';
+import type { TerminalTransport, TerminalExit } from './transport.js';
 import type { HostDraft } from '../../shared/hosts.js';
 import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../../shared/ssh.js';
-import type { TerminalSize } from '../../shared/terminal.js';
+import type { TerminalSize, SshConnectionState } from '../../shared/terminal.js';
 import { AppFailure } from '../failures.js';
 
 export function keyFingerprint(key: Buffer): string {
@@ -21,6 +21,7 @@ export function openSsh(
   signal: AbortSignal,
   ask?: (question: SshQuestion) => Promise<string[]>,
   verifyKey?: (key: Buffer) => Promise<boolean>,
+  report?: (state: SshConnectionState) => void,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const client = new Client();
@@ -29,8 +30,20 @@ export function openSsh(
     let ended = false;
     let exitCode = 255;
     let mismatch = false;
+    let failed = false;
+    let lastState: SshConnectionState | undefined;
+    const progress = (state: SshConnectionState) => {
+      if (!ended && !settled && lastState !== state) {
+        lastState = state;
+        report?.(state);
+      }
+    };
+    const outcome = (): TerminalExit => ({
+      exitCode,
+      connectionState: failed ? 'failed' : 'disconnected',
+    });
     const dataListeners = new Set<(data: string) => void>();
-    const exitListeners = new Set<(event: { exitCode: number }) => void>();
+    const exitListeners = new Set<(event: TerminalExit) => void>();
     const emit = (data: string) => {
       for (const listener of dataListeners) listener(data);
     };
@@ -49,16 +62,22 @@ export function openSsh(
       if (!settled) {
         settled = true;
         reject(new AppFailure(mismatch ? 'ssh-key-mismatch' : 'ssh-failed'));
-      } else for (const listener of exitListeners) listener({ exitCode });
+      } else for (const listener of exitListeners) listener(outcome());
       stream?.destroy();
       client.destroy();
+    };
+    const fail = () => {
+      if (!ended) {
+        failed = true;
+        finish();
+      }
     };
     const abort = () => finish();
     const interactive =
       credentials.method === 'keyboard-interactive' || credentials.keyboardInteractive === true;
     const humanVerification = interactive || !!verifyKey;
     const timer = setTimeout(finish, humanVerification ? 120000 : 20000);
-    client.on('error', finish).on('close', finish);
+    client.on('error', fail).on('close', finish);
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) {
       finish();
@@ -69,6 +88,7 @@ export function openSsh(
         finish();
         return;
       }
+      progress('authenticating');
       try {
         const question = validateSshQuestion({
           title,
@@ -86,6 +106,7 @@ export function openSsh(
     });
     client.once('ready', () => {
       if (ended) return;
+      progress('opening-shell');
       client.shell(
         { term: 'xterm-256color', cols: size.cols, rows: size.rows },
         (error, channel) => {
@@ -101,8 +122,8 @@ export function openSsh(
           channel.stderr.setEncoding('utf8');
           channel.on('data', emit);
           channel.stderr.on('data', emit);
-          channel.on('error', finish);
-          channel.stderr.on('error', finish);
+          channel.on('error', fail);
+          channel.stderr.on('error', fail);
           channel.on('exit', (code: number | null) => {
             exitCode = typeof code === 'number' ? code : 255;
           });
@@ -139,7 +160,7 @@ export function openSsh(
               exitListeners.add(listener);
               if (ended)
                 queueMicrotask(() => {
-                  if (exitListeners.has(listener)) listener({ exitCode });
+                  if (exitListeners.has(listener)) listener(outcome());
                 });
               return {
                 dispose: () => {
@@ -152,6 +173,7 @@ export function openSsh(
       );
     });
     try {
+      progress('connecting');
       client.connect({
         host: host.address,
         port: host.port,
@@ -174,11 +196,13 @@ export function openSsh(
                 : ['password'],
         readyTimeout: humanVerification ? 120000 : 15000,
         hostVerifier: (key: Buffer, verify: (accepted: boolean) => void) => {
+          progress('verifying');
           if (verifyKey) {
             void verifyKey(key)
               .then((accepted) => {
                 if (!ended) {
                   mismatch = !accepted;
+                  if (accepted) progress('authenticating');
                   verify(accepted);
                 }
               })
@@ -191,6 +215,7 @@ export function openSsh(
           } else {
             const match = fingerprintMatches(key, credentials.fingerprint);
             if (!match) mismatch = true;
+            else progress('authenticating');
             verify(match);
           }
         },
