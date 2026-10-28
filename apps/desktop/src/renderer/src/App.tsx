@@ -15,6 +15,7 @@ export function App() {
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [preferencesError, setPreferencesError] = useState('');
+  const [terminalRunning, setTerminalRunning] = useState(false);
   const [hostQuery, setHostQuery] = useState('');
 
   useEffect(() => {
@@ -122,9 +123,11 @@ export function App() {
               onOpenWorkspace={() => setActiveView('workspace')}
             />
           )}
-          {activeView === 'workspace' && (
-            <WorkspaceView onBrowseHosts={() => setActiveView('hosts')} />
-          )}
+          <WorkspaceView
+            active={activeView === 'workspace'}
+            appearance={preferences.appearance}
+            onRunningChange={setTerminalRunning}
+          />
           {activeView === 'settings' && (
             <SettingsView
               key={String(preferencesReady)}
@@ -147,7 +150,7 @@ export function App() {
                 : 'Starting application…'}
           </span>
           <div className="status-details">
-            <span>0 sessions</span>
+            <span>{terminalRunning ? '1 session' : '0 sessions'}</span>
             {state.status === 'ready' && (
               <span className="version">
                 {state.info.platform} <span aria-hidden="true">·</span> v{state.info.version}

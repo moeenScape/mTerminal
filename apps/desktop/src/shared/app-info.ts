@@ -1,3 +1,4 @@
+import type { TerminalApi } from './terminal.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -6,7 +7,7 @@ export interface AppInfo {
   platform: string;
 }
 
-export interface DesktopApi {
+export interface DesktopApi extends TerminalApi {
   getAppInfo: () => Promise<AppInfo>;
   getPreferences: () => Promise<import('./preferences.js').Preferences>;
   savePreferences: (

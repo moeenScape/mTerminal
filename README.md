@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F06 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, a future shell override, and window size/maximized state. Local shells, saved-host management, and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F07 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace can start one local shell, send input, display output, resize, and close it. It remains running across view changes. Saved-host management and session tabs are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
 
 ## Selected stack
 
@@ -137,8 +137,27 @@ Ignore rules do not remove files already tracked by Git. The existing `.artifact
 
 ## Local database and recovery
 
-The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite currently holds migration history and the local workspace UUID. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for backup, recovery, and lock-file handling. Storage uses Node’s built-in `node:sqlite`; no additional native package or ABI rebuild is required. Runtime/platform verification remains pending.
+The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite currently holds migration history and the local workspace UUID. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for backup, recovery, and lock-file handling. SQLite uses Node’s built-in `node:sqlite`. The local terminal uses the separate native `node-pty` package, rebuilt for Electron during installation. Runtime/platform verification remains pending.
 
 ## Diagnostics
 
 Startup and storage failures show fixed recovery instructions and an event code. Diagnostics are stored under `userData/logs/diagnostics.log`, with bounded rotation and no raw error messages or application payloads. See [diagnostics and troubleshooting](docs/DIAGNOSTICS.md).
+
+## Local terminal (F07)
+
+Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
+local shell**. Input goes to the real shell; output is rendered by xterm.js. Use
+**Close session** to stop it. Changing views preserves the running terminal;
+reloading the app or closing the window ends it. Settings' default shell override
+must be an absolute executable path without arguments and applies to new sessions.
+
+`npm install` now rebuilds node-pty for the installed Electron version. If Electron
+or your machine architecture changes, run `npm run rebuild:native`. Building may
+require Python 3 and a C++ toolchain: `build-essential` on Ubuntu, Xcode command-line
+tools on macOS, or MSVC/Windows SDK on Windows. Installers are not configured yet.
+See [local terminal implementation and limits](docs/LOCAL_TERMINAL.md).
+
+F07 build/static checks and native-module loading pass on Linux x64. New terminal
+tests are written but deferred until the Phase 1 gate. Phase 0's sandbox-enabled
+desktop verification remains outstanding; no interactive/visual or Windows/macOS
+pass is claimed.

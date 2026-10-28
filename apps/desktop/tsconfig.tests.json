@@ -17,6 +17,8 @@
     "src/main/preferences.ts",
     "src/main/storage/**/*.ts",
     "src/main/failures.ts",
-    "src/main/diagnostics.ts"
+    "src/main/diagnostics.ts",
+    "src/main/terminal/session.ts",
+    "src/main/terminal/shells.ts"
   ]
 }

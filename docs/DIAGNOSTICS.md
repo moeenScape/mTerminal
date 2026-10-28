@@ -50,7 +50,7 @@ npm test
 policy, preference persistence, database recovery, error classification, and log
 privacy/rotation/failure. Production compilation also passes.
 
-The final desktop suite has 10 tests and explicitly requests Chromium sandboxing.
+At the F06 gate the desktop suite had 10 tests and explicitly requested Chromium sandboxing.
 Its first launch is blocked in this environment by the invalid chrome-sandbox
 helper ownership/mode; the remaining nine tests were not run (fail-fast).
 An earlier run using Playwright's default sandbox-disabled launch found reload

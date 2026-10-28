@@ -568,3 +568,50 @@ h2 {
 .preference-fields button {
   justify-self: start;
 }
+
+[hidden] {
+  display: none !important;
+}
+.local-workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.terminal-toolbar h1 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+.terminal-toolbar span,
+.terminal-status,
+.shell-help {
+  color: var(--muted);
+  font-size: 12px;
+}
+.terminal-status {
+  margin: 0;
+  padding: 8px 20px;
+  overflow-wrap: anywhere;
+}
+.shell-help {
+  margin: 0;
+  padding: 4px 20px 12px;
+}
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px 12px 12px;
+}
+.terminal-container .xterm {
+  height: 100%;
+}

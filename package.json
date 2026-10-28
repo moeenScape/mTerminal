@@ -22,7 +22,8 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "npm run test:unit --workspace=@mterminal/desktop",
     "test:e2e": "npm run build && npm run test:e2e --workspace=@mterminal/desktop",
-    "database": "npm run database --workspace=@mterminal/desktop --"
+    "database": "npm run database --workspace=@mterminal/desktop --",
+    "rebuild:native": "npm run rebuild:native --workspace=@mterminal/desktop"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

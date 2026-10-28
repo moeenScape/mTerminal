@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F01–F06 implemented; Phase 0 verification incomplete |
-| Next feature | F07 — Local shell, after the outstanding Phase 0 desktop verification |
-| Implementation status | F01–F06 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures and safe diagnostics; desktop verification pending |
+| Active feature | F07 implemented; Phase 1 in progress; Phase 0 desktop verification remains incomplete |
+| Next feature | F08 — Platform defaults; outstanding Phase 0 sandbox verification remains recorded |
+| Implementation status | F01–F07 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, and one local PTY terminal; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -69,7 +69,7 @@ Dependencies: None.
 - [x] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior. Implementation complete; user reported Ubuntu launch succeeds. Lifecycle tests and other platforms remain pending.
 - [x] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks. Implementation complete with a read-only app-info bridge; security tests remain pending.
 - [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
-- [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is stored for F07/F08; executable discovery and validation remain there. Runtime and phase tests pending.
+- [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is consumed by F07; platform default refinements remain in F08. Runtime and phase tests pending.
 - [x] **F05 — Local database:** Main-process SQLite, ordered transactional schema migrations, persistent workspace UUID, integrity/version checks, startup snapshot, pre-upgrade backups, exclusive ownership, and offline backup/restore maintenance. Build/static checks passed; runtime and phase tests pending.
 - [x] **F06 — Error handling:** Fixed failure codes and recovery messages, sanitized preference-save results, bounded local diagnostic logs, fatal-process and renderer-crash handling. Unit/static/build checks pass; sandbox-enabled desktop verification blocked by the environment.
 
@@ -83,7 +83,7 @@ Document source layout, runtime versions, entry points, dependency installation,
 
 Dependencies: Phase 0.
 
-- [ ] **F07 — Local shell:** Connect xterm.js to node-pty and discover installed shells.
+- [x] **F07 — Local shell:** xterm.js connected to an owned node-pty session, executable shell discovery and configured override, bounded streamed output with acknowledgements, initial input/resize/exit/close support, and persistence across navigation. Static/build/native-load checks passed on Linux x64; feature tests and interactive runtime verification pending.
 - [ ] **F08 — Platform defaults:** Bash/Zsh on Unix systems, PowerShell on Windows, and a configurable override.
 - [ ] **F09 — Input and output:** Unicode, control sequences, keyboard input, and streamed output.
 - [ ] **F10 — Resizing:** Synchronize terminal rows/columns with the PTY.
@@ -255,6 +255,8 @@ Implementation checkboxes track delivered code, as requested; they do not replac
 | F05 | Implementation complete | `apps/desktop/src/main/storage/database.ts` | Build/type/lint/format and storage unit tests pass | Runtime recovery/platform checks pending |
 | F06 | Implementation complete | `apps/desktop/src/main/diagnostics.ts`, `apps/desktop/src/shared/failures.ts` | 37 total unit tests pass; build/type/lint/format pass | Sandbox-enabled desktop tests blocked; Phase 0 verification remains incomplete |
 
+| F07 | Implementation complete | `apps/desktop/src/main/terminal/`, `apps/desktop/src/renderer/src/features/workspace/` | Build/static checks and Electron native-module load pass on Linux x64; tests written, not executed | Interactive shell/visual checks pending; F08 next |
+
 ## Progress log
 
 Append entries for completed work and material decisions.
@@ -308,3 +310,27 @@ because chrome-sandbox has invalid ownership/mode; 9 remaining tests did not run
 No security settings or system permissions were changed. Phase 0 implementation
 is complete; desktop/visual and cross-platform verification remains incomplete.
 See `docs/DIAGNOSTICS.md` for diagnostics and the outstanding test command.
+
+### F07 implementation update
+
+Started Phase 1 at the user's instruction while retaining the incomplete Phase 0
+sandbox/visual gate. Workspace now starts one local PTY, streams output directly
+into xterm.js, accepts input, resizes, and exposes explicit close/exit states.
+Switching views keeps the terminal mounted. Window destruction, renderer failure,
+and navigation reset dispose the PTY; cancellation also kills late-created PTYs.
+Installed shell paths are discovered in the main process; a validated executable
+path from Settings overrides discovery. There is no command-string interpolation
+or renderer filesystem/process access. IPC validates the owning main frame,
+session IDs, grid size, input length, and acknowledgements.
+
+Output is batched every 16 ms with pause/resume watermarks and a 1 Mi-character
+hard cap; xterm scrollback is capped at 3,000 lines. Overflow stops the session
+explicitly. This initial protection does not complete F16 performance validation.
+Initial resize/cleanup support does not complete F10/F15 compatibility testing.
+F11 tabs and multiple sessions are not implemented.
+
+Added exact dependencies and native rebuild hooks for Electron. Build, type,
+lint, format, and diff checks pass. node-pty loads under Electron's bundled Node
+24.22.1 / ABI 150 on Linux x64; no interactive shell, visual, or Windows/macOS pass
+is claimed. New unit/E2E tests are written and type-checked but not executed until
+the Phase 1 gate. F08 is next. Commit this step without pushing.

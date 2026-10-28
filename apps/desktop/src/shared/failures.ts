@@ -1,4 +1,8 @@
 export const failureMessages = {
+  'terminal-failed':
+    'The local shell could not start or stopped unexpectedly. Check the default shell executable in Settings and rebuild native modules with npm run rebuild:native if needed.',
+  'terminal-overflow':
+    'The terminal produced more output than could be buffered safely. The session was stopped. Start a new shell; command execution is never replayed automatically.',
   'database-locked':
     'The local database is in use or a lock remains after a crash. Close other mTerminal and maintenance processes. If none are running, follow docs/LOCAL_STORAGE.md to inspect the lock before removing it.',
   'database-invalid':

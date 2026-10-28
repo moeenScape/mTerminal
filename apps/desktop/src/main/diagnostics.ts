@@ -4,6 +4,8 @@ import { failureMessages, type FailureCode } from '../shared/failures.js';
 
 export const LOG_LIMIT = 256 * 1024;
 const diagnosticEvents = [
+  'terminal-open-failed',
+  'terminal-operation-failed',
   'startup-ready',
   'startup-failed',
   'preferences-save-failed',

@@ -56,7 +56,18 @@ test('exposes only the intended bridge and no Node globals', async () => {
     nodeRequire: typeof Reflect.get(window, 'require'),
   }));
   expect(exposed).toEqual({
-    methods: ['getPreferences', 'savePreferences', 'getAppInfo'],
+    methods: [
+      'getShells',
+      'openTerminal',
+      'writeTerminal',
+      'resizeTerminal',
+      'ackTerminal',
+      'closeTerminal',
+      'onTerminalEvent',
+      'getPreferences',
+      'savePreferences',
+      'getAppInfo',
+    ],
     nodeProcess: 'undefined',
     nodeRequire: 'undefined',
   });
@@ -94,7 +105,7 @@ test('switches views through navigation and shows real application information',
   const navigation = page.getByRole('navigation', { name: 'Main navigation' });
   await navigation.getByRole('button', { name: 'Workspace', exact: true }).click();
   await expect(page.getByRole('tabpanel', { name: 'Workspace' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No active sessions' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start local shell' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Workspace', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -153,7 +164,7 @@ test('keeps navigation and search usable at the minimum desktop window size', as
   await page.screenshot({ path: test.info().outputPath('hosts-minimum.png') });
   await page.getByRole('button', { name: 'Open workspace', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Browse hosts', exact: true }).click();
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
 });
 
@@ -198,4 +209,25 @@ test('keeps unsaved preferences on write failure and logs only a safe failure co
   }
   await page.getByRole('button', { name: 'Save preferences' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
+});
+
+test('starts a real local shell, preserves it across views, and closes the session', async () => {
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type('echo MTERMINAL_F07_READY');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(
+      async () =>
+        ((await page.locator('.xterm-accessibility-tree').textContent()) ?? '').split(
+          'MTERMINAL_F07_READY',
+        ).length - 1,
+    )
+    .toBeGreaterThanOrEqual(2);
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close session' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Session closed' })).toBeVisible();
 });

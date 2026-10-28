@@ -99,8 +99,8 @@ export function SettingsView({
                 />
               </label>
               <p className="section-description">
-                Leave blank for the system default. This will apply to new local sessions when shell
-                support is added; enter an executable path without arguments.
+                Leave blank to select an installed shell automatically. Changes apply to new local
+                sessions; enter an absolute executable path without arguments.
               </p>
               <label>
                 <input

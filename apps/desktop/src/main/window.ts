@@ -1,3 +1,4 @@
+import { attachTerminal } from './terminal/ipc.js';
 import { AppFailure, failureCode } from './failures.js';
 import type { DiagnosticLog } from './diagnostics.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
@@ -51,6 +52,7 @@ export async function createMainWindow(diagnostics: DiagnosticLog): Promise<Brow
     },
   });
 
+  attachTerminal(window, rendererUrl, () => store.preferences.defaultShell, diagnostics);
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');
     dialog.showErrorBox('Interface stopped', failureMessages['renderer-crashed']);

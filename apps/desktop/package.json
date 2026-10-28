@@ -6,20 +6,25 @@
   "description": "mTerminal desktop application",
   "main": "./out/main/index.js",
   "scripts": {
-    "postinstall": "install-electron",
+    "postinstall": "install-electron && node scripts/rebuild.mjs",
     "dev": "electron-vite dev --watch",
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --build",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config playwright.config.ts",
-    "database": "node scripts/database.mjs"
+    "database": "node scripts/database.mjs",
+    "rebuild:native": "node scripts/rebuild.mjs"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.2.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
