@@ -920,3 +920,40 @@ h2 {
 .page-header .primary-button:hover {
   background: var(--hover);
 }
+
+.host-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 32px 16px;
+  align-items: end;
+}
+.host-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.host-filters select,
+.terminal-dialog select,
+.host-filters button {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text);
+  max-width: 100%;
+}
+.terminal-dialog select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+.terminal-dialog input[type='checkbox'] {
+  width: auto;
+  margin-right: 8px;
+}
+.terminal-dialog {
+  max-height: 90vh;
+  overflow-y: auto;
+}

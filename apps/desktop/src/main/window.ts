@@ -63,6 +63,11 @@ export async function createMainWindow(
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
       try {
+        if (channel === hostChannels.groups && args.length === 0) return database.listHostGroups();
+        if (channel === hostChannels.saveGroup && args.length === 1)
+          return database.saveHostGroup(args[0]);
+        if (channel === hostChannels.deleteGroup && args.length === 1)
+          return database.deleteHostGroup(args[0]);
         if (channel === hostChannels.list && args.length === 0) return database.listHosts();
         if (
           channel === hostChannels.save &&

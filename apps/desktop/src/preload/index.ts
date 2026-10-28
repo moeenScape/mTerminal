@@ -15,6 +15,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 
 const api: DesktopApi = {
+  listHostGroups: () => ipcRenderer.invoke(hostChannels.groups),
+  saveHostGroup: (group) => ipcRenderer.invoke(hostChannels.saveGroup, group),
+  deleteHostGroup: (path) => ipcRenderer.invoke(hostChannels.deleteGroup, path),
   listHosts: () => ipcRenderer.invoke(hostChannels.list),
   saveHost: (host, id) => ipcRenderer.invoke(hostChannels.save, host, id),
   deleteHost: (id) => ipcRenderer.invoke(hostChannels.delete, id),

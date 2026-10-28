@@ -62,6 +62,9 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'listHostGroups',
+      'saveHostGroup',
+      'deleteHostGroup',
       'listHosts',
       'saveHost',
       'deleteHost',
@@ -682,4 +685,39 @@ test('rejects malformed host writes without changing saved profiles', async () =
     };
   });
   expect(result).toEqual({ rejected: true, unchanged: true });
+});
+
+test('organizes hosts with nested groups, tags and inherited defaults', async () => {
+  await page.getByRole('button', { name: 'New group', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Group path').fill('Work');
+  await page.getByRole('dialog').getByLabel('Default port').fill('2222');
+  await page.getByRole('dialog').getByLabel('Default username').fill('ops');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save group' }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.evaluate(async () => {
+    await window.mterminal.saveHostGroup({ path: 'Work/Production', port: null, username: null });
+    await window.mterminal.saveHost({
+      name: 'Production',
+      address: 'prod.example.com',
+      port: 22,
+      username: '',
+      protocol: 'ssh',
+      groupPath: 'Work/Production',
+      tags: ['prod'],
+      inheritPort: true,
+      inheritUsername: true,
+    });
+  });
+  await page.reload();
+  await expect(page.getByText('ops@prod.example.com:2222 · SSH')).toBeVisible();
+  await page.getByLabel('Group', { exact: true }).selectOption('Work');
+  await page.getByLabel('Tag', { exact: true }).selectOption('prod');
+  await expect(page.getByText('Production', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete group', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  expect((await page.evaluate(() => window.mterminal.listHostGroups())).length).toBe(2);
+  await page.getByRole('button', { name: 'Delete group', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete group', exact: true }).click();
+  await expect(page.getByText('Ungrouped · prod')).toBeVisible();
+  await expect(page.getByText('ops@prod.example.com:2222 · SSH')).toBeVisible();
 });

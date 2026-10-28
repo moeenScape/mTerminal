@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F17 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
-| Next feature | F18 — Groups and tags; desktop sandbox verification remains outstanding |
-| Implementation status | F01–F17 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, and saved SSH profiles; desktop verification pending |
+| Active feature | F18 implemented; Phase 2 in progress; Phase 1 desktop acceptance remains blocked |
+| Next feature | F19 — SSH sessions; desktop sandbox verification remains outstanding |
+| Implementation status | F01–F18 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults and tags; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -101,7 +101,7 @@ Completion criteria: Verify interactive programs, resizing, Unicode, heavy outpu
 Dependencies: Phases 0–1. Prompt for secrets until secure storage is implemented.
 
 - [x] **F17 — Saved hosts (implementation):** Create/edit/delete SSH profiles with names, addresses, ports and usernames; searchable host list, confirmation before deletion, schema v2 persistence and validated IPC. Tests written and deferred to the Phase 2 gate; visual/runtime verification pending.
-- [ ] **F18 — Groups and tags:** Nesting, search, filtering, inheritance, and overrides.
+- [x] **F18 — Groups and tags (implementation):** Nested groups with port/username defaults, field-level inheritance and host overrides, normalized tags, descendant-aware group and exact tag filtering, and search across profile, effective username, group and tags. Tests written; Phase 2 execution and runtime verification pending.
 - [ ] **F19 — SSH sessions:** Connect remote shell channels to the terminal.
 - [ ] **F20 — Authentication:** Passwords, private keys, passphrases, and keyboard-interactive prompts.
 - [ ] **F21 — Known hosts:** Trusted fingerprints, unknown-key confirmation, and changed-key handling.
@@ -550,3 +550,28 @@ malformed IPC writes and the create/search/edit/delete desktop workflow. Tests
 are written/type-checked but not executed before the Phase 2 gate. Visual and
 Windows/macOS checks remain pending; the existing desktop sandbox blocker is
 unchanged. Next: F18.
+
+
+### F18 implementation update
+
+Schema v3 stores group paths, optional SSH port/username defaults, host inheritance
+flags and normalized tags. Existing v2 profiles retain all connection values and
+start ungrouped with inheritance disabled. Migrations retain transactional writes
+and pre-upgrade backups. Main-process requests validate payloads and ownership;
+new narrow group methods are included in the bridge allowlist fixture.
+
+Hosts supports New group, editing defaults, assigning groups/tags, group-subtree
+and Ungrouped filters, exact tag filtering and search. Parent groups must exist;
+paths are fixed, limited to eight levels and 200 characters. Tags are lowercase,
+deduplicated, capped at 20 per host and 32 characters per tag. A host inherits
+the closest configured group defaults only for fields it explicitly marks inherited;
+otherwise its own port/username is used. Fallbacks are port 22 and blank username.
+Deleting a named group requires confirmation for its entire subtree; hosts are
+kept, moved to Ungrouped and retain effective connection settings and tags.
+
+Build, type, lint, format and diff checks pass. Tests are written/type-checked for
+v1/v2 migration compatibility, nested defaults, overrides, normalization, invalid
+paths and payloads, reopen persistence, subtree deletion safety and desktop group
+creation/filtering/confirmation. Test execution remains deferred to the Phase 2
+gate. Desktop visual and platform verification remain pending under the recorded
+sandbox blocker. Next: F19.

@@ -8,7 +8,13 @@ import { LocalDatabase } from '../../src/main/storage/database.js';
 const draft = { name: 'Build', address: '::1', port: 22, username: 'deploy', protocol: 'ssh' };
 describe('saved host profiles', () => {
   it('rejects malformed profiles and excludes unexpected fields', () => {
-    expect(validateHost({ ...draft, password: 'never persist' })).toEqual(draft);
+    expect(validateHost({ ...draft, password: 'never persist' })).toEqual({
+      ...draft,
+      groupPath: '',
+      tags: [],
+      inheritPort: false,
+      inheritUsername: false,
+    });
     for (const change of [
       { port: 0 },
       { port: 65536 },
@@ -52,7 +58,7 @@ describe('saved host profiles', () => {
       const id = db.workspaceId;
       db.transaction((connection) =>
         connection.exec(
-          'DROP TABLE hosts; DELETE FROM schema_migrations WHERE version=2; PRAGMA user_version=1;',
+          'DROP TABLE hosts; DROP TABLE host_groups; DELETE FROM schema_migrations WHERE version>=2; PRAGMA user_version=1;',
         ),
       );
       db.close();

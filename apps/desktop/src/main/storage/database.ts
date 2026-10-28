@@ -1,4 +1,12 @@
-import { validateHost, validHostId, type SavedHost } from '../../shared/hosts.ts';
+import {
+  validateHost,
+  validHostId,
+  validateGroup,
+  validateGroupPath,
+  resolveHost,
+  type HostGroup,
+  type SavedHost,
+} from '../../shared/hosts.ts';
 import { AppFailure } from '../failures.ts';
 import { unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -23,6 +31,15 @@ const migrations = [
       port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535), username TEXT NOT NULL,
       protocol TEXT NOT NULL CHECK(protocol = 'ssh')
     ) STRICT;`);
+  },
+  (connection: DatabaseSync) => {
+    connection.exec(`
+      CREATE TABLE host_groups (path TEXT PRIMARY KEY, port INTEGER CHECK(port BETWEEN 1 AND 65535), username TEXT) STRICT;
+      ALTER TABLE hosts ADD COLUMN groupPath TEXT NOT NULL DEFAULT '';
+      ALTER TABLE hosts ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE hosts ADD COLUMN inheritPort INTEGER NOT NULL DEFAULT 0 CHECK(inheritPort IN (0,1));
+      ALTER TABLE hosts ADD COLUMN inheritUsername INTEGER NOT NULL DEFAULT 0 CHECK(inheritUsername IN (0,1));
+    `);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -75,6 +92,12 @@ function validateDatabase(database: DatabaseSync): void {
   }
   if (pragmaNumber(database, 'user_version') >= 2)
     database.prepare('SELECT id, name, address, port, username, protocol FROM hosts LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 3) {
+    database.prepare('SELECT path, port, username FROM host_groups LIMIT 0').all();
+    database
+      .prepare('SELECT groupPath, tags, inheritPort, inheritUsername FROM hosts LIMIT 0')
+      .all();
+  }
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -179,7 +202,15 @@ export class LocalDatabase {
       .all()
       .map((row) => {
         if (!validHostId(row.id)) throw new Error('Invalid saved host.');
-        return { ...validateHost(row), id: row.id };
+        return {
+          ...validateHost({
+            ...row,
+            tags: JSON.parse(String(row.tags)),
+            inheritPort: row.inheritPort === 1,
+            inheritUsername: row.inheritUsername === 1,
+          }),
+          id: row.id,
+        };
       });
   }
 
@@ -188,19 +219,43 @@ export class LocalDatabase {
     if (id !== undefined && !validHostId(id)) throw new Error('Invalid host ID.');
     const key = id ?? randomUUID();
     this.transaction((db) => {
+      if (
+        host.groupPath &&
+        !db.prepare('SELECT path FROM host_groups WHERE path=?').get(host.groupPath)
+      )
+        throw new Error('Group no longer exists.');
       if (id) {
         const result = db
-          .prepare('UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=? WHERE id=?')
-          .run(host.name, host.address, host.port, host.username, host.protocol, key);
+          .prepare(
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=? WHERE id=?',
+          )
+          .run(
+            host.name,
+            host.address,
+            host.port,
+            host.username,
+            host.protocol,
+            host.groupPath!,
+            JSON.stringify(host.tags),
+            Number(host.inheritPort),
+            Number(host.inheritUsername),
+            key,
+          );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
-        db.prepare('INSERT INTO hosts VALUES (?, ?, ?, ?, ?, ?)').run(
+        db.prepare(
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
           key,
           host.name,
           host.address,
           host.port,
           host.username,
           host.protocol,
+          host.groupPath!,
+          JSON.stringify(host.tags),
+          Number(host.inheritPort),
+          Number(host.inheritUsername),
         );
       }
     });
@@ -210,6 +265,47 @@ export class LocalDatabase {
   deleteHost(id: unknown): void {
     if (!validHostId(id)) throw new Error('Invalid host ID.');
     this.connection.prepare('DELETE FROM hosts WHERE id=?').run(id);
+  }
+
+  listHostGroups(): HostGroup[] {
+    return this.connection
+      .prepare('SELECT * FROM host_groups ORDER BY path COLLATE NOCASE')
+      .all()
+      .map(validateGroup);
+  }
+
+  saveHostGroup(value: unknown): void {
+    const group = validateGroup(value);
+    this.transaction((db) => {
+      const parent = group.path.includes('/')
+        ? group.path.slice(0, group.path.lastIndexOf('/'))
+        : '';
+      if (parent && !db.prepare('SELECT path FROM host_groups WHERE path=?').get(parent))
+        throw new Error('Parent group missing.');
+      db.prepare(
+        'INSERT INTO host_groups VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET port=excluded.port, username=excluded.username',
+      ).run(group.path, group.port, group.username);
+    });
+  }
+
+  deleteHostGroup(value: unknown): void {
+    const path = validateGroupPath(value);
+    this.transaction((db) => {
+      const groups = this.listHostGroups();
+      const hosts = this.listHosts();
+      const descendants = groups.filter((g) => g.path === path || g.path.startsWith(path + '/'));
+      for (const group of descendants) {
+        // Preserve effective connection values when removing inherited defaults.
+        for (const host of hosts.filter((h) => h.groupPath === group.path)) {
+          const effective = resolveHost(host, groups);
+          db.prepare(
+            "UPDATE hosts SET groupPath='', port=?, username=?, inheritPort=0, inheritUsername=0 WHERE id=?",
+          ).run(effective.port, effective.username, host.id);
+        }
+      }
+      for (const group of descendants)
+        db.prepare('DELETE FROM host_groups WHERE path=?').run(group.path);
+    });
   }
 
   get workspaceId(): string {

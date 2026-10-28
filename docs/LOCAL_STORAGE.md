@@ -17,7 +17,15 @@ The database is not encrypted. Never store passwords, private keys, or tokens he
 Schema v1 contains `schema_migrations` and one `workspaces` record with a generated
 UUID. Schema v2 adds `hosts` with a UUID, name, address, SSH port, username, and
 protocol. Host profiles contain no credentials and are included in backups. The
-workspace UUID survives restarts and restores. New tables belong in subsequent
+workspace UUID survives restarts and restores.
+
+Schema v3 adds nested `host_groups` (fixed path, optional port/username defaults)
+and host group paths, JSON tags, and per-field inheritance flags. Existing profiles
+remain ungrouped with explicit connection settings. Parent groups must exist;
+paths use `/` separators with at most eight levels. Removing a group subtree moves
+its hosts to Ungrouped and materializes their effective settings transactionally.
+Tags are normalized to lowercase, deduplicated, and limited to 20 per host.
+Group defaults and organization are included in backups. New tables belong in subsequent
 ordered migrations. Each migration and version update commits together; failed
 transactions roll back. Transaction callbacks must be synchronous and must not
 start asynchronous work. SQLite foreign keys are enabled.
