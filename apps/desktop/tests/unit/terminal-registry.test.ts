@@ -9,6 +9,7 @@ function fakePty() {
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
+    destroy: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
     onData: () => ({ dispose: vi.fn() }),
@@ -17,7 +18,11 @@ function fakePty() {
       return { dispose: vi.fn() };
     },
   };
-  return { pty: process as unknown as IPty, exit: () => exit({ exitCode: 0 }) };
+  return {
+    pty: process as unknown as IPty,
+    destroy: process.destroy,
+    exit: () => exit({ exitCode: 0 }),
+  };
 }
 const size = { cols: 80, rows: 24 };
 describe('owned terminal registry', () => {
@@ -34,10 +39,10 @@ describe('owned terminal registry', () => {
     expect(two.pty.resize).toHaveBeenLastCalledWith(100, 40);
     expect(one.pty.resize).toHaveBeenCalledOnce();
     registry.close('one');
-    expect(one.pty.kill).toHaveBeenCalledOnce();
-    expect(two.pty.kill).not.toHaveBeenCalled();
+    expect(one.destroy).toHaveBeenCalledOnce();
+    expect(two.destroy).not.toHaveBeenCalled();
     registry.dispose();
-    expect(two.pty.kill).toHaveBeenCalledOnce();
+    expect(two.destroy).toHaveBeenCalledOnce();
   });
   it('rejects duplicate IDs and releases slots on exit', async () => {
     const process = fakePty();
@@ -47,13 +52,13 @@ describe('owned terminal registry', () => {
     await expect(registry.open('one', size, async () => fakePty().pty)).rejects.toThrow(
       'Duplicate',
     );
-    expect(process.pty.kill).not.toHaveBeenCalled();
+    expect(process.destroy).not.toHaveBeenCalled();
     process.exit();
     expect(send).toHaveBeenCalledWith({ kind: 'exit', id: 'one', exitCode: 0 });
     const replacement = fakePty();
     await registry.open('one', size, async () => replacement.pty);
     registry.dispose();
-    expect(replacement.pty.kill).toHaveBeenCalledOnce();
+    expect(replacement.destroy).toHaveBeenCalledOnce();
   });
   it('enforces the session cap and cleans every process on reset', async () => {
     const registry = new TerminalRegistry(() => {});
@@ -66,7 +71,7 @@ describe('owned terminal registry', () => {
     });
     expect(create).not.toHaveBeenCalled();
     registry.reset();
-    expect(processes.every((process) => vi.mocked(process.pty.kill).mock.calls.length === 1)).toBe(
+    expect(processes.every((process) => vi.mocked(process.destroy).mock.calls.length === 1)).toBe(
       true,
     );
     await registry.open('again', size, create);
@@ -89,8 +94,8 @@ describe('owned terminal registry', () => {
     await registry.open('new', size, async () => current.pty);
     finish(late.pty);
     await opening;
-    expect(late.pty.kill).toHaveBeenCalledOnce();
-    expect(current.pty.kill).not.toHaveBeenCalled();
+    expect(late.destroy).toHaveBeenCalledOnce();
+    expect(current.destroy).not.toHaveBeenCalled();
     registry.dispose();
   });
   it('aborts pending starts and blocks new sessions while closing', async () => {
@@ -110,7 +115,7 @@ describe('owned terminal registry', () => {
     const late = fakePty();
     finish(late.pty);
     await opening;
-    expect(late.pty.kill).toHaveBeenCalledOnce();
+    expect(late.destroy).toHaveBeenCalledOnce();
     registry.suspend(true);
     await expect(registry.open('blocked', size, async () => fakePty().pty)).rejects.toThrow();
     registry.suspend(false);

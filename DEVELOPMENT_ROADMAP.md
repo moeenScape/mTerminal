@@ -488,3 +488,20 @@ guarantee termination of detached or independently managed descendants. Platform
 specific process-tree handling and Linux, macOS and Windows verification are
 still needed before F15 can be checked off. Focused unit and desktop tests are
 written but deferred until the Phase 1 test gate.
+
+
+### F15 PTY cleanup update
+
+On tab close, failed setup, reset, overflow, or a late cancelled start, the
+app now closes the PTY through node-pty's runtime `destroy()` method. On Unix
+this closes the terminal device as well as signaling the shell, so ordinary
+foreground jobs can receive a hangup. Windows uses node-pty's console cleanup.
+If destruction is unavailable or fails, the public `kill()` API is attempted.
+The dependency is pinned to node-pty 1.1.0; its runtime `destroy()` is omitted
+from the public TypeScript declarations and must be rechecked on upgrade.
+
+This is best-effort cleanup, not a guarantee for detached processes or jobs that
+ignore hangup. F15 remains open until cleanup is validated on Linux, macOS, and
+Windows and the remaining orphan-prevention scope is resolved. A Unix foreground
+job desktop test and unit tests are written but not run before the Phase 1 test
+gate. Build, type, lint, and formatting checks pass.

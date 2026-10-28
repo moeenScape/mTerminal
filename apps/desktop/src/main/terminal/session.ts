@@ -5,6 +5,25 @@ import { validTerminalSize, type TerminalEvent, type TerminalSize } from '../../
 export const HIGH_WATER = 256 * 1024;
 const LOW_WATER = 64 * 1024;
 const MAX_BUFFER = 1024 * 1024;
+
+function closePty(pty: IPty): void {
+  // shortcut: node-pty 1.1 exposes destroy at runtime but omits it from public typings; review on upgrade.
+  const destroy = (pty as IPty & { destroy?: () => void }).destroy;
+  if (typeof destroy === 'function') {
+    try {
+      destroy.call(pty);
+      return;
+    } catch {
+      // Try the public API if closing the PTY failed.
+    }
+  }
+  try {
+    pty.kill();
+  } catch {
+    // The process may already have exited.
+  }
+}
+
 interface Session {
   id: string;
   pty: IPty;
@@ -35,7 +54,7 @@ export class TerminalSession {
     try {
       const pty = await create(opening.controller.signal);
       if (this.disposed || this.opening !== opening) {
-        pty.kill();
+        closePty(pty);
         return;
       }
       const session: Session = {
@@ -134,13 +153,7 @@ export class TerminalSession {
     if (session.timer) clearTimeout(session.timer);
     for (const listener of session.listeners) listener.dispose();
     session.queue = [];
-    if (kill) {
-      try {
-        session.pty.kill();
-      } catch {
-        /* Already exited. */
-      }
-    }
+    if (kill) closePty(session.pty);
   }
   reset(): void {
     this.opening?.controller.abort();

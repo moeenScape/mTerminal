@@ -576,3 +576,40 @@ test('cancelling window close preserves an active terminal', async () => {
   });
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
 });
+
+test('closing a terminal hangs up its foreground job on Unix', async () => {
+  test.skip(process.platform === 'win32', 'Unix shell and hangup semantics only');
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Start local shell' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const pidFile = join(userData, 'foreground.pid');
+  const quotedFile = `'${pidFile.replaceAll("'", "'\\''")}'`;
+  await page.keyboard.type(`sh -c 'echo $$ > "$1"; exec sleep 60' sh ${quotedFile}`);
+  await page.keyboard.press('Enter');
+  let childPid = 0;
+  await expect
+    .poll(async () => {
+      try {
+        childPid = Number(await readFile(pidFile, 'utf8'));
+        return childPid > 1;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+  await page.getByRole('button', { name: 'Close session' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await expect
+    .poll(() => {
+      try {
+        process.kill(childPid, 0);
+        return true;
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+      }
+    })
+    .toBe(false);
+});
