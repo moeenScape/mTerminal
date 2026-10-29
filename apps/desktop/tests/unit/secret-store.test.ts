@@ -65,7 +65,7 @@ describe('OS-encrypted SSH password storage', () => {
       const store = new SshSecretStore(join(directory, 'secure'), provider, 'linux');
       await store.setupVault(vaultPassphrase);
       await store.savePassword(identityId, 'kept-password');
-      vi.mocked(provider.encryptStringAsync).mockRejectedValueOnce(
+      vi.spyOn(provider, 'encryptStringAsync').mockRejectedValueOnce(
         new Error('keychain unavailable'),
       );
       await expect(store.savePassword(identityId, 'replacement')).rejects.toThrow();
@@ -188,6 +188,27 @@ describe('vault passphrase and lock lifecycle', () => {
       await expect(store.savePassword(identityId, 'session-only')).rejects.toMatchObject({
         code: 'vault-locked',
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('resets a forgotten vault without deleting its encrypted source files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-reset-'));
+    const vaultDirectory = join(directory, 'vault');
+    try {
+      const store = new SshSecretStore(vaultDirectory, fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
+      await store.savePassword(identityId, 'secret-password');
+      await store.resetVault();
+      expect(await store.vaultStatus()).toMatchObject({ configured: false, locked: false });
+      expect(await readdir(vaultDirectory)).toHaveLength(1);
+      const recoveryDirectory = join(vaultDirectory, (await readdir(vaultDirectory))[0]!);
+      expect((await readdir(recoveryDirectory)).sort()).toEqual(
+        ['vault.master', `${identityId}.password.enc`].sort(),
+      );
+      await store.setupVault('a new sufficiently long passphrase');
+      expect(await store.getPassword(identityId)).toBeUndefined();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

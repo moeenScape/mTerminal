@@ -66,11 +66,21 @@ force recovery; preserve all files for investigation.
 
 The tool refuses a lock held by the app. After a crash, a stale `.lock` can remain.
 Read its PID, verify that no mTerminal or maintenance process is running, and only
-then remove that lock file. Do not remove the database or journals. Restart the
-application after recovery. There is no automatic restore or GUI recovery yet.
+then remove that lock file. Do not remove the database or journals.
+
+For a missing OS keychain, restore or unlock the same operating-system account keychain
+before retrying; do not remove vault files. If the vault passphrase is forgotten, or the
+vault master/credential data is corrupt, choose **Reset vault** on the locked-vault screen.
+After confirmation, mTerminal moves the encrypted master and credential files into a
+`vault/recovery-*` folder and allows a new vault to be created. This preserves the old
+ciphertext for later investigation or keychain recovery, but cannot recover secrets without
+the original passphrase and OS keychain. Hosts, identities, and other SQLite metadata remain
+intact. Keep the recovery folder until the new vault works; remove it manually only when
+you no longer need it. Database restore remains an offline operation described above.
 
 ## Verification boundary
 
 Unit tests cover stable IDs, rollback, exclusive ownership, backups, recovery,
-original-file preservation, and corrupt/newer-schema rejection. These tests passed at the Phase 0 gate. Static checks and production compilation
-passed; Electron runtime recovery and Windows/macOS checks remain pending.
+original-file preservation, corrupt/newer-schema rejection, and vault reset preservation.
+Static checks and production compilation passed; live keychain restoration and Windows/macOS
+checks remain pending.

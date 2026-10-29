@@ -209,6 +209,21 @@ export async function createMainWindow(
           if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
           return { ok: true, value: undefined };
         }
+        if (channel === vaultChannels.reset && args.length === 0) {
+          const confirmation = await dialog.showMessageBox(window, {
+            type: 'warning',
+            buttons: ['Reset vault', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Reset local vault',
+            message: 'Create a new vault without the current passphrase?',
+            detail:
+              'Saved passwords and keys will no longer be available. Their encrypted files will be preserved in a recovery folder under the vault directory. Host and identity records will remain.',
+          });
+          if (confirmation.response !== 0) return { ok: true, value: false };
+          await secrets.resetVault();
+          return { ok: true, value: true };
+        }
         const [identityId, value] = args;
         if (
           !validHostId(identityId) ||

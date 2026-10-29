@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F29 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, OS-encrypted password and private-key storage, confirmed public-key installation over SFTP, and passphrase-protected vault lock/unlock. Secrets are saved separately from SQLite and returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
+F01–F31 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, OS-encrypted password and private-key storage, confirmed public-key installation over SFTP, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault recovery. Secrets are saved separately from SQLite and returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 
@@ -137,7 +137,10 @@ Ignore rules do not remove files already tracked by Git. The existing `.artifact
 
 ## Local database and recovery
 
-The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite currently holds migration history and the local workspace UUID. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for backup, recovery, and lock-file handling. SQLite uses Node’s built-in `node:sqlite`. The local terminal uses the separate native `node-pty` package, rebuilt for Electron during installation. Runtime/platform verification remains pending.
+The main process initializes `mterminal.sqlite` under Electron’s user data directory before opening the window. SQLite holds workspace metadata; SSH secrets live separately in the vault. Preferences remain in `preferences.json`. No database or arbitrary SQL API is exposed to the renderer. See [local storage maintenance](docs/LOCAL_STORAGE.md) for database restore, keychain guidance, and vault reset behavior. SQLite uses Node’s built-in `node:sqlite`. The local terminal uses the separate native `node-pty` package, rebuilt for Electron during installation. Runtime/platform verification remains pending.
+
+If you forget the vault passphrase, **Reset vault** preserves the encrypted source files under
+`vault/recovery-*` and lets you create a new vault; it does not recover those saved credentials.
 
 ## Diagnostics
 

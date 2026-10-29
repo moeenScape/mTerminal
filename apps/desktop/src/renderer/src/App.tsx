@@ -263,6 +263,13 @@ export function App() {
             await window.mterminal.unlockVault(passphrase);
             setVaultState(await window.mterminal.getVaultState());
           }}
+          onReset={async () => {
+            const reset = await window.mterminal.resetVault();
+            if (!reset) return false;
+            setVaultState(await window.mterminal.getVaultState());
+            setShowVaultSetup(true);
+            return true;
+          }}
         />
       )}
     </div>
@@ -276,6 +283,7 @@ function VaultAccessGate({
   onRetry,
   onSetup,
   onUnlock,
+  onReset,
 }: {
   configured: boolean;
   available: boolean;
@@ -283,6 +291,7 @@ function VaultAccessGate({
   onRetry: () => Promise<void>;
   onSetup: (passphrase: string) => Promise<void>;
   onUnlock: (passphrase: string) => Promise<void>;
+  onReset: () => Promise<boolean>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [passphrase, setPassphrase] = useState('');
@@ -311,6 +320,24 @@ function VaultAccessGate({
     } catch (cause) {
       setPassphrase('');
       setError(cause instanceof Error ? cause.message : 'Unable to open the local vault.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function reset() {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      if (await onReset()) {
+        setPassphrase('');
+        setConfirmation('');
+        setError(
+          'The previous encrypted credential files were preserved. Create a new vault to continue.',
+        );
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to reset the local vault.');
     } finally {
       setBusy(false);
     }
@@ -386,6 +413,11 @@ function VaultAccessGate({
           {!configured && (
             <button type="button" disabled={busy} onClick={onClose}>
               Cancel
+            </button>
+          )}
+          {configured && (
+            <button type="button" disabled={busy} onClick={() => void reset()}>
+              Reset vault…
             </button>
           )}
           {available && (

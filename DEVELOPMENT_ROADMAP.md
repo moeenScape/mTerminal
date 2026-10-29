@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F30 implemented; Phase 3 active at F31; Phase 2 desktop/platform acceptance remains blocked |
-| Next feature | F31 — Recovery; Phase 2 desktop/platform acceptance remains outstanding |
-| Implementation status | F01–F30 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, and versioned workspace backup/import; desktop verification pending |
+| Active feature | F31 implemented; Phase 3 implementation complete; Phase 2 desktop/platform acceptance remains blocked |
+| Next feature | F32 — File browser; Phase 2 desktop/platform acceptance remains outstanding |
+| Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-10-28 |
+| Last roadmap update | 2026-10-29 |
 
 ## Selected technology stack
 
@@ -121,7 +121,7 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 - [x] **F28 — Public-key installation (implementation):** Install the assigned identity's managed public key to a confirmed host/account using SFTP, after the host fingerprint has been trusted. Preserve existing `authorized_keys` entries, avoid duplicates, and enforce `.ssh`/file permissions. Authentication uses the identity's saved password or a one-time password. Tests written; Phase 3 gate deferred.
 - [x] **F29 — Lock and unlock (implementation):** Add a vault passphrase that wraps the vault key, migrate existing encrypted credential files, lock on restart and after five idle minutes, and gate saved-credential access while locked. Tests written; Phase 3 gate deferred.
 - [x] **F30 — Backup and export (implementation):** Export versioned workspace JSON without secrets; validate and merge imports transactionally, rejecting conflicts without overwriting records. Tests written; Phase 3 gate deferred.
-- [ ] **F31 — Recovery:** Missing keychain, forgotten password, and corrupted storage.
+- [x] **F31 — Recovery (implementation):** Document keychain/database recovery and add a confirmed vault reset that preserves encrypted files in a recovery folder while allowing a new vault. Phase 3 unit gate passed; E2E launch blocked by the host environment.
 
 Completion criteria: No secrets leak into logs, ordinary database records, or default exports. Minimize secret exposure to the renderer. Unavailable secure storage must never silently fall back to plaintext. Verify restoration and migration failure recovery.
 
@@ -792,3 +792,21 @@ files remain protected in the local vault. Import validates archive size, schema
 references, duplicates, and collisions before applying a single SQLite transaction. It merges new
 records and never replaces existing records. User confirmation precedes import. Tests are written
 and deferred until the Phase 3 gate; next: F31 recovery.
+
+### F31 implementation
+
+If the OS keychain is temporarily unavailable, the vault stays locked and the user is directed
+to restore/unlock that same OS account keychain before retrying. The locked-vault screen offers
+a confirmed reset for forgotten passphrases or corrupt vault files: mTerminal moves the encrypted
+master and secret files into a restricted `vault/recovery-*` folder, preserves SQLite metadata,
+and allows a new vault to be created. This cannot decrypt the preserved secrets; it prevents
+accidental loss of the original ciphertext for later keychain recovery or investigation. Database
+corruption uses the existing validated offline restore flow in `docs/LOCAL_STORAGE.md`. Tests are
+written; Phase 3 unit gate passed (133 tests); desktop E2E launch remains blocked in this environment.
+
+### Phase 3 test gate
+
+On Linux/Node 24.12.0, all 133 unit tests passed. The `npm test` E2E stage attempted all
+36 Playwright cases, but each Electron process failed to launch (`Process failed to launch!`),
+consistent with the documented Chromium sandbox restriction. Build, typecheck, lint, formatting,
+and `git diff --check` passed. Windows/macOS and interactive keychain recovery remain unverified.

@@ -48,6 +48,11 @@ const api: DesktopApi = {
     const result: VaultResponse<undefined> = await ipcRenderer.invoke(vaultChannels.lock);
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
+  resetVault: async () => {
+    const result: VaultResponse<boolean> = await ipcRenderer.invoke(vaultChannels.reset);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
   recordVaultActivity: () => ipcRenderer.send(vaultEvents.activity),
   onVaultLocked: (listener) => {
     const receive = () => listener();

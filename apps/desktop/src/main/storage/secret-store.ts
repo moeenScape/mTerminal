@@ -165,6 +165,44 @@ export class SshSecretStore {
     });
   }
 
+  resetVault(): Promise<void> {
+    return this.serializeVaultMutation(() =>
+      this.serialize(async () => {
+        this.masterKey?.fill(0);
+        this.masterKey = undefined;
+        let names: string[];
+        try {
+          names = await readdir(this.directory);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+          throw error;
+        }
+        const files = names.filter(
+          (name) => name === 'vault.master' || /^[0-9a-f-]{36}\.(password|key)\.enc$/.test(name),
+        );
+        if (!files.length) return;
+        const recoveryDirectory = join(this.directory, `recovery-${Date.now()}-${randomUUID()}`);
+        await mkdir(recoveryDirectory, { mode: 0o700 });
+        const moved: string[] = [];
+        try {
+          for (const name of files) {
+            const source = join(this.directory, name);
+            const info = await lstat(source);
+            if (!info.isFile()) throw new AppFailure('vault-corrupt');
+            await rename(source, join(recoveryDirectory, name));
+            moved.push(name);
+          }
+          await chmod(recoveryDirectory, 0o700);
+        } catch (error) {
+          for (const name of moved.reverse())
+            await rename(join(recoveryDirectory, name), join(this.directory, name));
+          await rm(recoveryDirectory, { recursive: true, force: true });
+          throw error;
+        }
+      }),
+    );
+  }
+
   private validatePassphrase(passphrase: string): void {
     if (typeof passphrase !== 'string' || passphrase.length < 12 || passphrase.length > 256)
       throw new AppFailure('vault-passphrase-weak');
@@ -346,8 +384,8 @@ export class SshSecretStore {
   }
 
   getPassword(identityId: string): Promise<string | undefined> {
-    const path = this.path(identityId);
     return this.serialize(async () => {
+      const path = this.path(identityId);
       this.requireUnlocked();
       await this.requireSecureStorage();
       let encrypted: Buffer;

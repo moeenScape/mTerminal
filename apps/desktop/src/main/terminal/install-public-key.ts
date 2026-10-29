@@ -8,13 +8,12 @@ import { formatSshPublicKey } from '../../shared/ssh.js';
 const MAX_AUTHORIZED_KEYS_BYTES = 1024 * 1024;
 
 export function prepareAuthorizedKeys(existing: string, publicKey: string): string | undefined {
+  const key = publicKey.trim().split(/\s+/).slice(0, 2).join(' ');
   if (
-    existing
-      .split(/\r?\n/)
-      .some((line) => line.trim().split(/\s+/).slice(0, 2).join(' ') === publicKey)
+    existing.split(/\r?\n/).some((line) => line.trim().split(/\s+/).slice(0, 2).join(' ') === key)
   )
     return undefined;
-  return `${existing && !existing.endsWith('\n') ? '\n' : ''}${publicKey}\n`;
+  return `${existing}${existing && !existing.endsWith('\n') ? '\n' : ''}${publicKey}\n`;
 }
 
 function isMissing(error: Error): boolean {
@@ -69,8 +68,14 @@ export async function appendAuthorizedKey(
   }
   const addition = prepareAuthorizedKeys(existing, publicKey);
   if (addition)
+    // Append only the new line so existing remote key data is never rewritten.
     await callback<void>((done) =>
-      sftp.appendFile(authorizedKeys, addition, { flag: 'a', mode: 0o600 }, done),
+      sftp.appendFile(
+        authorizedKeys,
+        addition.slice(existing.length),
+        { flag: 'a', mode: 0o600 },
+        done,
+      ),
     );
   await callback<void>((done) => sftp.chmod(authorizedKeys, 0o600, done));
 }

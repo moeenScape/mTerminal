@@ -18,7 +18,7 @@ describe('reusable SSH identities', () => {
       validateIdentity({ name: 'Bad', username: 'two words', method: 'password' }),
     ).toThrow();
     expect(() => validateIdentity({ name: 'Bad', username: 'ops', method: 'unknown' })).toThrow();
-    expect(
+    expect(() =>
       validateHost({
         name: 'target',
         address: 'example.test',

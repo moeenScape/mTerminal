@@ -113,7 +113,7 @@ export function formatSshPublicKey(type: string, blob: Uint8Array, comment = '')
   const base64 = btoa(Array.from(blob, (byte) => String.fromCharCode(byte)).join(''));
   const safeComment = Array.from(comment)
     .filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
-    .join(' ')
+    .join('')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 256);
