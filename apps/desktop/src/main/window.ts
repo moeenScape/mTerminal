@@ -21,7 +21,7 @@ import {
 } from '../shared/vault.js';
 import { SshSecretStore } from './storage/secret-store.js';
 import { readFile } from 'node:fs/promises';
-import { utils } from 'ssh2';
+import { utils } from './ssh2-module.js';
 import { formatSshPublicKey } from '../shared/ssh.js';
 import { backupChannels } from '../shared/backup.js';
 import { chmod, rename, rm, stat, writeFile } from 'node:fs/promises';

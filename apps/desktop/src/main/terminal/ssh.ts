@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Client } from 'ssh2';
-import type { ClientChannel } from 'ssh2';
+import { Client, type ClientChannel } from '../ssh2-module.js';
 import type { TerminalTransport, TerminalExit } from './transport.js';
 import type { HostDraft } from '../../shared/hosts.js';
 import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../../shared/ssh.js';

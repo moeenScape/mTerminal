@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto';
 import { lstat, mkdir, open, readFile, rename, rm, chmod, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { utils } from 'ssh2';
+import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';

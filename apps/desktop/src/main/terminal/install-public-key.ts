@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { Client, utils, type SFTPWrapper, type Stats } from 'ssh2';
+import { Client, utils, type SFTPWrapper, type Stats } from '../ssh2-module.js';
 import type { HostDraft } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
 import { fingerprintMatches } from './ssh.js';

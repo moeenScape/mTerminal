@@ -23,7 +23,7 @@ import type { DiagnosticLog } from '../diagnostics.js';
 import { chooseShell, discoverShells } from './shells.js';
 import { TerminalRegistry } from './registry.js';
 import { installPublicKey } from './install-public-key.js';
-import { utils } from 'ssh2';
+import { utils } from '../ssh2-module.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';
 

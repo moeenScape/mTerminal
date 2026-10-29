@@ -12,6 +12,7 @@
     "playwright.config.ts",
     "tests/**/*.ts",
     "src/main/security.ts",
+    "src/main/ssh2-module.ts",
     "src/shared/**/*.ts",
     "src/renderer/src/env.d.ts",
     "src/main/preferences.ts",
