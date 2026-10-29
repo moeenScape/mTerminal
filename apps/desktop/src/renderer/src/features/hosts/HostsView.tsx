@@ -7,8 +7,6 @@ import {
   type FormEvent,
 } from 'react';
 import {
-  validateHost,
-  validateGroup,
   validateIdentity,
   resolveHost,
   type HostGroup,
@@ -18,6 +16,7 @@ import {
 import { EmptyState } from '../../components/EmptyState';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { InstallKeyDialog, PassphraseDialog } from './KeyDialogs';
+import { GroupForm, HostForm } from './HostForms';
 import {
   ContextMenu,
   menuPositionFor,
@@ -419,28 +418,72 @@ export function HostsView({
             onClose={() => setMenu(null)}
           />
         )}
-        {editor && (
-          <HostDialog
+        {editor && !editor.deleting && (
+          <HostForm
             key={editor.host?.id ?? 'new'}
             host={editor.host}
             groups={groups}
             identities={identities}
-            deleting={!!editor.deleting}
+            initialGroup={groupFilter}
             onClose={() => setEditor(null)}
             onSaved={refresh}
           />
         )}
-        {groupEditor && (
-          <GroupDialog
-            group={groupEditor.group}
-            identities={identities}
-            deleting={!!groupEditor.deleting}
-            onClose={() => setGroupEditor(null)}
-            onSaved={() => {
-              if (groupEditor.deleting) setGroupFilter('');
+        {editor?.deleting && editor.host && (
+          <ConfirmDialog
+            title={`Delete “${editor.host.name}”?`}
+            confirmLabel="Delete host"
+            danger
+            onConfirm={async () => {
+              try {
+                await window.mterminal.deleteHost(editor.host!.id);
+              } catch (cause) {
+                throw new Error('Unable to delete the host. Check local storage, then retry.', {
+                  cause,
+                });
+              }
               refresh();
             }}
+            onCancel={() => setEditor(null)}
+          >
+            <p>
+              This removes the saved profile for {editor.host.address}. The remote computer is
+              unaffected.
+            </p>
+          </ConfirmDialog>
+        )}
+        {groupEditor && !groupEditor.deleting && (
+          <GroupForm
+            group={groupEditor.group}
+            parent={groupFilter}
+            identities={identities}
+            onClose={() => setGroupEditor(null)}
+            onSaved={refresh}
           />
+        )}
+        {groupEditor?.deleting && groupEditor.group && (
+          <ConfirmDialog
+            title={`Delete group “${groupEditor.group.path}”?`}
+            confirmLabel="Delete group"
+            danger
+            onConfirm={async () => {
+              try {
+                await window.mterminal.deleteHostGroup(groupEditor.group!.path);
+              } catch (cause) {
+                throw new Error('Unable to delete the group. Check local storage, then retry.', {
+                  cause,
+                });
+              }
+              setGroupFilter('');
+              refresh();
+            }}
+            onCancel={() => setGroupEditor(null)}
+          >
+            <p>
+              This removes the group and all groups nested inside it. Their hosts move to Ungrouped
+              and keep their effective port, username, identity and tags.
+            </p>
+          </ConfirmDialog>
         )}
         {installTarget && (
           <InstallKeyDialog
@@ -589,313 +632,6 @@ function IdentityKeyControls({
         </ConfirmDialog>
       )}
     </div>
-  );
-}
-
-function HostDialog({
-  host,
-  groups,
-  identities,
-  deleting,
-  onClose,
-  onSaved,
-}: {
-  host: SavedHost | undefined;
-  groups: HostGroup[];
-  identities: SshIdentity[];
-  deleting: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const data = new FormData(event.currentTarget);
-    setBusy(true);
-    setError('');
-    try {
-      if (deleting && host) await window.mterminal.deleteHost(host.id);
-      else {
-        const value = validateHost({
-          name: data.get('name'),
-          address: data.get('address'),
-          port: Number(data.get('port')),
-          username: data.get('username'),
-          protocol: 'ssh',
-          groupPath: data.get('groupPath'),
-          tags: String(data.get('tags') ?? '')
-            .split(',')
-            .map((v) => v.trim())
-            .filter(Boolean),
-          inheritPort: data.get('inheritPort') === 'on',
-          inheritUsername: data.get('inheritUsername') === 'on',
-          identityId: String(data.get('identityId') ?? '') || null,
-        });
-        await window.mterminal.saveHost(value, host?.id);
-      }
-      onSaved();
-    } catch {
-      setError('Unable to save changes. Check the fields and local storage, then retry.');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <dialog
-      ref={ref}
-      className="terminal-dialog"
-      aria-labelledby="host-dialog-title"
-      onCancel={(event) => {
-        if (busy) event.preventDefault();
-        else onClose();
-      }}
-    >
-      <form onSubmit={(event) => void submit(event)}>
-        <h2 id="host-dialog-title">
-          {deleting ? `Delete “${host?.name}”?` : host ? 'Edit host' : 'New host'}
-        </h2>
-        {deleting ? (
-          <p>
-            This removes the saved profile for {host?.address}. The remote computer is unaffected.
-          </p>
-        ) : (
-          <>
-            <p>
-              SSH connection profile. Inherited values use the closest group default. An assigned
-              identity supplies the SSH username and preferred authentication method.
-            </p>
-            <label>
-              Group
-              <select name="groupPath" defaultValue={host?.groupPath ?? ''}>
-                <option value="">Ungrouped</option>
-                {groups.map((g) => (
-                  <option key={g.path}>{g.path}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              SSH identity
-              <select name="identityId" defaultValue={host?.identityId ?? ''}>
-                <option value="">Use group identity</option>
-                {identities.map((identity) => (
-                  <option key={identity.id} value={identity.id}>
-                    {identity.name} · {identity.username}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Tags (comma separated)
-              <input name="tags" maxLength={678} defaultValue={host?.tags?.join(', ') ?? ''} />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="inheritPort"
-                defaultChecked={host?.inheritPort ?? false}
-              />
-              Inherit port from group (fallback 22)
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                name="inheritUsername"
-                defaultChecked={host?.inheritUsername ?? false}
-              />
-              Inherit username from group (fallback blank)
-            </label>
-            <label>
-              Name
-              <input name="name" required maxLength={100} defaultValue={host?.name ?? ''} />
-            </label>
-            <label>
-              Address
-              <input
-                name="address"
-                required
-                maxLength={253}
-                spellCheck={false}
-                placeholder="server.example.com"
-                defaultValue={host?.address ?? ''}
-              />
-            </label>
-            <label>
-              Port
-              <input
-                name="port"
-                type="number"
-                min={1}
-                max={65535}
-                required
-                defaultValue={host?.port ?? 22}
-              />
-            </label>
-            <label>
-              Username
-              <input
-                name="username"
-                maxLength={100}
-                autoComplete="off"
-                spellCheck={false}
-                defaultValue={host?.username ?? ''}
-              />
-            </label>
-          </>
-        )}
-        {error && <p role="alert">{error}</p>}
-        <div className="dialog-actions">
-          <button type="button" disabled={busy} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className={deleting ? 'danger-button' : 'primary-button'}
-            disabled={busy}
-          >
-            {busy ? 'Saving…' : deleting ? 'Delete host' : 'Save host'}
-          </button>
-        </div>
-      </form>
-    </dialog>
-  );
-}
-
-function GroupDialog({
-  group,
-  identities,
-  deleting,
-  onClose,
-  onSaved,
-}: {
-  group: HostGroup | undefined;
-  identities: SshIdentity[];
-  deleting: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const data = new FormData(event.currentTarget);
-    setBusy(true);
-    setError('');
-    try {
-      if (deleting && group) await window.mterminal.deleteHostGroup(group.path);
-      else
-        await window.mterminal.saveHostGroup(
-          validateGroup({
-            path: data.get('path'),
-            port: data.get('port') ? Number(data.get('port')) : null,
-            username: data.get('username') || null,
-            identityId: String(data.get('identityId') ?? '') || null,
-          }),
-        );
-      onSaved();
-    } catch {
-      setError('Unable to save group. Check the fields, parent group and local storage.');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <dialog
-      ref={ref}
-      className="terminal-dialog"
-      aria-labelledby="group-title"
-      onCancel={(e) => {
-        if (busy) e.preventDefault();
-        else onClose();
-      }}
-    >
-      <form onSubmit={(e) => void submit(e)}>
-        <h2 id="group-title">
-          {deleting
-            ? `Delete group “${group?.path}”?`
-            : group
-              ? 'Edit group defaults'
-              : 'New group'}
-        </h2>
-        {deleting ? (
-          <p>
-            This removes this group and all nested groups. Their hosts move to Ungrouped, retaining
-            their effective port, username, identity and tags.
-          </p>
-        ) : (
-          <>
-            <label>
-              Group path
-              <input
-                name="path"
-                required
-                maxLength={200}
-                defaultValue={group?.path ?? ''}
-                readOnly={!!group}
-                placeholder="Work/Production"
-              />
-            </label>
-            <p>Create the parent first. Paths are fixed; use nesting to organize groups.</p>
-            <label>
-              Default port
-              <input
-                type="number"
-                name="port"
-                min={1}
-                max={65535}
-                defaultValue={group?.port ?? ''}
-              />
-            </label>
-            <label>
-              Default username
-              <input name="username" maxLength={100} defaultValue={group?.username ?? ''} />
-            </label>
-            <label>
-              Default SSH identity
-              <select name="identityId" defaultValue={group?.identityId ?? ''}>
-                <option value="">Inherit from parent</option>
-                {identities.map((identity) => (
-                  <option key={identity.id} value={identity.id}>
-                    {identity.name} · {identity.username}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p>
-              Blank defaults inherit from the parent. A selected identity supplies its username and
-              authentication method; hosts can override the identity.
-            </p>
-          </>
-        )}
-        {error && <p role="alert">{error}</p>}
-        <div className="dialog-actions">
-          <button type="button" disabled={busy} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className={deleting ? 'danger-button' : 'primary-button'}
-            disabled={busy}
-          >
-            {busy ? 'Saving…' : deleting ? 'Delete group' : 'Save group'}
-          </button>
-        </div>
-      </form>
-    </dialog>
   );
 }
 
