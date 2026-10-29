@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { utils } from 'ssh2';
 import { validHostId } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
+import { formatSshPublicKey } from '../../shared/ssh.js';
 
 export interface SafeStorageProvider {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -139,7 +140,11 @@ export class SshSecretStore {
     });
   }
 
-  async privateKeyStatus(identityId: string): Promise<{ available: boolean; saved: boolean }> {
+  async privateKeyStatus(identityId: string): Promise<{
+    available: boolean;
+    saved: boolean;
+    publicKey?: string;
+  }> {
     const path = this.keyPath(identityId);
     try {
       await this.requireSecureStorage();
@@ -150,7 +155,15 @@ export class SshSecretStore {
       const info = await lstat(path);
       if (!info.isFile() || info.size < 1 || info.size > 512 * 1024)
         throw new AppFailure('vault-corrupt');
-      return { available: true, saved: true };
+      const key = await this.getPrivateKey(identityId);
+      if (!key) return { available: true, saved: false };
+      const parsed = utils.parseKey(key.privateKey, key.passphrase);
+      if (parsed instanceof Error || Array.isArray(parsed)) throw new AppFailure('vault-corrupt');
+      return {
+        available: true,
+        saved: true,
+        publicKey: formatSshPublicKey(parsed.type, parsed.getPublicSSH(), parsed.comment),
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
         return { available: true, saved: false };
@@ -198,7 +211,7 @@ export class SshSecretStore {
     await this.savePrivateKey(identityId, privateKey, passphrase);
     const parsed = utils.parseKey(privateKey, passphrase);
     if (parsed instanceof Error || Array.isArray(parsed)) throw new AppFailure('vault-corrupt');
-    return parsed.getPublicSSH().toString();
+    return formatSshPublicKey(parsed.type, parsed.getPublicSSH(), parsed.comment);
   }
 
   getPrivateKey(

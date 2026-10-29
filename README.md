@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F27 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, and OS-encrypted password and private-key storage. Secrets are saved separately from SQLite and are returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
+F01–F28 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, OS-encrypted password and private-key storage, and confirmed public-key installation over SFTP. Secrets are saved separately from SQLite and are returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 
@@ -211,6 +211,11 @@ See [SSH session setup](docs/SSH_SESSIONS.md) for details and current limitation
 SSH authentication supports passwords, private-key files with optional passphrases,
 and keyboard-interactive challenges (including optional MFA continuation after
 password/key authentication). Unsaved credentials remain session-only.
+
+Hosts assigned a managed-key identity can install that public key to the remote account's
+`~/.ssh/authorized_keys` after confirming the target and key. The server fingerprint must
+already be trusted; authentication currently uses the identity's saved password or a
+one-time password. Existing authorized keys are preserved.
 
 SSH tabs display Connecting, Verifying key, Authenticating, Opening shell and
 Connected progress. Completed connections retain output and show Disconnected

@@ -36,6 +36,14 @@ const api: DesktopApi = {
     );
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
+  installSshPublicKey: async (hostId, password) => {
+    const result: TerminalOpenResult = await ipcRenderer.invoke(
+      channels.installPublicKey,
+      hostId,
+      password,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
   listHostGroups: () => ipcRenderer.invoke(hostChannels.groups),
   saveHostGroup: (group) => ipcRenderer.invoke(hostChannels.saveGroup, group),
   deleteHostGroup: (path) => ipcRenderer.invoke(hostChannels.deleteGroup, path),
@@ -69,10 +77,8 @@ const api: DesktopApi = {
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
   getSshKeyStatus: async (identityId) => {
-    const result: VaultResponse<{ available: boolean; saved: boolean }> = await ipcRenderer.invoke(
-      vaultChannels.keyStatus,
-      identityId,
-    );
+    const result: VaultResponse<{ available: boolean; saved: boolean; publicKey?: string }> =
+      await ipcRenderer.invoke(vaultChannels.keyStatus, identityId);
     if (!result.ok) throw new Error(failureMessages[result.code]);
     return result.value;
   },

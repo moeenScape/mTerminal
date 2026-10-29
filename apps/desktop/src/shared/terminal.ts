@@ -6,6 +6,7 @@ export const terminalChannels = {
   shells: 'terminal:shells',
   open: 'terminal:open',
   ssh: 'terminal:ssh',
+  installPublicKey: 'terminal:install-public-key',
   sshChallenge: 'terminal:ssh-challenge',
   sshAnswer: 'terminal:ssh-answer',
   write: 'terminal:write',
@@ -52,6 +53,7 @@ export interface TerminalApi {
     hostId: string,
     credentials: import('./ssh.js').SshCredentials,
   ) => Promise<void>;
+  installSshPublicKey: (hostId: string, password: string) => Promise<void>;
   getShells: () => Promise<ShellInfo[]>;
   openTerminal: (id: string, size: TerminalSize) => Promise<void>;
   writeTerminal: (id: string, input: TerminalInput) => void;

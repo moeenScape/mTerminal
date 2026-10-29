@@ -87,6 +87,33 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
     setGroupEditor(null);
     setReload((n) => n + 1);
   };
+  async function installKey(host: SavedHost) {
+    const resolved = resolveHost(host, groups);
+    const identity = identities.find((item) => item.id === resolved.identityId);
+    if (!identity) return;
+    const username = identity.username || resolved.username;
+    try {
+      const keyStatus = await window.mterminal.getSshKeyStatus(identity.id);
+      if (!keyStatus.saved || !keyStatus.publicKey)
+        throw new Error('This identity has no managed public key.');
+      if (
+        !window.confirm(
+          `Install this key for “${identity.name}” on ${username}@${resolved.address}:${resolved.port} in ~/.ssh/authorized_keys?\n\n${keyStatus.publicKey}\n\nExisting entries are preserved; .ssh and authorized_keys permissions will be set to 700 and 600.`,
+        )
+      )
+        return;
+      const status = await window.mterminal.getSshPasswordStatus(identity.id);
+      const password =
+        status.available && status.saved
+          ? ''
+          : window.prompt(`SSH password for ${username}@${resolved.address}:`);
+      if (password === null) return;
+      await window.mterminal.installSshPublicKey(host.id, password);
+      window.alert(`Public key installed for ${username}@${resolved.address}.`);
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : 'Unable to install the public key.');
+    }
+  }
   const selectedGroup = groups.find((group) => group.path === groupFilter);
   const searching = query.trim().length > 0 || !!groupFilter || !!tagFilter;
 
@@ -223,6 +250,14 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
                     {host.tags?.length ? ` · ${host.tags.join(' · ')}` : ''}
                   </span>
                 </div>
+                {resolveHost(host, groups).identityId && (
+                  <button
+                    onClick={() => void installKey(host)}
+                    aria-label={`Install key to ${host.name}`}
+                  >
+                    Install key
+                  </button>
+                )}
                 <button onClick={() => onConnect(host)} aria-label={`Connect to ${host.name}`}>
                   Connect
                 </button>
@@ -302,6 +337,7 @@ function IdentityKeyControls({ identityId }: { identityId: string }) {
         .then((status) => {
           setSaved(status.saved);
           setAvailable(status.available);
+          setPublicKey(status.publicKey ?? '');
         })
         .catch(() => {
           setSaved(false);

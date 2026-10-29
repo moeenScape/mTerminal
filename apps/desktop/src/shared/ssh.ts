@@ -108,6 +108,17 @@ export function validateSshCredentials(value: unknown): SshCredentials {
 export function validFingerprint(value: unknown): value is string {
   return typeof value === 'string' && /^SHA256:[A-Za-z0-9+/]{43}$/.test(value);
 }
+
+export function formatSshPublicKey(type: string, blob: Uint8Array, comment = ''): string {
+  const base64 = btoa(Array.from(blob, (byte) => String.fromCharCode(byte)).join(''));
+  const safeComment = Array.from(comment)
+    .filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 256);
+  return `${type} ${base64}${safeComment ? ` ${safeComment}` : ''}`;
+}
 export interface HostKeyRequest {
   address: string;
   port: number;

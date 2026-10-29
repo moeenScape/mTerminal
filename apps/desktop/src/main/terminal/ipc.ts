@@ -22,6 +22,10 @@ import { validateAppInfoRequest } from '../security.js';
 import type { DiagnosticLog } from '../diagnostics.js';
 import { chooseShell, discoverShells } from './shells.js';
 import { TerminalRegistry } from './registry.js';
+import { installPublicKey } from './install-public-key.js';
+import { utils } from 'ssh2';
+import { AppFailure } from '../failures.js';
+import { formatSshPublicKey } from '../../shared/ssh.js';
 
 export function attachTerminal(
   window: BrowserWindow,
@@ -142,6 +146,52 @@ export function attachTerminal(
       return { ok: false, code };
     }
   });
+  ipcMain.handle(
+    channels.installPublicKey,
+    async (event, ...args: unknown[]): Promise<TerminalOpenResult> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      try {
+        const [hostId, enteredPassword] = args;
+        if (
+          args.length !== 2 ||
+          !validHostId(hostId) ||
+          typeof enteredPassword !== 'string' ||
+          enteredPassword.length > 4096
+        )
+          throw new Error('Invalid key installation request.');
+        const host = database.listHosts().find((item) => item.id === hostId);
+        if (!host) throw new Error('Host not found.');
+        const resolved = resolveHost(host, database.listHostGroups());
+        if (!resolved.identityId) throw new Error('Assign an SSH identity to this host first.');
+        const identity = database
+          .listSshIdentities()
+          .find((item) => item.id === resolved.identityId);
+        if (!identity) throw new Error('SSH identity not found.');
+        const key = await secrets.getPrivateKey(identity.id);
+        if (!key) throw new AppFailure('vault-secret-missing');
+        const parsed = utils.parseKey(key.privateKey, key.passphrase);
+        if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey())
+          throw new AppFailure('vault-corrupt');
+        const endpoint = knownHostAddress(resolved.address, resolved.port);
+        const fingerprint = database.getKnownHost(endpoint, resolved.port);
+        if (!fingerprint) throw new AppFailure('ssh-host-unverified');
+        const password = enteredPassword || (await secrets.getPassword(identity.id));
+        if (!password) throw new AppFailure('vault-secret-missing');
+        await installPublicKey(
+          { ...resolved, address: endpoint },
+          identity.username || resolved.username,
+          password,
+          fingerprint,
+          formatSshPublicKey(parsed.type, parsed.getPublicSSH(), parsed.comment),
+        );
+        return { ok: true };
+      } catch (error) {
+        const code = failureCode(error, 'ssh-key-install-failed');
+        diagnostics.record('terminal-operation-failed', code);
+        return { ok: false, code };
+      }
+    },
+  );
   const operations = [channels.write, channels.resize, channels.ack, channels.close] as const;
   for (const channel of operations) {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
@@ -186,6 +236,7 @@ export function attachTerminal(
     terminal.dispose();
     ipcMain.removeHandler(channels.open);
     ipcMain.removeHandler(channels.ssh);
+    ipcMain.removeHandler(channels.installPublicKey);
     ipcMain.removeAllListeners(channels.sshAnswer);
     ipcMain.removeHandler(channels.shells);
     for (const channel of operations) ipcMain.removeAllListeners(channel);

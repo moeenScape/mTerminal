@@ -103,7 +103,9 @@ describe('OS-encrypted SSH key storage', () => {
         privateKey: pair.private,
         passphrase: '',
       });
-      expect(await store.privateKeyStatus(identityId)).toEqual({ available: true, saved: true });
+      const status = await store.privateKeyStatus(identityId);
+      expect(status).toMatchObject({ available: true, saved: true });
+      expect(status.publicKey).toMatch(/^ssh-ed25519 /);
       await store.deletePrivateKey(identityId);
       expect(await store.privateKeyStatus(identityId)).toEqual({ available: true, saved: false });
     } finally {

@@ -7,6 +7,10 @@ export const failureMessages = {
     'The saved credential is missing. Enter the password again or import the private key for this identity.',
   'ssh-key-invalid':
     'The private key could not be imported. Check its format and passphrase, then try again.',
+  'ssh-host-unverified':
+    'Connect to this host and verify its server identity before installing a key.',
+  'ssh-key-install-failed':
+    'The public key could not be installed. Check the remote account and its SFTP permissions, then retry.',
   'ssh-cancelled': 'SSH connection cancelled.',
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',

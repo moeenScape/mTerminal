@@ -154,4 +154,13 @@ passphrase creates Ed25519. The private key and passphrase are encrypted togethe
 through `safeStorage` outside SQLite. Linux must have a supported OS keychain;
 otherwise managed key storage is disabled. The prompt can use the managed key for
 the assigned identity, keeping private material in the main process. The manager
-shows the public key for copying to the server; public-key installation is F28.
+shows the public key for copying to the server; the Hosts list also provides the
+confirmed installer described below.
+
+For hosts assigned to that identity, choose **Install key**. Review the displayed key,
+remote account, host and `~/.ssh/authorized_keys` destination, then confirm. The server
+fingerprint must already be trusted by connecting to the host once. Installation uses the
+identity's saved password or a one-time SSH password and writes through SFTP. Existing
+authorized keys are preserved, duplicate keys are skipped, and `.ssh` / `authorized_keys`
+permissions are set to 0700 / 0600. This installer currently requires password authentication
+and a Unix-style remote home directory; keyboard-interactive-only hosts are not supported.

@@ -17,6 +17,7 @@ import { vaultChannels, type VaultResponse } from '../shared/vault.js';
 import { SshSecretStore } from './storage/secret-store.js';
 import { readFile } from 'node:fs/promises';
 import { utils } from 'ssh2';
+import { formatSshPublicKey } from '../shared/ssh.js';
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -173,7 +174,10 @@ export async function createMainWindow(
           const parsed = utils.parseKey(privateKey!, value);
           if (parsed instanceof Error || Array.isArray(parsed))
             throw new Error('Invalid private key.');
-          return { ok: true, value: parsed.getPublicSSH().toString() };
+          return {
+            ok: true,
+            value: formatSshPublicKey(parsed.type, parsed.getPublicSSH(), parsed.comment),
+          };
         }
         throw new Error('Invalid vault request.');
       } catch (error) {

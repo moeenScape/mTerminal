@@ -12,7 +12,9 @@ export interface VaultApi {
   getSshPasswordStatus: (identityId: string) => Promise<{ available: boolean; saved: boolean }>;
   saveSshPassword: (identityId: string, password: string) => Promise<void>;
   deleteSshPassword: (identityId: string) => Promise<void>;
-  getSshKeyStatus: (identityId: string) => Promise<{ available: boolean; saved: boolean }>;
+  getSshKeyStatus: (
+    identityId: string,
+  ) => Promise<{ available: boolean; saved: boolean; publicKey?: string }>;
   importSshKey: (identityId: string, passphrase: string) => Promise<string>;
   generateSshKey: (identityId: string, passphrase: string) => Promise<string>;
   deleteSshKey: (identityId: string) => Promise<void>;
