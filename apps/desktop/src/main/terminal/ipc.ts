@@ -55,6 +55,7 @@ export function attachTerminal(
               throw new AppFailure('vault-locked');
           }
           historyEnabled = args[0];
+          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
           return { ok: true, value: undefined };
         }
         if (
@@ -146,20 +147,31 @@ export function attachTerminal(
           await integration?.dispose();
           throw error;
         }
+        if (!window.webContents.isDestroyed())
+          window.webContents.send(channels.event, {
+            kind: 'history-status',
+            id,
+            status: integration ? 'starting' : historyEnabled ? 'unsupported' : 'disabled',
+          });
         if (!integration) return pty;
         const clean = () => {
           void integration.dispose().catch(() => {});
         };
         const parser = new BashHistoryStream(integration.token, (command, directory) => {
           if (!historyEnabled || signal.aborted) return;
-          void secrets.recordCommand(command, directory).catch((error: unknown) => {
-            if (!window.webContents.isDestroyed())
-              window.webContents.send(channels.event, {
-                kind: 'history-error',
-                id,
-                code: failureCode(error, 'vault-unavailable'),
-              });
-          });
+          void secrets
+            .recordCommand(command, directory)
+            .then(() => {
+              if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+            })
+            .catch((error: unknown) => {
+              if (!window.webContents.isDestroyed())
+                window.webContents.send(channels.event, {
+                  kind: 'history-error',
+                  id,
+                  code: failureCode(error, 'vault-unavailable'),
+                });
+            });
         });
         return {
           write: (data) => pty.write(data),

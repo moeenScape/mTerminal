@@ -1,0 +1,29 @@
+import type { CommandHistoryEntry } from '../../../../shared/history.js';
+
+export function autocompleteMatches(entries: CommandHistoryEntry[], prefix: string) {
+  return entries
+    .filter(
+      (entry) =>
+        entry.command.startsWith(prefix) &&
+        entry.command.length > prefix.length &&
+        !/[\r\n]/.test(entry.command),
+    )
+    .slice(0, 5);
+}
+
+export function autocompletePosition(
+  cursor: { left: number; top: number; rowHeight: number },
+  host: { width: number; height: number },
+  count: number,
+) {
+  if (host.width < 80 || host.height < 44 || count < 1) return undefined;
+  const width = Math.min(380, host.width - 16);
+  const maxHeight = Math.min(count * 34 + 38, host.height - 8);
+  const below = cursor.top + cursor.rowHeight + 4;
+  return {
+    width,
+    maxHeight,
+    left: Math.max(8, Math.min(cursor.left, host.width - width - 8)),
+    top: below + maxHeight <= host.height - 4 ? below : Math.max(4, cursor.top - maxHeight - 4),
+  };
+}

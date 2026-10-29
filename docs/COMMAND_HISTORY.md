@@ -3,11 +3,13 @@
 ## Enable recording
 
 1. Set up and unlock the local vault.
-2. In a local terminal, click **History** and enable **Record commands in new Bash sessions**.
+2. In a local terminal, click **History** to open the right sidebar. Click **Enable recording**
+   in the empty state, or expand **Recording & privacy** and enable **Record local Bash commands**.
 3. Open a **New terminal** using Bash 5 or newer. Set **Settings → Default shell executable**
    to `/bin/bash` if needed. Existing shells are not changed.
-4. Run a command, then type its beginning at the next prompt. A faint suffix suggests a
-   previously recorded command. **Right Arrow** inserts the suffix; **Escape** dismisses it.
+4. Run a command, then type its beginning at the next prompt. A dropdown beneath the cursor
+   lists up to five previously recorded commands and highlights the prefix. **Up/Down** selects
+   a row; **Right Arrow** or clicking a row inserts its suffix; **Escape** dismisses the list.
    Press **Enter** separately to execute. Tab remains the shell's completion key.
 
 Recording is disabled by default and resets when the application window closes. Unchecking
@@ -16,13 +18,23 @@ an unlocked vault. Saving stops while the vault is locked. Suggestions require a
 local Bash prompt and are suppressed after command submission, in applications and password
 prompts, in alternate-screen programs, and while editing inside a command.
 
+The top of the History panel reports whether recording is active in the current tab, not
+attached, or unavailable for its shell. Saved commands refresh the list and suggestions
+automatically. A newly enabled setting does not attach recording to an already running shell.
+
 ## Find and manage commands
 
-The History panel searches by prefix and lists up to 20 results. Commands from the current
+The right sidebar has History and Autocomplete tabs. History searches by prefix and lists up
+to 20 results. Commands from the current
 directory rank first, followed by recent commands. Repeated command/directory pairs share an
-entry with a usage count. **Insert** requires an empty integrated prompt and inserts single-line
-text without executing it. Multiline commands can be copied. Delete individual entries or use
-**Clear all history**; both operations ask for confirmation.
+entry with a usage count. Clicking a command requires an empty integrated prompt and inserts
+single-line text without executing it. Hover or focus a row to reveal Copy and Delete actions;
+multiline commands can be copied. **Clear history** is under Recording & privacy. Deletion
+requires confirmation. The Autocomplete tab enables or disables the dropdown for the current
+tab and lists its shortcuts. The sidebar preserves the terminal's full height; the popup moves
+above the cursor when there is insufficient space below.
+
+Only commands recorded by mTerminal are offered. Existing native Bash history is not imported.
 
 ## Storage and privacy
 

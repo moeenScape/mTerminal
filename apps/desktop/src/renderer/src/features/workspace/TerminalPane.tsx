@@ -77,8 +77,13 @@ export function TerminalPane({
   const inputReady = useRef(false);
   const autoStarted = useRef(false);
   const session = useRef<string | null>(null);
-  const history = useCommandHistory(active, !hostId, terminal, session, inputReady, container);
-  const { attach: attachHistory, onInput: historyInput, handleKey: historyKey } = history;
+  const history = useCommandHistory(active, !hostId, session, inputReady, container);
+  const {
+    attach: attachHistory,
+    onInput: historyInput,
+    handleKey: historyKey,
+    onSessionStatus: historyStatus,
+  } = history;
   const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -178,6 +183,8 @@ export function TerminalPane({
           if (!disposed && session.current === event.id)
             window.mterminal.ackTerminal(event.id, event.data.length);
         });
+      } else if (event.kind === 'history-status') {
+        historyStatus(event.status);
       } else if (event.kind === 'history-error') {
         setStatus(`Command history was not saved. ${failureMessages[event.code]}`);
       } else {
@@ -230,7 +237,7 @@ export function TerminalPane({
       sizing.current = null;
       term.dispose();
     };
-  }, [id, hostId, onPhaseChange, attachClipboard, attachHistory, historyInput]);
+  }, [id, hostId, onPhaseChange, attachClipboard, attachHistory, historyInput, historyStatus]);
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
@@ -471,6 +478,7 @@ export function TerminalPane({
             type="button"
             className="secondary-button"
             aria-expanded={history.open}
+            aria-controls={history.panelId}
             onClick={history.toggle}
           >
             History
@@ -488,7 +496,6 @@ export function TerminalPane({
           <Icon name="more" />
         </button>
       </header>
-      {history.panel}
       {searchOpen && (
         <form
           className="terminal-search"
@@ -561,16 +568,19 @@ export function TerminalPane({
           used when configured. Closing a session stops its foreground work.
         </p>
       )}
-      <div
-        className="terminal-container"
-        ref={container}
-        aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY });
-        }}
-      />
-      {history.overlay}
+      <div className="terminal-stage">
+        <div
+          className="terminal-container"
+          ref={container}
+          aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY });
+          }}
+        />
+        {history.overlay}
+        {history.panel}
+      </div>
       {clipboard.pending && (
         <PasteDialog
           title={title}

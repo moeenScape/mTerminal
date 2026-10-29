@@ -1,32 +1,50 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, useId, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon } from '../../components/Icon';
+import { autocompleteMatches, autocompletePosition } from './autocomplete';
 import type { Terminal, IMarker } from '@xterm/xterm';
 import type { CommandHistoryEntry } from '../../../../shared/history';
 
 export function useCommandHistory(
   active: boolean,
   local: boolean,
-  terminal: RefObject<Terminal | null>,
   session: RefObject<string | null>,
   ready: RefObject<boolean>,
   container: RefObject<HTMLDivElement | null>,
 ) {
+  const toolId = useId();
+  const terminal = useRef<Terminal | null>(null);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [query, setQuery] = useState('');
   const [entries, setEntries] = useState<CommandHistoryEntry[]>([]);
   const [message, setMessage] = useState('');
   const [revision, setRevision] = useState(0);
-  const [ghost, setGhost] = useState<{
-    suffix: string;
+  const [integration, setIntegration] = useState<
+    'unknown' | 'disabled' | 'unsupported' | 'starting' | 'ready'
+  >('unknown');
+  const onSessionStatus = useCallback(
+    (status: 'disabled' | 'unsupported' | 'starting') => setIntegration(status),
+    [],
+  );
+  const [tool, setTool] = useState<'history' | 'autocomplete'>('history');
+  const [autocomplete, setAutocomplete] = useState(true);
+  const autocompleteRef = useRef(true);
+  const [selected, setSelected] = useState(0);
+  const [popup, setPopup] = useState<{
+    prefix: string;
+    items: CommandHistoryEntry[];
     left: number;
     top: number;
-    lineHeight: number;
+    width: number;
+    maxHeight: number;
   } | null>(null);
   const marker = useRef<IMarker | null>(null);
   const column = useRef(0);
   const directory = useRef('');
-  const suggestion = useRef<{ prefix: string; suffix: string } | null>(null);
+  const suggestion = useRef<{ prefix: string; items: CommandHistoryEntry[]; index: number } | null>(
+    null,
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const version = useRef(0);
   const lastQuery = useRef('');
@@ -36,7 +54,7 @@ export function useCommandHistory(
     version.current++;
     clearTimeout(timer.current);
     suggestion.current = null;
-    setGhost(null);
+    setPopup(null);
   }, []);
 
   const prefix = useCallback((): string | undefined => {
@@ -64,9 +82,10 @@ export function useCommandHistory(
   const attach = useCallback(
     (term: Terminal) => {
       if (!local) return () => {};
+      terminal.current = term;
       const render = () => {
         const text = prefix();
-        if (!text || text.startsWith(' ')) {
+        if (!autocompleteRef.current || !text || text.startsWith(' ')) {
           lastQuery.current = '';
           dismiss();
           return;
@@ -81,23 +100,27 @@ export function useCommandHistory(
             .searchHistory(text, directory.current)
             .then((items) => {
               if (request !== version.current || prefix() !== text) return;
-              const item = items.find(
-                (entry) => entry.command.length > text.length && !/[\r\n]/.test(entry.command),
-              );
+              const matches = autocompleteMatches(items, text);
               const screen = container.current?.querySelector<HTMLElement>('.xterm-screen');
               const host = container.current;
-              if (!item || !screen || !host) return;
+              if (!screen || !host) return;
               const rect = screen.getBoundingClientRect();
               const parent = host.getBoundingClientRect();
-              const suffix = item.command.slice(text.length);
-              suggestion.current = { prefix: text, suffix };
-              setGhost({
-                suffix,
-                left:
-                  rect.left - parent.left + (term.buffer.active.cursorX * rect.width) / term.cols,
-                top: rect.top - parent.top + (term.buffer.active.cursorY * rect.height) / term.rows,
-                lineHeight: rect.height / term.rows,
-              });
+              const position = autocompletePosition(
+                {
+                  left:
+                    rect.left - parent.left + (term.buffer.active.cursorX * rect.width) / term.cols,
+                  top:
+                    rect.top - parent.top + (term.buffer.active.cursorY * rect.height) / term.rows,
+                  rowHeight: rect.height / term.rows,
+                },
+                { width: host.clientWidth, height: host.clientHeight },
+                matches.length,
+              );
+              if (!position) return;
+              suggestion.current = { prefix: text, items: matches, index: 0 };
+              setSelected(0);
+              setPopup({ prefix: text, items: matches, ...position });
             })
             .catch(() => {
               if (request === version.current) dismiss();
@@ -114,6 +137,7 @@ export function useCommandHistory(
           directory.current = new TextDecoder().decode(
             Uint8Array.from(atob(data.slice(10)), (c) => c.charCodeAt(0)),
           );
+          setIntegration('ready');
         } catch {
           marker.current?.dispose();
           marker.current = null;
@@ -131,6 +155,8 @@ export function useCommandHistory(
         dismiss();
       });
       return () => {
+        setIntegration('unknown');
+        terminal.current = null;
         osc.dispose();
         rendered.dispose();
         scrolled.dispose();
@@ -159,6 +185,22 @@ export function useCommandHistory(
     [dismiss],
   );
 
+  const accept = useCallback(
+    (index: number) => {
+      const current = suggestion.current;
+      const item = current?.items[index];
+      if (!current || !item || prefix() !== current.prefix || !session.current) return;
+      window.mterminal.writeTerminal(session.current, {
+        kind: 'text',
+        data: item.command.slice(current.prefix.length),
+      });
+      dismiss();
+      lastQuery.current = '';
+      terminal.current?.focus();
+    },
+    [dismiss, prefix, session, terminal],
+  );
+
   const handleKey = useCallback(
     (event: KeyboardEvent) => {
       const current = suggestion.current;
@@ -175,14 +217,25 @@ export function useCommandHistory(
         dismiss();
         return false;
       }
-      if (event.key !== 'ArrowRight' || prefix() !== current.prefix || !session.current)
+      if (prefix() !== current.prefix) {
+        dismiss();
         return true;
-      window.mterminal.writeTerminal(session.current, { kind: 'text', data: current.suffix });
-      dismiss();
-      lastQuery.current = '';
-      return false;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        current.index =
+          (current.index + (event.key === 'ArrowDown' ? 1 : -1) + current.items.length) %
+          current.items.length;
+        setSelected(current.index);
+        return false;
+      }
+      if (event.key === 'ArrowRight') {
+        accept(current.index);
+        return false;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') dismiss();
+      return true;
     },
-    [dismiss, prefix, session],
+    [dismiss, prefix, accept],
   );
 
   useEffect(
@@ -203,8 +256,10 @@ export function useCommandHistory(
         lastQuery.current = '';
         setEntries([]);
         setRevision((value) => value + 1);
+        const term = terminal.current;
+        if (term) term.refresh(0, term.rows - 1);
       }),
-    [dismiss],
+    [dismiss, terminal],
   );
   useEffect(() => {
     if (active) return;
@@ -259,123 +314,315 @@ export function useCommandHistory(
     }
   }
 
+  async function setRecording(value: boolean) {
+    try {
+      await window.mterminal.setHistoryEnabled(value);
+      setEnabled(value);
+      setMessage(value ? 'Open a new Bash terminal to start recording.' : 'Recording paused.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to enable history.');
+    }
+  }
+
+  const integrationText =
+    integration === 'ready'
+      ? enabled
+        ? 'Recording active in this tab'
+        : 'Recording paused'
+      : integration === 'disabled'
+        ? 'Enable recording, then open a new Bash terminal.'
+        : integration === 'unsupported'
+          ? 'Choose /bin/bash in Settings and open a new terminal.'
+          : 'Waiting for a Bash prompt…';
+
+  function insert(entry: CommandHistoryEntry) {
+    if (prefix() !== '' || !session.current || /[\r\n]/.test(entry.command)) {
+      setMessage('Clear the Bash command line before inserting a single-line command.');
+      return;
+    }
+    window.mterminal.writeTerminal(session.current, { kind: 'text', data: entry.command });
+    terminal.current?.focus();
+  }
+
+  const listId = `${toolId}-suggestions`;
+  useEffect(() => {
+    const input = terminal.current?.textarea;
+    if (!input || !popup) return;
+    const names = ['aria-autocomplete', 'aria-controls', 'aria-activedescendant', 'aria-expanded'];
+    const previous = names.map((name) => input.getAttribute(name));
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', listId);
+    input.setAttribute('aria-activedescendant', `${listId}-${selected}`);
+    input.setAttribute('aria-expanded', 'true');
+    document.getElementById(`${listId}-${selected}`)?.scrollIntoView({ block: 'nearest' });
+    return () =>
+      names.forEach((name, index) => {
+        const value = previous[index];
+        if (value == null) input.removeAttribute(name);
+        else input.setAttribute(name, value);
+      });
+  }, [popup, selected, terminal, listId]);
+
   const panel =
     open && local ? (
-      <section className="command-history" aria-label="Command history">
-        <div className="history-actions">
-          <strong>Local command history</strong>
-          <button type="button" onClick={() => setOpen(false)}>
-            Close history
-          </button>
-        </div>
-        <p>
-          Recording is opt-in for new Bash 5+ sessions until mTerminal quits. Commands may contain
-          secrets. History is encrypted in your vault, limited to 500 entries and retained for 30
-          days. Prefix a command with a space to exclude it. SSH recording is unavailable.
-        </p>
-        <label>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => {
-              const value = event.target.checked;
-              void window.mterminal
-                .setHistoryEnabled(value)
-                .then(() => {
-                  setEnabled(value);
-                  setMessage(
-                    value
-                      ? 'Enabled. Open a new local Bash terminal to start recording.'
-                      : 'Recording paused for all sessions.',
-                  );
-                })
-                .catch((error: unknown) =>
-                  setMessage(error instanceof Error ? error.message : 'Unable to enable history.'),
-                );
-            }}
-          />{' '}
-          Record commands in new Bash sessions
-        </label>
-        <input
-          aria-label="Search command history"
-          placeholder="Search by command prefix"
-          value={query}
-          maxLength={4096}
-          spellCheck={false}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <p role="status">
-          {message ||
-            (entries.length
-              ? 'Right Arrow accepts a suggestion; Escape dismisses it. Commands are never executed automatically.'
-              : 'No matching commands.')}
-        </p>
-        <ul>
-          {entries.map((entry) => (
-            <li key={entry.id}>
-              <code>{entry.command}</code>
-              <small>
-                {entry.directory} · {entry.uses} uses
-              </small>
-              <div className="history-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (prefix() !== '' || !session.current || /[\r\n]/.test(entry.command)) {
-                      setMessage(
-                        'Insert requires an empty integrated Bash prompt and a single-line command.',
-                      );
-                      return;
-                    }
-                    window.mterminal.writeTerminal(session.current, {
-                      kind: 'text',
-                      data: entry.command,
-                    });
-                    setOpen(false);
-                    terminal.current?.focus();
-                  }}
-                >
-                  Insert
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void window.mterminal
-                      .writeClipboardText(entry.command)
-                      .catch(() => setMessage('Unable to copy command.'));
-                  }}
-                >
-                  Copy
-                </button>
-                <button type="button" onClick={() => void remove(entry.id)}>
-                  Delete
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <button type="button" onClick={() => void remove()}>
-          Clear all history
-        </button>
-      </section>
-    ) : null;
-  const overlay =
-    active && ghost && container.current
-      ? createPortal(
-          <span
-            className="command-ghost"
-            aria-hidden="true"
-            style={{
-              left: ghost.left,
-              top: ghost.top,
-              fontFamily: terminal.current?.options.fontFamily,
-              fontSize: terminal.current?.options.fontSize,
-              lineHeight: `${ghost.lineHeight}px`,
-              color: terminal.current?.options.theme?.foreground,
+      <aside
+        className="command-history"
+        id={`${toolId}-tools`}
+        aria-label="Terminal tools"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            terminal.current?.focus();
+          }
+        }}
+      >
+        <div className="history-toolbar">
+          <div
+            role="tablist"
+            aria-label="Terminal tools"
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next =
+                event.key === 'Home'
+                  ? 'history'
+                  : event.key === 'End'
+                    ? 'autocomplete'
+                    : tool === 'history'
+                      ? 'autocomplete'
+                      : 'history';
+              setTool(next);
+              document.getElementById(`${toolId}-${next}`)?.focus();
             }}
           >
-            {ghost.suffix}
-          </span>,
+            <button
+              type="button"
+              role="tab"
+              id={`${toolId}-history`}
+              aria-selected={tool === 'history'}
+              tabIndex={tool === 'history' ? 0 : -1}
+              aria-controls={`${toolId}-panel`}
+              aria-label="Command history"
+              title="Command history"
+              onClick={() => setTool('history')}
+            >
+              <Icon name="history" />
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id={`${toolId}-autocomplete`}
+              aria-selected={tool === 'autocomplete'}
+              tabIndex={tool === 'autocomplete' ? 0 : -1}
+              aria-controls={`${toolId}-panel`}
+              aria-label="Autocomplete settings"
+              title="Autocomplete"
+              onClick={() => setTool('autocomplete')}
+            >
+              <Icon name="rocket" />
+            </button>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close terminal tools"
+            onClick={() => {
+              setOpen(false);
+              terminal.current?.focus();
+            }}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+        <div
+          role="tabpanel"
+          id={`${toolId}-panel`}
+          aria-labelledby={`${toolId}-${tool}`}
+          className="history-tool-content"
+        >
+          {tool === 'history' ? (
+            <>
+              <label className="history-search">
+                <Icon name="search" />
+                <input
+                  aria-label="Search command history"
+                  placeholder="Search history"
+                  value={query}
+                  maxLength={4096}
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              <ul className="history-list">
+                {entries.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className="history-command"
+                      title={`${entry.command}\n${entry.directory}`}
+                      onClick={() => insert(entry)}
+                    >
+                      <Icon name="history" />
+                      <code>{entry.command}</code>
+                    </button>
+                    <div className="history-entry-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void window.mterminal
+                            .writeClipboardText(entry.command)
+                            .catch(() => setMessage('Unable to copy command.'));
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button type="button" onClick={() => void remove(entry.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {!entries.length && (
+                <div className="history-empty">
+                  <Icon name="history" />
+                  <p>No matching commands</p>
+                  <small>Enable recording and run a command in a new Bash terminal.</small>
+                  {!enabled && (
+                    <>
+                      <p className="history-help">
+                        Commands may contain secrets. An unlocked vault is required.
+                      </p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void setRecording(true)}
+                      >
+                        Enable recording
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <label className="autocomplete-setting">
+                Autocomplete
+                <select
+                  aria-label="Autocomplete"
+                  value={autocomplete ? 'enabled' : 'disabled'}
+                  onChange={(event) => {
+                    const value = event.target.value === 'enabled';
+                    autocompleteRef.current = value;
+                    setAutocomplete(value);
+                    dismiss();
+                    lastQuery.current = '';
+                    terminal.current?.refresh(0, terminal.current.rows - 1);
+                  }}
+                >
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+              <p className="history-help">
+                Suggestions appear beneath the cursor as you type at an integrated Bash prompt.
+              </p>
+              <dl className="autocomplete-shortcuts">
+                <div>
+                  <dt>↑ / ↓</dt>
+                  <dd>Select suggestion</dd>
+                </div>
+                <div>
+                  <dt>→</dt>
+                  <dd>Insert suggestion</dd>
+                </div>
+                <div>
+                  <dt>Esc</dt>
+                  <dd>Dismiss</dd>
+                </div>
+                <div>
+                  <dt>Enter</dt>
+                  <dd>Run typed command</dd>
+                </div>
+              </dl>
+            </>
+          )}
+        </div>
+        <footer className="history-footer">
+          <p className="history-session-status" role="status">
+            {integrationText}
+          </p>
+          {message && (
+            <p className="history-message" role="status">
+              {message}
+            </p>
+          )}
+          <details>
+            <summary>Recording &amp; privacy</summary>
+            <label className="history-recording">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => void setRecording(event.target.checked)}
+              />{' '}
+              Record local Bash commands
+            </label>
+            <p className="history-help">
+              Opt-in for this app window. Commands may contain secrets. Stored in your encrypted
+              vault for up to 30 days and 500 entries. A leading space excludes a command. SSH
+              capture is unavailable.
+            </p>
+            <button type="button" className="history-clear" onClick={() => void remove()}>
+              Clear history
+            </button>
+          </details>
+        </footer>
+      </aside>
+    ) : null;
+  const overlay =
+    active && popup && container.current
+      ? createPortal(
+          <div
+            className="command-suggestions"
+            id={listId}
+            role="listbox"
+            aria-label="Command suggestions"
+            style={{
+              left: popup.left,
+              top: popup.top,
+              width: popup.width,
+              maxHeight: popup.maxHeight,
+            }}
+          >
+            {popup.items.map((item, index) => (
+              <div
+                key={item.id}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={selected === index}
+                className="command-suggestion"
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => {
+                  if (suggestion.current) suggestion.current.index = index;
+                  setSelected(index);
+                }}
+                onClick={() => accept(index)}
+              >
+                <Icon name="history" />
+                <code>
+                  <mark>{item.command.slice(0, popup.prefix.length)}</mark>
+                  {item.command.slice(popup.prefix.length)}
+                </code>
+              </div>
+            ))}
+            <div className="suggestion-hint" aria-live="polite">
+              ↑↓ select · → insert · Esc dismiss
+            </div>
+          </div>,
           container.current,
         )
       : null;
@@ -383,6 +630,8 @@ export function useCommandHistory(
     attach,
     onInput,
     handleKey,
+    onSessionStatus,
+    panelId: `${toolId}-tools`,
     panel,
     overlay,
     toggle: () => setOpen((value) => !value),

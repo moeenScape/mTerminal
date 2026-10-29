@@ -1,0 +1,109 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { BrowserWindow } from 'electron';
+import type { LocalDatabase } from '../../src/main/storage/database.js';
+import type { SshSecretStore } from '../../src/main/storage/secret-store.js';
+import type { DiagnosticLog } from '../../src/main/diagnostics.js';
+import { attachTerminal } from '../../src/main/terminal/ipc.js';
+
+const fixture = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
+  data: (() => {}) as (value: string) => void,
+}));
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (name: string, handler: (...args: unknown[]) => Promise<unknown>) =>
+      fixture.handlers.set(name, handler),
+    on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeAllListeners: vi.fn(),
+  },
+}));
+vi.mock('node-pty', () => ({
+  spawn: () => ({
+    resize: vi.fn(),
+    write: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    kill: vi.fn(),
+    onData: (listener: (data: string) => void) => {
+      fixture.data = listener;
+      return { dispose: vi.fn() };
+    },
+    onExit: () => ({ dispose: vi.fn() }),
+  }),
+}));
+vi.mock('../../src/main/terminal/shells.js', () => ({
+  chooseShell: async () => '/bin/bash',
+  discoverShells: async () => [],
+}));
+vi.mock('../../src/main/terminal/bash-history.js', async (original) => ({
+  ...(await original<typeof import('../../src/main/terminal/bash-history.js')>()),
+  bashHistoryRc: async () => ({
+    token: 'fixture',
+    path: '/unused/bashrc',
+    dispose: async () => {},
+  }),
+}));
+
+describe('history recording notifications', () => {
+  it('refreshes history only after persistence succeeds and reports a failed save without closing the shell', async () => {
+    const url = 'file:///renderer/index.html';
+    const frame = { url };
+    const send = vi.fn();
+    const contents = { mainFrame: frame, send, on: vi.fn(), isDestroyed: () => false };
+    const window = { webContents: contents, once: vi.fn() } as unknown as BrowserWindow;
+    let saved!: () => void;
+    const record = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          saved = resolve;
+        }),
+    );
+    const secrets = {
+      recordCommand: record,
+      vaultStatus: async () => ({ configured: true, locked: false, available: true }),
+    } as unknown as SshSecretStore;
+    const registry = attachTerminal(
+      window,
+      url,
+      () => '',
+      { record: vi.fn() } as unknown as DiagnosticLog,
+      {} as LocalDatabase,
+      secrets,
+    );
+    const event = { sender: contents, senderFrame: frame };
+    const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    try {
+      await fixture.handlers.get('history:enable')!(event, true);
+      expect(
+        await fixture.handlers.get('terminal:open')!(event, id, { cols: 80, rows: 24 }),
+      ).toEqual({ ok: true });
+      expect(send).toHaveBeenCalledWith('terminal:event', {
+        kind: 'history-status',
+        id,
+        status: 'starting',
+      });
+      send.mockClear();
+      const command = '\x1b]777;fixture;H;L3RtcA==;ZWNobyBoaQ==\x07';
+      fixture.data(command);
+      expect(record).toHaveBeenCalledWith('echo hi', '/tmp');
+      expect(send).not.toHaveBeenCalled();
+      saved();
+      await vi.waitFor(() => expect(send).toHaveBeenCalledWith('history:changed'));
+      send.mockClear();
+      record.mockRejectedValueOnce(new Error('unavailable'));
+      fixture.data(command);
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith('terminal:event', {
+          kind: 'history-error',
+          id,
+          code: 'vault-unavailable',
+        }),
+      );
+      expect(send).not.toHaveBeenCalledWith('history:changed');
+      expect(registry.count).toBe(1);
+    } finally {
+      registry.dispose();
+    }
+  });
+});

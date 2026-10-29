@@ -134,8 +134,8 @@ history feature. Existing F32–F78 IDs and ordering are unchanged.
 
 - [x] **CH01 — Command capture:** Opt-in temporary Bash 5+ prompt integration; preserve user dotfiles, consume bounded session-tagged recording frames in the main process, and skip unsupported shells.
 - [x] **CH02 — Encrypted history:** Use vault/OS encryption, 500-entry and size limits, 30-day expiry, deduplication, directory ranking, and deletion; exclude history from default exports.
-- [x] **CH03 — History panel:** Prefix search, insert without executing, copy, delete/clear confirmation, recording controls, and vault-unavailable messages.
-- [x] **CH04 — Inline suggestions:** Display a suffix at an integrated prompt, accept with Right Arrow, dismiss with Escape, and preserve Tab completion. Require the cursor at the end and suppress suggestions during programs/password entry.
+- [x] **CH03 — History sidebar:** Collapsible right-side panel with History/Autocomplete tabs, prefix search, click-to-insert without executing, copy/delete actions, recording controls, and per-tab integration status.
+- [x] **CH04 — Autocomplete dropdown:** Show up to five matching commands beneath the cursor with highlighted prefixes, Up/Down selection, Right Arrow/click insertion, Escape dismissal, and per-tab enable control. Preserve Tab completion and separate Enter execution; clamp the popup inside narrow/bottom-edge terminals.
 - [ ] **CH05 — Additional shell support:** Zsh, PowerShell, and explicitly enabled remote SSH integration; schedule after the original roadmap resumes.
 
 Validation: all 144 unit tests passed on Linux, including real Bash capture, split/token-checked
@@ -143,6 +143,12 @@ protocol frames, encryption, deduplication, locking, deletion, and reset preserv
 lint, formatting, production build, and diff checks passed. Interactive suggestion placement and
 keyboard behavior, Electron E2E, and Windows/macOS remain unverified.
 Setup, architecture, privacy, and supported-shell limits: `docs/COMMAND_HISTORY.md`.
+
+History follow-up: refresh history/suggestions after successful saves and expose per-tab
+integration status. A real Linux PTY probe confirmed command/prompt frames. Four focused tests
+cover capture/storage and persistence-success/error notifications; interactive UI verification
+remains outstanding. The sidebar/dropdown redesign follows the supplied reference images;
+six focused tests pass for matching, popup bounds, capture/storage, and save notifications.
 
 Dependencies: Phase 3 and the SSH connection layer.
 
