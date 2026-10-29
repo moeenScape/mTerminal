@@ -140,3 +140,12 @@ defaults. Passwords, private key contents and passphrases are not part of an
 identity and are requested for every connection until secure secret storage is
 implemented. Deleting an identity clears references; hosts then use a parent
 group identity or their existing connection fields.
+
+When connecting with password authentication, **Save password securely for this
+identity on this device** stores it through Electron `safeStorage` in an encrypted
+file separate from SQLite. Later connections can use the saved password; the
+renderer receives only a saved/not-saved status, and the main process retrieves
+the password for SSH authentication. Use **Forget saved password** to remove it.
+On Linux, a recognized OS key store is required; the `basic_text` fallback is
+refused. When secure storage is unavailable, enter a session-only password.
+Private-key contents and passphrases are not stored by this feature.

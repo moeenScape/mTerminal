@@ -12,6 +12,7 @@ import {
 } from '../shared/terminal.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
 import { PREFERENCES_GET, PREFERENCES_SAVE } from '../shared/preferences.js';
+import { vaultChannels, type VaultResponse } from '../shared/vault.js';
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 
@@ -44,6 +45,29 @@ const api: DesktopApi = {
   listSshIdentities: () => ipcRenderer.invoke(hostChannels.identities),
   saveSshIdentity: (identity, id) => ipcRenderer.invoke(hostChannels.saveIdentity, identity, id),
   deleteSshIdentity: (id) => ipcRenderer.invoke(hostChannels.deleteIdentity, id),
+  getSshPasswordStatus: async (identityId) => {
+    const result: VaultResponse<{ available: boolean; saved: boolean }> = await ipcRenderer.invoke(
+      vaultChannels.status,
+      identityId,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
+  saveSshPassword: async (identityId, password) => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(
+      vaultChannels.save,
+      identityId,
+      password,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
+  deleteSshPassword: async (identityId) => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(
+      vaultChannels.delete,
+      identityId,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
   readClipboardText: async () => {
     const result: ClipboardReadResult = await ipcRenderer.invoke(clipboardChannels.read);
     if (!result.ok) throw new Error(failureMessages[result.code]);

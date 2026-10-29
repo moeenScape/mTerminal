@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F25 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles and reusable SSH identity metadata. Identity profiles share usernames and authentication preferences across hosts/groups; secret material is still entered for each connection until secure vault storage is implemented. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
+F01–F26 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities and opt-in OS-encrypted password storage. Passwords are saved separately from SQLite, only for an assigned identity, and are not returned to the renderer when used. If secure OS storage is unavailable, passwords remain session-only. Private-key storage is not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 

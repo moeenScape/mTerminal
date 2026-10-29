@@ -23,6 +23,11 @@ export function SshPrompt({
   );
   const [privateKey, setPrivateKey] = useState('');
   const [keyLoading, setKeyLoading] = useState(false);
+  const [identityId, setIdentityId] = useState<string | null>(null);
+  const [vaultAvailable, setVaultAvailable] = useState(false);
+  const [savedPassword, setSavedPassword] = useState(false);
+  const [useSavedPassword, setUseSavedPassword] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
   const selectedFile = useRef<File | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -38,8 +43,22 @@ export function SshPrompt({
         if (host && !cancelled) {
           const resolved = resolveHost(host, groups);
           const identity = identities.find((item) => item.id === resolved.identityId);
+          setIdentityId(identity?.id ?? null);
           setUsername((current) => current || identity?.username || resolved.username);
           setMethod(identity?.method ?? 'password');
+          if (identity) {
+            void window.mterminal
+              .getSshPasswordStatus(identity.id)
+              .then((status) => {
+                if (cancelled) return;
+                setVaultAvailable(status.available);
+                setSavedPassword(status.saved);
+                setUseSavedPassword(status.available && status.saved);
+              })
+              .catch(() => {
+                if (!cancelled) setVaultAvailable(false);
+              });
+          }
         }
       })
       .catch(() => {});
@@ -52,25 +71,34 @@ export function SshPrompt({
   return (
     <dialog ref={ref} className="terminal-dialog" aria-labelledby="ssh-title" onCancel={onCancel}>
       <form
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          const data = new FormData(event.currentTarget);
+          const form = event.currentTarget;
+          const data = new FormData(form);
           try {
             const credentials = validateSshCredentials({
               username: data.get('username'),
               method,
-              password: data.get('password'),
+              ...(method === 'password' && useSavedPassword
+                ? { useSavedPassword: true, savedPasswordIdentityId: identityId }
+                : { password: data.get('password') }),
               privateKey,
               passphrase: data.get('passphrase') ?? '',
               keyboardInteractive: data.get('keyboardInteractive') === 'on',
               fingerprint: data.get('fingerprint'),
             });
+            if (rememberPassword && identityId && credentials.password !== undefined)
+              await window.mterminal.saveSshPassword(identityId, credentials.password);
             selectedFile.current = null;
             setPrivateKey('');
-            event.currentTarget.reset();
+            form.reset();
             onConnect(credentials);
-          } catch {
-            setError('Check the username, authentication fields and SHA256 fingerprint.');
+          } catch (error) {
+            setError(
+              error instanceof Error
+                ? error.message
+                : 'Check the username, authentication fields and SHA256 fingerprint.',
+            );
           }
         }}
       >
@@ -102,6 +130,8 @@ export function SshPrompt({
               setMethod(event.target.value as typeof method);
               selectedFile.current = null;
               setPrivateKey('');
+              setUseSavedPassword(false);
+              setRememberPassword(false);
               setKeyLoading(false);
               setError('');
             }}
@@ -111,7 +141,20 @@ export function SshPrompt({
             <option value="keyboard-interactive">Keyboard-interactive</option>
           </select>
         </label>
-        {method === 'password' && (
+        {method === 'password' && identityId && vaultAvailable && savedPassword && (
+          <label>
+            <input
+              type="checkbox"
+              checked={useSavedPassword}
+              onChange={(event) => {
+                setUseSavedPassword(event.target.checked);
+                setRememberPassword(false);
+              }}
+            />
+            Use the saved password for this identity
+          </label>
+        )}
+        {method === 'password' && !useSavedPassword && (
           <label>
             Session password
             <input
@@ -122,6 +165,41 @@ export function SshPrompt({
               autoComplete="off"
             />
           </label>
+        )}
+        {method === 'password' && identityId && vaultAvailable && !useSavedPassword && (
+          <label>
+            <input
+              type="checkbox"
+              checked={rememberPassword}
+              onChange={(event) => setRememberPassword(event.target.checked)}
+            />
+            Save password securely for this identity on this device
+          </label>
+        )}
+        {identityId && !vaultAvailable && (
+          <p role="status">Secure password storage is unavailable. Passwords will not be saved.</p>
+        )}
+        {method === 'password' && !identityId && (
+          <p>Assign an SSH identity to this host or group to save its password securely.</p>
+        )}
+        {savedPassword && identityId && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm('Forget the saved password for this SSH identity?')) return;
+              try {
+                await window.mterminal.deleteSshPassword(identityId);
+                setSavedPassword(false);
+                setUseSavedPassword(false);
+              } catch (error) {
+                setError(
+                  error instanceof Error ? error.message : 'Unable to forget saved password.',
+                );
+              }
+            }}
+          >
+            Forget saved password
+          </button>
         )}
         {method === 'privateKey' && (
           <>

@@ -1,3 +1,5 @@
+import { validHostId } from './hosts.js';
+
 export interface SshCredentials {
   username: string;
   method?: 'password' | 'privateKey' | 'keyboard-interactive';
@@ -6,6 +8,8 @@ export interface SshCredentials {
   passphrase?: string;
   keyboardInteractive?: boolean;
   fingerprint: string;
+  useSavedPassword?: boolean;
+  savedPasswordIdentityId?: string;
 }
 export function validateSshCredentials(value: unknown): SshCredentials {
   if (!value || typeof value !== 'object') throw new Error('Invalid SSH credentials.');
@@ -23,6 +27,11 @@ export function validateSshCredentials(value: unknown): SshCredentials {
     throw new Error('Invalid SSH credentials.');
   const method = c.method ?? 'password';
   if (
+    (c.useSavedPassword !== undefined && typeof c.useSavedPassword !== 'boolean') ||
+    (c.savedPasswordIdentityId !== undefined && typeof c.savedPasswordIdentityId !== 'string')
+  )
+    throw new Error('Invalid saved credential reference.');
+  if (
     !['password', 'privateKey', 'keyboard-interactive'].includes(method) ||
     (c.keyboardInteractive !== undefined && typeof c.keyboardInteractive !== 'boolean')
   )
@@ -34,10 +43,27 @@ export function validateSshCredentials(value: unknown): SshCredentials {
     keyboardInteractive: c.keyboardInteractive === true,
   };
   if (method === 'password') {
+    if (c.useSavedPassword === true) {
+      if (
+        c.password !== undefined ||
+        typeof c.savedPasswordIdentityId !== 'string' ||
+        !validHostId(c.savedPasswordIdentityId)
+      )
+        throw new Error('Invalid saved credential reference.');
+      return {
+        ...base,
+        useSavedPassword: true,
+        savedPasswordIdentityId: c.savedPasswordIdentityId,
+      };
+    }
+    if (c.savedPasswordIdentityId !== undefined)
+      throw new Error('Invalid saved credential reference.');
     if (typeof c.password !== 'string' || c.password.length > 4096)
       throw new Error('Invalid password.');
     return { ...base, password: c.password };
   }
+  if (c.useSavedPassword || c.savedPasswordIdentityId !== undefined)
+    throw new Error('Invalid saved credential reference.');
   if (method === 'privateKey') {
     if (
       typeof c.privateKey !== 'string' ||

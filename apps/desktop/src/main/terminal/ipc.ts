@@ -2,9 +2,10 @@ import { verifyKnownHost } from './known-hosts.js';
 import { knownHostAddress } from '../storage/database.js';
 import { SshChallenges } from './ssh-challenges.js';
 import { openSsh } from './ssh.js';
-import { validateSshCredentials } from '../../shared/ssh.js';
+import { resolveSshCredentials } from './credentials.js';
 import { validHostId, resolveHost } from '../../shared/hosts.js';
 import type { LocalDatabase } from '../storage/database.js';
+import type { SshSecretStore } from '../storage/secret-store.js';
 import { validTerminalInput } from '../../shared/terminal-input.js';
 import { failureCode } from '../failures.js';
 import { homedir } from 'node:os';
@@ -28,6 +29,7 @@ export function attachTerminal(
   shellOverride: () => string,
   diagnostics: DiagnosticLog,
   database: LocalDatabase,
+  secrets: SshSecretStore,
 ): TerminalRegistry {
   const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
@@ -100,11 +102,16 @@ export function attachTerminal(
         !validHostId(hostId)
       )
         throw new Error('Invalid request.');
-      const credentials = validateSshCredentials(value);
+      const credentialsInput = value;
       const host = database.listHosts().find((item) => item.id === hostId);
       if (!host) throw new Error('Host missing.');
       const resolved = resolveHost(host, database.listHostGroups());
       const effective = { ...resolved, address: knownHostAddress(resolved.address, resolved.port) };
+      const credentials = await resolveSshCredentials(
+        credentialsInput,
+        resolved.identityId,
+        secrets,
+      );
       let reportReady: ((state: SshConnectionState) => void) | undefined;
       await terminal.open(id, size, (signal, report) => {
         reportReady = report;

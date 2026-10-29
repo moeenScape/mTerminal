@@ -6,6 +6,8 @@ import { join, resolve } from 'node:path';
 import { LocalDatabase } from './storage/database.js';
 import { app, BrowserWindow, dialog, Menu } from 'electron';
 import { createMainWindow } from './window.js';
+import { safeStorage } from 'electron';
+import { SshSecretStore } from './storage/secret-store.js';
 
 app.setName('mTerminal');
 // Isolate development/E2E profiles before the single-instance lock and any data access.
@@ -13,6 +15,11 @@ if (!app.isPackaged && process.env.MTERMINAL_USER_DATA) {
   app.setPath('userData', resolve(process.env.MTERMINAL_USER_DATA));
 }
 let database: LocalDatabase | undefined;
+const secrets = new SshSecretStore(
+  join(app.getPath('userData'), 'vault'),
+  safeStorage,
+  process.platform,
+);
 const diagnostics = new DiagnosticLog(join(app.getPath('userData'), 'logs/diagnostics.log'));
 let failing = false;
 function closeDatabase(): void {
@@ -51,7 +58,7 @@ process.on('unhandledRejection', (error: unknown) => {
 });
 function openMainWindow(): void {
   if (!database) throw new Error('Database unavailable.');
-  void createMainWindow(diagnostics, database)
+  void createMainWindow(diagnostics, database, secrets)
     .then(() => {
       diagnostics.record('startup-ready');
     })

@@ -31,6 +31,7 @@
     "src/main/terminal/transport.ts",
     "src/main/terminal/ssh.ts",
     "src/main/terminal/ssh-challenges.ts",
-    "src/main/terminal/known-hosts.ts"
+    "src/main/terminal/known-hosts.ts",
+    "src/main/terminal/credentials.ts"
   ]
 }

@@ -13,12 +13,15 @@ import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, session, dialog } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo } from '../shared/app-info.js';
 import { allowRendererReload, getRendererUrl, validateAppInfoRequest } from './security.js';
+import { vaultChannels, type VaultResponse } from '../shared/vault.js';
+import { SshSecretStore } from './storage/secret-store.js';
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
 export async function createMainWindow(
   diagnostics: DiagnosticLog,
   database: LocalDatabase,
+  secrets: SshSecretStore,
 ): Promise<BrowserWindow> {
   const rendererUrl = getRendererUrl(
     join(outputDirectory, '../renderer/index.html'),
@@ -60,7 +63,7 @@ export async function createMainWindow(
   });
 
   for (const channel of Object.values(hostChannels)) {
-    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+    ipcMain.handle(channel, async (event, ...args: unknown[]) => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
       try {
         if (channel === hostChannels.groups && args.length === 0) return database.listHostGroups();
@@ -76,8 +79,14 @@ export async function createMainWindow(
           (args[1] === undefined || validHostId(args[1]))
         )
           return database.saveSshIdentity(args[0], args[1]);
-        if (channel === hostChannels.deleteIdentity && args.length === 1)
+        if (channel === hostChannels.deleteIdentity && args.length === 1) {
+          if (
+            validHostId(args[0]) &&
+            database.listSshIdentities().some((item) => item.id === args[0])
+          )
+            await secrets.deletePassword(args[0]);
           return database.deleteSshIdentity(args[0]);
+        }
         if (channel === hostChannels.list && args.length === 0) return database.listHosts();
         if (
           channel === hostChannels.save &&
@@ -98,6 +107,42 @@ export async function createMainWindow(
     for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
   });
 
+  for (const channel of Object.values(vaultChannels)) {
+    ipcMain.handle(channel, async (event, ...args: unknown[]): Promise<VaultResponse<unknown>> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      try {
+        const [identityId, value] = args;
+        if (
+          !validHostId(identityId) ||
+          !database.listSshIdentities().some((item) => item.id === identityId)
+        )
+          throw new AppFailure('vault-secret-missing');
+        if (channel === vaultChannels.status && args.length === 1)
+          return { ok: true, value: await secrets.passwordStatus(identityId) };
+        if (
+          channel === vaultChannels.save &&
+          args.length === 2 &&
+          typeof value === 'string' &&
+          value.length > 0 &&
+          value.length <= 4096
+        ) {
+          await secrets.savePassword(identityId, value);
+          return { ok: true, value: undefined };
+        }
+        if (channel === vaultChannels.delete && args.length === 1) {
+          await secrets.deletePassword(identityId);
+          return { ok: true, value: undefined };
+        }
+        throw new Error('Invalid vault request.');
+      } catch (error) {
+        return { ok: false, code: failureCode(error, 'vault-unavailable') };
+      }
+    });
+  }
+  window.once('closed', () => {
+    for (const channel of Object.values(vaultChannels)) ipcMain.removeHandler(channel);
+  });
+
   attachClipboard(window, rendererUrl, diagnostics);
   const terminals = attachTerminal(
     window,
@@ -105,6 +150,7 @@ export async function createMainWindow(
     () => store.preferences.defaultShell,
     diagnostics,
     database,
+    secrets,
   );
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');

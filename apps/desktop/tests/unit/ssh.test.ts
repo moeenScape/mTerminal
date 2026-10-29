@@ -113,6 +113,23 @@ describe('SSH terminal transport', () => {
         fingerprint: 'SHA256:' + 'a'.repeat(43),
       }),
     ).toThrow();
+    const saved = validateSshCredentials({
+      username: 'user',
+      method: 'password',
+      useSavedPassword: true,
+      savedPasswordIdentityId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+      fingerprint: '',
+    });
+    expect(saved).not.toHaveProperty('password');
+    expect(() =>
+      validateSshCredentials({
+        username: 'user',
+        method: 'password',
+        useSavedPassword: true,
+        savedPasswordIdentityId: 'invalid',
+        fingerprint: '',
+      }),
+    ).toThrow();
   });
   it('opens a PTY, streams Unicode input/output, resizes and reports exit', async () => {
     await fixture(async (port, fingerprint, _authCount, windows) => {

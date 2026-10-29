@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F25 implemented; Phase 3 active at F26; Phase 2 desktop/platform acceptance remains blocked |
-| Next feature | F26 — Secure secret storage; Phase 2 desktop/platform acceptance remains outstanding |
-| Implementation status | F01–F25 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation and reusable identities; desktop verification pending |
+| Active feature | F26 implemented; Phase 3 active at F27; Phase 2 desktop/platform acceptance remains blocked |
+| Next feature | F27 — SSH keys; Phase 2 desktop/platform acceptance remains outstanding |
+| Implementation status | F01–F26 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities and opt-in OS-encrypted SSH passwords; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -116,7 +116,7 @@ Completion criteria: Test valid/invalid credentials, changed fingerprints, disco
 Dependencies: Phase 2. Required before releasing persistent passwords or private-key storage.
 
 - [x] **F25 — Reusable identities (implementation):** Reusable local SSH identity profiles hold a display name, username and preferred authentication method. Hosts can override group identity defaults; nested groups inherit the nearest assignment. Deleting an identity clears references safely. Profiles contain no secret material. Tests written; Phase 3 gate deferred.
-- [ ] **F26 — Secret storage:** Store secret material securely and separately from ordinary records.
+- [x] **F26 — Secret storage (implementation):** Opt-in SSH passwords are encrypted through Electron safeStorage and stored as separate, permission-restricted ciphertext files. Passwords are decrypted only in the main process for authentication. Linux `basic_text` and unavailable keychain backends are refused. Tests written; Phase 3 gate deferred.
 - [ ] **F27 — SSH keys:** Import/generate supported keys and manage passphrases.
 - [ ] **F28 — Public-key installation:** Explicit key and destination confirmation.
 - [ ] **F29 — Lock and unlock:** Vault access, inactivity behavior, and restart behavior.
@@ -734,7 +734,7 @@ passed. Sandbox-enabled desktop tests were attempted with --max-failures=1:
 the first launch failed because chrome-sandbox ownership/mode is invalid, and
 34 tests did not run. No sandbox settings or OS permissions were changed.
 Desktop interaction/visual checks, external OpenSSH and Windows/macOS acceptance
-remain pending; Phase 2 acceptance is not declared complete. Next: F26.
+remain pending; Phase 2 acceptance is not declared complete. Next: F27.
 
 ### F25 implementation
 
@@ -742,4 +742,14 @@ F25 adds reusable SSH identity metadata and optional host/group assignments.
 Identity username and authentication preference prefill the SSH prompt; each
 connection still requests its password or selected key/passphrase. The SQLite
 v5 migration preserves existing hosts and groups. Tests are written and deferred
-until the Phase 3 gate; next: F26 secure secret storage.
+until the Phase 3 gate; F26 follows.
+
+### F26 implementation
+
+Passwords can be saved explicitly to an assigned identity from the SSH prompt,
+used on later connections without sending the saved secret through the renderer,
+or forgotten with confirmation. Ciphertext is kept outside SQLite under the
+application data directory and uses Electron's asynchronous safeStorage API.
+Linux storage using the `basic_text` fallback is rejected; session-only SSH
+connections remain available when secure storage is unavailable. Tests are
+written but deferred until the Phase 3 gate; next: F27 SSH keys.
