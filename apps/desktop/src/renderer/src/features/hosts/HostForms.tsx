@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
   resolveHost,
   validateGroup,
@@ -19,6 +19,7 @@ function SidePanel({
   submitLabel,
   onSubmit,
   onClose,
+  primaryAction,
   children,
 }: {
   title: string;
@@ -28,6 +29,8 @@ function SidePanel({
   submitLabel: string;
   onSubmit: () => void;
   onClose: () => void;
+  /** Main button, e.g. Connect; Save then becomes a secondary button. */
+  primaryAction?: { label: string; disabled: boolean; onClick: () => void };
   children: ReactNode;
 }) {
   const ref = useModalDialog();
@@ -73,9 +76,23 @@ function SidePanel({
             <button type="button" disabled={busy} onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" disabled={busy}>
+            <button
+              type="submit"
+              className={primaryAction ? 'secondary-button' : undefined}
+              disabled={busy}
+            >
               {busy ? 'Saving…' : submitLabel}
             </button>
+            {primaryAction && (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || primaryAction.disabled}
+                onClick={primaryAction.onClick}
+              >
+                {primaryAction.label}
+              </button>
+            )}
           </div>
         </footer>
       </form>
@@ -145,6 +162,8 @@ export function HostForm({
   initialGroup,
   onClose,
   onSaved,
+  onSetupVault,
+  onConnect,
 }: {
   host: SavedHost | undefined;
   groups: HostGroup[];
@@ -153,6 +172,10 @@ export function HostForm({
   initialGroup: string;
   onClose: () => void;
   onSaved: () => void;
+  /** Opens the app's vault setup, needed before a password can be saved. */
+  onSetupVault: () => void;
+  /** Opens a session to the saved host. */
+  onConnect: (host: SavedHost) => void;
 }) {
   const [address, setAddress] = useState(host?.address ?? '');
   const [name, setName] = useState(host?.name ?? '');
@@ -163,8 +186,32 @@ export function HostForm({
   const [identityId, setIdentityId] = useState(host?.identityId ?? '');
   const [groupPath, setGroupPath] = useState(host?.groupPath ?? initialGroup);
   const [tags, setTags] = useState(host?.tags?.join(', ') ?? '');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [forgetPassword, setForgetPassword] = useState(false);
+  const [vault, setVault] = useState<'unknown' | 'none' | 'locked' | 'open'>('unknown');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  /** Re-checked on focus so finishing vault setup in its dialog is picked up. */
+  const checkVault = useCallback(async () => {
+    try {
+      const state = await window.mterminal.getVaultState();
+      const next =
+        !state.available || !state.configured ? 'none' : state.locked ? 'locked' : 'open';
+      setVault(next);
+      if (next === 'open' && host)
+        setPasswordSaved((await window.mterminal.getSshPasswordStatus(host.id)).saved);
+    } catch {
+      setVault('none');
+    }
+  }, [host]);
+  useEffect(() => {
+    // Loads external vault state once; later checks run on focus.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void checkVault();
+  }, [checkVault]);
 
   // What this host would get from its group if it inherited everything.
   const inherited = resolveHost(
@@ -183,7 +230,8 @@ export function HostForm({
   );
   const groupIdentity = identityLabel(identities, inherited.identityId);
 
-  async function save() {
+  /** Saves the host and its password; with `connect`, then opens a session to it. */
+  async function save(connect = false) {
     let draft;
     try {
       draft = validateHost({
@@ -207,13 +255,30 @@ export function HostForm({
     }
     setBusy(true);
     setError('');
+    if (password && vault !== 'open') {
+      setError('Set up or unlock the vault to save the password, or clear the password field.');
+      return;
+    }
+    let saved;
     try {
-      await window.mterminal.saveHost(draft, host?.id);
-      onSaved();
+      saved = await window.mterminal.saveHost(draft, host?.id);
     } catch {
       setError('Unable to save the host. Check local storage, then retry.');
       setBusy(false);
+      return;
     }
+    try {
+      if (password) await window.mterminal.saveSshPassword(saved.id, password);
+      else if (forgetPassword) await window.mterminal.deleteSshPassword(saved.id);
+    } catch (cause) {
+      setError(
+        `The host was saved, but its password was not. ${cause instanceof Error ? cause.message : ''}`,
+      );
+      setBusy(false);
+      return;
+    }
+    onSaved();
+    if (connect) onConnect(saved);
   }
 
   return (
@@ -225,6 +290,11 @@ export function HostForm({
       submitLabel="Save host"
       onSubmit={() => void save()}
       onClose={onClose}
+      primaryAction={{
+        label: 'Connect',
+        disabled: !address.trim(),
+        onClick: () => void save(true),
+      }}
     >
       <Section title="Connection">
         <Field label="Address">
@@ -316,8 +386,64 @@ export function HostForm({
       </Section>
       <Section title="Authentication">
         <Field
+          label="Password"
+          hint={
+            vault === 'none'
+              ? 'Set up the vault to save passwords, then hosts connect in one click.'
+              : vault === 'locked'
+                ? 'Unlock the vault to save or change the password.'
+                : passwordSaved && !forgetPassword
+                  ? 'A password is saved. Type a new one to replace it.'
+                  : 'Saved encrypted in your vault. Connecting will not ask for it again.'
+          }
+          extra={
+            vault === 'none' ? (
+              <button type="button" className="compact-button" onClick={onSetupVault}>
+                Set up vault
+              </button>
+            ) : passwordSaved && !password ? (
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={forgetPassword}
+                  onChange={(event) => setForgetPassword(event.target.checked)}
+                />
+                Remove saved password
+              </label>
+            ) : undefined
+          }
+        >
+          {(props) => (
+            <div className="password-input">
+              <input
+                {...props}
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                maxLength={4096}
+                autoComplete="new-password"
+                spellCheck={false}
+                disabled={vault === 'locked' || forgetPassword}
+                placeholder={passwordSaved && !forgetPassword ? '•••••••• (saved)' : 'Optional'}
+                value={password}
+                onFocus={() => void checkVault()}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((value) => !value)}
+              >
+                <Icon name={showPassword ? 'eye-off' : 'eye'} />
+              </button>
+            </div>
+          )}
+        </Field>
+        <Field
           label="SSH identity"
-          hint="An identity supplies the SSH username and authentication method, and overrides the username above."
+          hint="Optional. An identity shares one username and key or password across many hosts."
         >
           {(props) => (
             <select
@@ -327,7 +453,9 @@ export function HostForm({
               onChange={(event) => setIdentityId(event.target.value)}
             >
               <option value="">
-                {groupIdentity ? `Group default (${groupIdentity})` : 'None — ask when connecting'}
+                {groupIdentity
+                  ? `Group default (${groupIdentity})`
+                  : 'None — use the password above'}
               </option>
               {identities.map((identity) => (
                 <option key={identity.id} value={identity.id}>

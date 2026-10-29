@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icon';
 import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
 import { MAX_TERMINAL_TABS } from '../../../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
+import type { ToolsPreferences } from './TerminalTools';
 import {
   tabsReducer,
   tabTitle,
@@ -95,6 +96,8 @@ export function WorkspaceView({
   sshRequest,
   tabBarTarget,
   onActivate,
+  toolsPreferences,
+  onToolsPreferenceChange,
 }: {
   sshRequest: { id: string; hostId: string; title: string } | null;
   active: boolean;
@@ -105,6 +108,8 @@ export function WorkspaceView({
   tabBarTarget: HTMLElement | null;
   /** Shows the workspace view, e.g. when a session tab is chosen from another view. */
   onActivate: () => void;
+  toolsPreferences: ToolsPreferences;
+  onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], activeId: null });
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
@@ -340,6 +345,8 @@ export function WorkspaceView({
                 navigationShortcuts={navigationShortcuts}
                 onPhaseChange={phaseChanged}
                 onRequestClose={requestClose}
+                toolsPreferences={toolsPreferences}
+                onToolsPreferenceChange={onToolsPreferenceChange}
               />
             ))}
           </div>

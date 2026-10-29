@@ -29,6 +29,7 @@ export function openSsh(
     let ended = false;
     let exitCode = 255;
     let mismatch = false;
+    let authRejected = false;
     let failed = false;
     let failureCode: TerminalExit['failureCode'];
     let lastState: SshConnectionState | undefined;
@@ -64,7 +65,13 @@ export function openSsh(
         settled = true;
         reject(
           new AppFailure(
-            signal.aborted ? 'ssh-cancelled' : mismatch ? 'ssh-key-mismatch' : 'ssh-failed',
+            signal.aborted
+              ? 'ssh-cancelled'
+              : mismatch
+                ? 'ssh-key-mismatch'
+                : authRejected
+                  ? 'ssh-auth-failed'
+                  : 'ssh-failed',
           ),
         );
       } else for (const listener of exitListeners) listener(outcome());
@@ -73,6 +80,14 @@ export function openSsh(
     };
     const fail = (error?: unknown) => {
       if (!ended) {
+        if (
+          !settled &&
+          error &&
+          typeof error === 'object' &&
+          'level' in error &&
+          error.level === 'client-authentication'
+        )
+          authRejected = true;
         if (
           settled &&
           error &&

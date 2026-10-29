@@ -1,4 +1,4 @@
-import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -60,7 +60,8 @@ test.beforeEach(async () => {
     executablePath: electronExecutable,
     chromiumSandbox: true,
     args: [desktopDirectory],
-    env: { ...env, MTERMINAL_USER_DATA: userData },
+    // Keep test shells out of the developer's real Bash history.
+    env: { ...env, MTERMINAL_USER_DATA: userData, HISTFILE: join(userData, 'bash_history') },
   });
   page = await application.firstWindow();
 });
@@ -109,7 +110,6 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'exportWorkspace',
       'generateSshKey',
       'getAppInfo',
-      'getHistoryEnabled',
       'getPreferences',
       'getShells',
       'getSshKeyStatus',
@@ -129,7 +129,6 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'openSshTerminal',
       'openTerminal',
       'readClipboardText',
-      'recordVaultActivity',
       'resetVault',
       'resizeTerminal',
       'saveHost',
@@ -138,7 +137,6 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveSshIdentity',
       'saveSshPassword',
       'searchHistory',
-      'setHistoryEnabled',
       'setupVault',
       'unlockVault',
       'writeClipboardText',
@@ -595,29 +593,87 @@ test('searches retained terminal output and keeps searches isolated by tab', asy
   await expect(search.getByLabel('Find output')).toHaveValue('SEARCH_F13_MARKER');
 });
 
+/** The visible terminal's tools panel, opened on the given tab. */
+async function openTools(tab: 'Autocomplete' | 'History' | 'Themes') {
+  const pane = page.locator('.terminal-pane:not([hidden])');
+  const panel = pane.getByRole('complementary', { name: /^Terminal tools for/ });
+  if (!(await panel.isVisible()))
+    await pane.getByRole('button', { name: 'Terminal tools', exact: true }).click();
+  await panel.getByRole('tab', { name: tab, exact: true }).click();
+  return panel;
+}
+
 test('keeps terminal appearance settings independent between tabs', async () => {
   await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await terminalAction('Terminal appearance…');
-  let dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 1”' });
-  await dialog.getByRole('combobox', { name: 'Theme', exact: true }).selectOption('light');
-  await dialog.getByRole('combobox', { name: 'Font size', exact: true }).selectOption('20');
-  await dialog.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('125');
-  await dialog.getByRole('combobox', { name: 'Cursor', exact: true }).selectOption('bar');
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  let panel = page.getByRole('complementary', { name: 'Terminal tools for Terminal 1' });
+  await expect(panel.getByRole('tab', { name: 'Themes' })).toHaveAttribute('aria-selected', 'true');
+  await panel.getByRole('radio', { name: 'mTerminal Light' }).check();
+  await panel.getByRole('combobox', { name: 'Font size', exact: true }).selectOption('20');
+  await panel.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('125');
+  await panel.getByRole('combobox', { name: 'Cursor', exact: true }).selectOption('bar');
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
-  await terminalAction('Terminal appearance…');
-  dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 2”' });
-  await expect(dialog.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('system');
-  await expect(dialog.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('14');
-  await page.keyboard.press('Escape');
+  panel = await openTools('Themes');
+  await expect(panel.getByRole('radio', { name: 'Follow app' })).toBeChecked();
+  await expect(panel.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('14');
   await page.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
-  await terminalAction('Terminal appearance…');
-  dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 1”' });
-  await expect(dialog.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('light');
-  await expect(dialog.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('20');
-  await dialog.getByRole('button', { name: 'Reset appearance' }).click();
-  await expect(dialog.getByRole('combobox', { name: 'Cursor', exact: true })).toHaveValue('block');
+  panel = page.getByRole('complementary', { name: 'Terminal tools for Terminal 1' });
+  await expect(panel.getByRole('radio', { name: 'mTerminal Light' })).toBeChecked();
+  await expect(panel.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('20');
+  await panel.getByRole('button', { name: 'Reset appearance' }).click();
+  await expect(panel.getByRole('combobox', { name: 'Cursor', exact: true })).toHaveValue('block');
+});
+
+test('lists Bash history, searches anywhere in a command and suggests while typing', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(info.platform === 'win32', 'This fixture uses Bash.');
+  await writeFile(
+    join(userData, 'bash_history'),
+    ['git status', 'git log --oneline', 'ls -la', 'echo PICKED_$((6 * 7))'].join('\n') + '\n',
+  );
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const panel = await openTools('History');
+  const commands = panel.getByRole('list', { name: 'Commands' });
+  await expect(commands.getByRole('button', { name: 'ls -la', exact: true })).toBeVisible();
+  await panel.getByRole('searchbox', { name: 'Search command history' }).fill('ONELINE');
+  await expect(commands.getByRole('listitem')).toHaveCount(1);
+  await expect(
+    commands.getByRole('button', { name: 'git log --oneline', exact: true }),
+  ).toBeVisible();
+  // Bash history entries can be copied or inserted but not deleted from mTerminal.
+  await panel.getByRole('button', { name: 'More actions for git log --oneline' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await openTools('Autocomplete');
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'Suggestions are active' }),
+  ).toBeVisible();
+  await page.locator('.terminal-pane:not([hidden]) .xterm-helper-textarea').focus();
+  await page.keyboard.type('git l');
+  const suggestions = page.getByRole('listbox', { name: 'Command suggestions' });
+  await expect(suggestions.getByRole('option')).toHaveText(['git log --oneline']);
+  await page.keyboard.press('ArrowRight');
+  await expect(suggestions).toBeHidden();
+  await expect(page.locator('.terminal-pane:not([hidden]) .xterm-rows')).toContainText(
+    'git log --oneline',
+  );
+
+  // Enter on a highlighted suggestion runs the whole suggested command.
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('echo PI');
+  await expect(suggestions.getByRole('option')).toHaveText(['echo PICKED_$((6 * 7))']);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.terminal-pane:not([hidden]) .xterm-rows')).toContainText('PICKED_42');
+
+  await panel.getByRole('combobox', { name: 'Autocomplete' }).selectOption('off');
+  await expect(panel.getByRole('status').filter({ hasText: 'turned off' })).toBeVisible();
+  const saved = await page.evaluate(() => window.mterminal.getPreferences());
+  expect(saved.autocomplete).toBe(false);
 });
 
 test('renders terminal output with the bundled font and theme colours', async () => {
@@ -840,9 +896,61 @@ test('opens an SSH credential prompt and cancels without starting a session', as
   await page.getByRole('button', { name: 'Connect to SSH target', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
-  await expect(dialog.getByLabel('Session password')).toHaveAttribute('type', 'password');
+  await expect(dialog.getByLabel('Password', { exact: true })).toHaveAttribute('type', 'password');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'No active session' })).toBeVisible();
+});
+
+test('connects a host with its saved password in one click, and asks again if rejected', async () => {
+  const vault = await page.evaluate(() => window.mterminal.getVaultState());
+  test.skip(!vault.available, 'OS secure storage is unavailable on this machine.');
+  // Isolated IPC fixture: records what the renderer sends instead of contacting a server.
+  await application.evaluate(({ ipcMain }) => {
+    const calls: unknown[] = [];
+    (globalThis as { sshCalls?: unknown[] }).sshCalls = calls;
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', (event, id: string, _size, _host, credentials) => {
+      calls.push(credentials);
+      if (calls.length > 1) return { ok: false, code: 'ssh-auth-failed' };
+      event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+      return { ok: true };
+    });
+  });
+  const hostId = await page.evaluate(async () => {
+    await window.mterminal.setupVault('e2e vault passphrase');
+    const host = await window.mterminal.saveHost({
+      name: 'Saved password',
+      address: '127.0.0.1',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+    return host.id;
+  });
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
+  await hostAction('Saved password', 'Edit…');
+  const editor = page.getByRole('dialog', { name: 'Edit “Saved password”' });
+  const password = editor.getByLabel('Password', { exact: true });
+  await password.fill('fixture-secret');
+  await editor.getByRole('button', { name: 'Show password' }).click();
+  await expect(password).toHaveAttribute('type', 'text');
+  // Connect in the panel saves the host and password, then connects without asking.
+  await editor.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const calls = await application.evaluate(() => (globalThis as { sshCalls?: unknown[] }).sshCalls);
+  expect(calls?.[0]).toMatchObject({ useSavedPassword: true, savedPasswordIdentityId: hostId });
+  expect(calls?.[0]).not.toHaveProperty('password');
+
+  // The server now rejects the saved password: the dialog explains and asks for a new one.
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Saved password', exact: true }).click();
+  const prompt = page.getByRole('dialog', { name: /onnect to “Saved password”/ });
+  await expect(prompt.getByRole('alert')).toContainText('saved password was not accepted');
+  await expect(prompt.getByLabel('Password', { exact: true })).toBeVisible();
+  await expect(prompt.getByRole('checkbox', { name: /Save password/ })).toBeChecked();
 });
 
 test('uses an assigned reusable SSH identity for the connection prompt', async () => {
@@ -970,7 +1078,7 @@ test('offers session-only private-key and keyboard-interactive authentication', 
   await page.getByRole('button', { name: 'Connect to Authentication fixture' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Authentication method').selectOption('privateKey');
-  await expect(dialog.getByLabel('Session password')).toHaveCount(0);
+  await expect(dialog.getByLabel('Password', { exact: true })).toHaveCount(0);
   await dialog.getByLabel('Private key file').setInputFiles({
     name: 'synthetic-key',
     mimeType: 'text/plain',
@@ -1152,11 +1260,19 @@ test('marks a rejected SSH startup as failed rather than disconnected', async ()
       protocol: 'ssh',
     });
   });
-  await page.reload();
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
   await page.getByRole('button', { name: 'Connect to Failed startup' }).click();
   await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
   await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'SSH failed.' })).toBeVisible();
+  const progress = page.getByRole('region', { name: 'Connecting to Failed startup' });
+  await expect(progress.getByRole('alert')).toContainText('SSH connection failed');
+  await expect(progress.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await progress.getByRole('button', { name: 'Show logs' }).click();
+  await expect(progress.getByRole('list', { name: 'Connection log' })).toContainText('Failed:');
+  await progress.getByRole('button', { name: 'Close' }).click();
+  await expect(progress).toBeHidden();
   await expect(page.getByRole('button', { name: 'Reconnect SSH', exact: true })).toBeVisible();
 });
 
@@ -1221,11 +1337,12 @@ test('reconnect asks for fresh credentials, preserves output on cancel and never
       protocol: 'ssh',
     });
   });
-  await page.reload();
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
   await page.getByRole('button', { name: 'Connect to Reconnect fixture' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
-  await dialog.getByLabel('Session password').fill('fixture-1');
+  await dialog.getByLabel('Password', { exact: true }).fill('fixture-1');
   await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
   await page.locator('.xterm-helper-textarea').focus();
@@ -1240,7 +1357,7 @@ test('reconnect asks for fresh credentials, preserves output on cancel and never
     page.getByRole('status').filter({ hasText: 'stopped responding to keepalive' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Reconnect SSH' }).click();
-  await expect(dialog.getByLabel('Session password')).toHaveValue('');
+  await expect(dialog.getByLabel('Password', { exact: true })).toHaveValue('');
   await expect(dialog).toContainText('previous session is lost');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect
@@ -1251,9 +1368,9 @@ test('reconnect asks for fresh credentials, preserves output on cancel and never
   await navButton('Workspace').click();
   expect((await inspect()).attempts).toHaveLength(1);
   await page.getByRole('button', { name: 'Reconnect SSH' }).click();
-  await expect(dialog.getByLabel('Session password')).toHaveValue('');
+  await expect(dialog.getByLabel('Password', { exact: true })).toHaveValue('');
   await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
-  await dialog.getByLabel('Session password').fill('fixture-2');
+  await dialog.getByLabel('Password', { exact: true }).fill('fixture-2');
   await dialog.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
   const result = await inspect();
@@ -1290,7 +1407,8 @@ test('cancels a pending SSH attempt in place and ignores its late events and rep
       protocol: 'ssh',
     });
   });
-  await page.reload();
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
   await page.getByRole('button', { name: 'Connect to Cancel fixture' }).click();
   await expect(page.getByRole('dialog').getByLabel('SSH username')).toHaveValue('deploy');
   await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();

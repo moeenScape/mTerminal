@@ -59,9 +59,10 @@ describe('history recording notifications', () => {
           saved = resolve;
         }),
     );
+    let locked = false;
     const secrets = {
       recordCommand: record,
-      vaultStatus: async () => ({ configured: true, locked: false, available: true }),
+      vaultStatus: async () => ({ configured: true, locked, available: true }),
     } as unknown as SshSecretStore;
     const registry = attachTerminal(
       window,
@@ -74,7 +75,6 @@ describe('history recording notifications', () => {
     const event = { sender: contents, senderFrame: frame };
     const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
     try {
-      await fixture.handlers.get('history:enable')!(event, true);
       expect(
         await fixture.handlers.get('terminal:open')!(event, id, { cols: 80, rows: 24 }),
       ).toEqual({ ok: true });
@@ -86,7 +86,7 @@ describe('history recording notifications', () => {
       send.mockClear();
       const command = '\x1b]777;fixture;H;L3RtcA==;ZWNobyBoaQ==\x07';
       fixture.data(command);
-      expect(record).toHaveBeenCalledWith('echo hi', '/tmp');
+      await vi.waitFor(() => expect(record).toHaveBeenCalledWith('echo hi', '/tmp'));
       expect(send).not.toHaveBeenCalled();
       saved();
       await vi.waitFor(() => expect(send).toHaveBeenCalledWith('history:changed'));
@@ -101,6 +101,14 @@ describe('history recording notifications', () => {
         }),
       );
       expect(send).not.toHaveBeenCalledWith('history:changed');
+      // A locked vault skips saving without reporting an error.
+      locked = true;
+      send.mockClear();
+      record.mockClear();
+      fixture.data(command);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(record).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
       expect(registry.count).toBe(1);
     } finally {
       registry.dispose();

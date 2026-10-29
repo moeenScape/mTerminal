@@ -17,6 +17,15 @@ describe('preferences', () => {
       expect(() => validatePreferences(value)).toThrow();
     }
   });
+  it('fills in newer settings for files saved before they existed', () => {
+    const older = Object.fromEntries(
+      Object.entries(defaultPreferences).filter(
+        ([key]) => key !== 'recordHistory' && key !== 'autocomplete',
+      ),
+    );
+    expect(validatePreferences(older)).toEqual(defaultPreferences);
+    expect(() => validatePreferences({ ...defaultPreferences, autocomplete: 'yes' })).toThrow();
+  });
   it('persists settings and preserves malformed files', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-settings-'));
     const path = join(directory, 'preferences.json');

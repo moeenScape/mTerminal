@@ -12,7 +12,7 @@ export const vaultChannels = {
   keyGenerate: 'vault:key-generate',
   keyDelete: 'vault:key-delete',
 } as const;
-export const vaultEvents = { locked: 'vault:locked', activity: 'vault:activity' } as const;
+export const vaultEvents = { locked: 'vault:locked' } as const;
 
 export interface VaultState {
   configured: boolean;
@@ -26,7 +26,6 @@ export interface VaultApi {
   unlockVault: (passphrase: string) => Promise<void>;
   lockVault: () => Promise<void>;
   resetVault: () => Promise<boolean>;
-  recordVaultActivity: () => void;
   onVaultLocked: (listener: () => void) => () => void;
   getSshPasswordStatus: (identityId: string) => Promise<{ available: boolean; saved: boolean }>;
   saveSshPassword: (identityId: string, password: string) => Promise<void>;

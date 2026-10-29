@@ -34,6 +34,7 @@
     "src/main/terminal/transport.ts",
     "src/main/terminal/ssh.ts",
     "src/main/terminal/bash-history.ts",
+    "src/main/terminal/native-history.ts",
     "src/main/terminal/ipc.ts",
     "src/main/terminal/ssh-challenges.ts",
     "src/main/terminal/known-hosts.ts",

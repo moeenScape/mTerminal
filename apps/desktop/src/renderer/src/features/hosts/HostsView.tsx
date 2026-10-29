@@ -32,6 +32,8 @@ interface HostsViewProps {
   onCountChange: (count: number) => void;
   onOpenWorkspace: () => void;
   onConnect: (host: SavedHost) => void;
+  /** Opens the vault setup dialog, so a host password can be saved. */
+  onSetupVault: () => void;
 }
 
 export function HostsView({
@@ -40,6 +42,7 @@ export function HostsView({
   onCountChange,
   onOpenWorkspace,
   onConnect,
+  onSetupVault,
 }: HostsViewProps) {
   const [hosts, setHosts] = useState<SavedHost[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
@@ -427,6 +430,8 @@ export function HostsView({
             initialGroup={groupFilter}
             onClose={() => setEditor(null)}
             onSaved={refresh}
+            onSetupVault={onSetupVault}
+            onConnect={onConnect}
           />
         )}
         {editor?.deleting && editor.host && (

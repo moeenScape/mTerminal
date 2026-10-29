@@ -26,7 +26,8 @@ import { installPublicKey } from './install-public-key.js';
 import { utils } from '../ssh2-module.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';
-import { historyChannels, historyEvents } from '../../shared/history.js';
+import { historyChannels, historyEvents, type HistorySearchMode } from '../../shared/history.js';
+import { BashHistoryFile, bashHistoryPath, mergeHistory } from './native-history.js';
 import { bashHistoryRc, BashHistoryStream } from './bash-history.js';
 
 export function attachTerminal(
@@ -36,45 +37,46 @@ export function attachTerminal(
   diagnostics: DiagnosticLog,
   database: LocalDatabase,
   secrets: SshSecretStore,
+  recordHistory: () => boolean = () => true,
 ): TerminalRegistry {
-  let historyEnabled = false;
+  const bashHistory = new BashHistoryFile(bashHistoryPath());
+  const historyChanged = () => {
+    if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+  };
+  /** Saved commands need an unlocked vault; the Bash history file is always available. */
+  const savedHistory = async (query: string, directory: string, mode: HistorySearchMode) => {
+    const state = await secrets.vaultStatus();
+    if (!state.configured || state.locked || !state.available) return [];
+    return secrets.searchHistory(query, directory, mode);
+  };
   for (const channel of Object.values(historyChannels)) {
     ipcMain.handle(channel, async (event, ...args: unknown[]) => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
       try {
-        if (channel === historyChannels.enabled && !args.length)
-          return { ok: true, value: historyEnabled };
-        if (
-          channel === historyChannels.enable &&
-          args.length === 1 &&
-          typeof args[0] === 'boolean'
-        ) {
-          if (args[0]) {
-            const state = await secrets.vaultStatus();
-            if (!state.configured || state.locked || !state.available)
-              throw new AppFailure('vault-locked');
-          }
-          historyEnabled = args[0];
-          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
-          return { ok: true, value: undefined };
-        }
         if (
           channel === historyChannels.search &&
-          args.length === 2 &&
+          args.length === 3 &&
           typeof args[0] === 'string' &&
           args[0].length <= 4096 &&
           typeof args[1] === 'string' &&
-          args[1].length <= 4096
-        )
-          return { ok: true, value: await secrets.searchHistory(args[0], args[1]) };
+          args[1].length <= 4096 &&
+          (args[2] === 'prefix' || args[2] === 'contains')
+        ) {
+          const [query, directory, mode] = args as [string, string, HistorySearchMode];
+          const [saved, native] = await Promise.all([
+            savedHistory(query, directory, mode),
+            bashHistory.commands(),
+          ]);
+          return { ok: true, value: mergeHistory(saved, native, query, mode) };
+        }
         if (channel === historyChannels.clear && !args.length) {
           await secrets.deleteHistory();
-          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+          historyChanged();
           return { ok: true, value: undefined };
         }
         if (channel === historyChannels.delete && args.length === 1 && validTerminalId(args[0])) {
           await secrets.deleteHistory(args[0]);
-          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+          historyChanged();
           return { ok: true, value: undefined };
         }
         throw new Error('Invalid history request.');
@@ -128,8 +130,8 @@ export function attachTerminal(
           'NODE_OPTIONS',
         ])
           delete env[key as keyof typeof env];
-        const integration =
-          historyEnabled && /(?:^|\/)bash$/.test(shell) ? await bashHistoryRc() : undefined;
+        // The prompt integration powers autocomplete; recording is checked per command.
+        const integration = /(?:^|\/)bash$/.test(shell) ? await bashHistoryRc() : undefined;
         if (signal.aborted) {
           await integration?.dispose();
           throw new Error('Terminal start cancelled.');
@@ -151,18 +153,21 @@ export function attachTerminal(
           window.webContents.send(channels.event, {
             kind: 'history-status',
             id,
-            status: integration ? 'starting' : historyEnabled ? 'unsupported' : 'disabled',
+            status: integration ? 'starting' : 'unsupported',
           });
         if (!integration) return pty;
         const clean = () => {
           void integration.dispose().catch(() => {});
         };
         const parser = new BashHistoryStream(integration.token, (command, directory) => {
-          if (!historyEnabled || signal.aborted) return;
+          if (!recordHistory() || signal.aborted) return;
           void secrets
-            .recordCommand(command, directory)
-            .then(() => {
-              if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+            .vaultStatus()
+            .then(async (state) => {
+              // While the vault is locked or not set up, commands are simply not saved.
+              if (!state.configured || state.locked || !state.available) return;
+              await secrets.recordCommand(command, directory);
+              historyChanged();
             })
             .catch((error: unknown) => {
               if (!window.webContents.isDestroyed())
@@ -221,6 +226,7 @@ export function attachTerminal(
         credentialsInput,
         resolved.identityId,
         secrets,
+        hostId,
       );
       let reportReady: ((state: SshConnectionState) => void) | undefined;
       await terminal.open(id, size, (signal, report) => {

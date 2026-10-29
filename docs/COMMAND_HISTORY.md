@@ -1,65 +1,54 @@
-# Command history and suggestions
+# Command history and autocomplete
 
-## Enable recording
+## Using it
 
-1. Set up and unlock the local vault.
-2. In a local terminal, click **History** to open the right sidebar. Click **Enable recording**
-   in the empty state, or expand **Recording & privacy** and enable **Record local Bash commands**.
-3. Open a **New terminal** using Bash 5 or newer. Set **Settings → Default shell executable**
-   to `/bin/bash` if needed. Existing shells are not changed.
-4. Run a command, then type its beginning at the next prompt. A dropdown beneath the cursor
-   lists up to five previously recorded commands and highlights the prefix. **Up/Down** selects
-   a row; **Right Arrow** or clicking a row inserts its suffix; **Escape** dismisses the list.
-   Press **Enter** separately to execute. Tab remains the shell's completion key.
+Open a local terminal and click the **Terminal tools** icon (panel icon, top right of the
+terminal), or choose **Command history** / **Terminal appearance…** from the terminal's ⋯ menu.
+The panel has three tabs, as in Termius:
 
-Recording is disabled by default and resets when the application window closes. Unchecking
-the recording option pauses capture in existing integrated sessions too. The option requires
-an unlocked vault. Saving stops while the vault is locked. Suggestions require an integrated
-local Bash prompt and are suppressed after command submission, in applications and password
-prompts, in alternate-screen programs, and while editing inside a command.
+- **Autocomplete** (rocket): turn suggestions on or off, turn saving of new commands on or off,
+  see the shortcuts, and clear saved history.
+- **History** (clock): every command, newest first. The search box matches anywhere in a
+  command, ignoring case. Click a command to type it at the prompt without running it.
+  Right-click a row, press the Menu key or Shift+F10, or use its ⋯ button for **Insert**,
+  **Copy** and **Delete…**.
+- **Themes** (palette): terminal theme, font, size, zoom and cursor for this tab.
 
-The top of the History panel reports whether recording is active in the current tab, not
-attached, or unavailable for its shell. Saved commands refresh the list and suggestions
-automatically. A newly enabled setting does not attach recording to an already running shell.
+Type the start of a command at a Bash prompt and a list of matching commands appears beneath the
+cursor. The typed part is highlighted. **Up/Down** chooses a row, **Right Arrow** or a click
+inserts it, **Enter** runs the chosen command, and **Escape** hides the list. With no row chosen,
+**Enter** runs what you typed; **Tab** always keeps its normal shell meaning.
 
-## Find and manage commands
+Both settings are on by default and saved with your preferences. They can also be changed in
+**Settings**.
 
-The right sidebar has History and Autocomplete tabs. History searches by prefix and lists up
-to 20 results. Commands from the current
-directory rank first, followed by recent commands. Repeated command/directory pairs share an
-entry with a usage count. Clicking a command requires an empty integrated prompt and inserts
-single-line text without executing it. Hover or focus a row to reveal Copy and Delete actions;
-multiline commands can be copied. **Clear history** is under Recording & privacy. Deletion
-requires confirmation. The Autocomplete tab enables or disables the dropdown for the current
-tab and lists its shortcuts. The sidebar preserves the terminal's full height; the popup moves
-above the cursor when there is insufficient space below.
+## Where commands come from
 
-Only commands recorded by mTerminal are offered. Existing native Bash history is not imported.
+1. **Saved history.** New commands run in local Bash tabs, stored encrypted in the vault
+   (`vault/history.enc`) with the folder they ran in. They are ranked first, current folder
+   first. This needs a set-up, unlocked vault; while it is locked, new commands are simply not
+   saved. At most 500 entries and 512 KiB are kept, for 30 days.
+2. **Your Bash history file.** `$HISTFILE`, or `~/.bash_history`, is read so the panel and
+   suggestions are useful immediately. Only the last 1 MiB is read, duplicates are removed, and
+   the file is re-read only when it changes. mTerminal never writes to this file; its entries can
+   be copied or inserted but not deleted from the app.
 
-## Storage and privacy
+Commands that start with a space, contain control characters, or look like they carry a password,
+token, secret or API key are never saved or suggested. That check cannot catch every secret.
+Saved history is excluded from workspace backups and diagnostics.
 
-mTerminal's history is encrypted with the vault key and OS secure storage in `vault/history.enc`.
-It is excluded from workspace JSON backups and diagnostics. At most 500 entries and 512 KiB of
-history JSON are retained. Entries older than 30 days are removed on the next history access.
-Vault reset preserves this file with the other encrypted vault files under `vault/recovery-*`.
+## Supported shells
 
-Commands can contain credentials. Recording is opt-in; simple password/token filters cannot
-identify every secret. A leading space excludes a command in integrated sessions. Bash's own
-history settings and exclusions still apply, so usage counts are not an audit trail. This
-feature does not encrypt or manage Bash's separate native history file. Commands are recorded
-when Bash returns to its next prompt; commands such as `exit` or `exec` that do not return
-are not captured.
+Suggestions need local Bash 5+ with `base64`. Every new local Bash tab gets a small prompt hook
+from a temporary rc file that sources your `~/.bashrc`; your dotfiles are not modified. Zsh,
+PowerShell and SSH sessions get the History and Themes tabs (inserting a command types it into
+the session) but no inline suggestions yet.
 
-## Supported shells and implementation
+## Implementation
 
-This first version supports new local Bash 5+ sessions with the `base64` utility available.
-Zsh, PowerShell, and SSH capture are not implemented. Unsupported shells keep normal terminal
-behavior without suggestions. Existing shell configuration is sourced from a temporary rc file;
-user dotfiles are not modified. Temporary integration files are removed on shell shutdown.
-
-A prompt hook reports actual shell-history commands through bounded, session-token-tagged OSC
-messages. The main process consumes recording messages before forwarding output to xterm.js.
-No keystroke logger or terminal-output scraping is used to collect commands. Suggestions read
-only the current prompt buffer, and acceptance requires a matching prefix at the cursor end.
-Only the main process reads or writes the encrypted history file. The renderer receives limited
-search results while the vault is unlocked.
+The prompt hook reports the prompt position and each finished command through bounded,
+session-token-tagged OSC 777 messages. The main process strips recording messages before output
+reaches xterm.js. No keystroke logging or output scraping is used to collect commands.
+Suggestions read only the current prompt from the terminal buffer, and accepting one requires the
+typed prefix to still match. Only the main process reads the history files; the renderer receives
+search results (up to 20 for suggestions, 200 for the panel).

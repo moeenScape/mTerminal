@@ -74,7 +74,11 @@ describe('command history', () => {
       await store.recordCommand('echo token=secret', '/one');
       const rows = await store.searchHistory('docker', '/one');
       expect(rows).toHaveLength(2);
-      expect(rows[0]).toMatchObject({ command: 'docker ps', uses: 2 });
+      expect(rows[0]).toMatchObject({ command: 'docker ps', uses: 2, source: 'saved' });
+      expect(
+        (await store.searchHistory('LOGS', '/one', 'contains')).map((row) => row.command),
+      ).toEqual(['docker logs api']);
+      expect(await store.searchHistory('LOGS', '/one', 'prefix')).toEqual([]);
       const { readFile } = await import('node:fs/promises');
       expect(await readFile(join(directory, 'history.enc'), 'utf8')).not.toContain('docker');
       await store.lockVault();

@@ -1,6 +1,14 @@
 import { isWorkspaceShortcut } from './components/keyboard';
 import { defaultPreferences, type Preferences } from '../../shared/preferences';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 import type { AppInfo } from '../../shared/app-info';
 import type { VaultState } from '../../shared/vault';
 import { Icon } from './components/Icon';
@@ -69,23 +77,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!vaultState?.configured || vaultState.locked) return;
-    let lastSent = 0;
-    const activity = () => {
-      const now = Date.now();
-      if (now - lastSent < 10000) return;
-      lastSent = now;
-      window.mterminal.recordVaultActivity();
-    };
-    for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'])
-      document.addEventListener(event, activity, { passive: true });
-    return () => {
-      for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'])
-        document.removeEventListener(event, activity);
-    };
-  }, [vaultState]);
-
-  useEffect(() => {
     let mounted = true;
     void window.mterminal
       .getPreferences()
@@ -121,6 +112,23 @@ export function App() {
     const saved = await window.mterminal.savePreferences(value);
     setPreferences(saved);
   }
+  const latestPreferences = useRef(preferences);
+  useLayoutEffect(() => {
+    latestPreferences.current = preferences;
+  }, [preferences]);
+  /** Saves settings changed from a terminal's tools panel on top of the latest preferences. */
+  const changeToolsPreference = useCallback(async (patch: Partial<Preferences>) => {
+    const saved = await window.mterminal.savePreferences({
+      ...latestPreferences.current,
+      ...patch,
+    });
+    latestPreferences.current = saved;
+    setPreferences(saved);
+  }, []);
+  const toolsPreferences = useMemo(
+    () => ({ recordHistory: preferences.recordHistory, autocomplete: preferences.autocomplete }),
+    [preferences.recordHistory, preferences.autocomplete],
+  );
   const vaultLabel =
     vaultState === null
       ? 'Checking vault…'
@@ -175,6 +183,7 @@ export function App() {
               onQueryChange={setHostQuery}
               onCountChange={setHostCount}
               onOpenWorkspace={() => setActiveView('workspace')}
+              onSetupVault={() => setShowVaultSetup(true)}
               onConnect={(host) => {
                 setSshRequest({
                   id: crypto.randomUUID(),
@@ -193,6 +202,8 @@ export function App() {
             onCountChange={setTerminalCount}
             tabBarTarget={sessionBar}
             onActivate={() => setActiveView('workspace')}
+            toolsPreferences={toolsPreferences}
+            onToolsPreferenceChange={changeToolsPreference}
           />
           {activeView === 'settings' && (
             <SettingsView
@@ -384,7 +395,7 @@ function VaultAccessGate({
           <>
             <p>
               {configured
-                ? 'Enter your vault passphrase. The vault locks again after five minutes of inactivity and whenever mTerminal restarts.'
+                ? 'Enter your vault passphrase. It stays unlocked until mTerminal closes or you lock it, so saved hosts connect in one click.'
                 : 'Choose a passphrase of at least 12 characters. Existing saved SSH credentials will be migrated into the encrypted vault.'}
             </p>
             <label>

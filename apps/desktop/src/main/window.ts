@@ -73,18 +73,7 @@ export async function createMainWindow(
     },
   });
 
-  const vaultIdleTimeout = 5 * 60 * 1000;
-  let vaultIdleTimer: NodeJS.Timeout | undefined;
-  const resetVaultIdleTimer = () => {
-    clearTimeout(vaultIdleTimer);
-    vaultIdleTimer = setTimeout(() => {
-      vaultIdleTimer = undefined;
-      void secrets.lockVault().then(() => {
-        if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
-      });
-    }, vaultIdleTimeout);
-  };
-
+  // The vault stays unlocked until the app closes or the user locks it.
   for (const channel of Object.values(hostChannels)) {
     ipcMain.handle(channel, async (event, ...args: unknown[]) => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
@@ -122,8 +111,12 @@ export async function createMainWindow(
           (args[1] === undefined || validHostId(args[1]))
         )
           return database.saveHost(args[0], args[1]);
-        if (channel === hostChannels.delete && args.length === 1)
+        if (channel === hostChannels.delete && args.length === 1) {
+          const host = database.listHosts().find((item) => item.id === args[0]);
+          // The host's saved password goes with it.
+          if (host) await secrets.deletePassword(host.id).catch(() => {});
           return database.deleteHost(args[0]);
+        }
         throw new Error('Invalid request.');
       } catch {
         diagnostics.record('host-operation-failed');
@@ -194,17 +187,13 @@ export async function createMainWindow(
           return { ok: true, value: (await secrets.vaultStatus()) as VaultState };
         if (channel === vaultChannels.setup && args.length === 1 && typeof args[0] === 'string') {
           await secrets.setupVault(args[0]);
-          resetVaultIdleTimer();
           return { ok: true, value: undefined };
         }
         if (channel === vaultChannels.unlock && args.length === 1 && typeof args[0] === 'string') {
           await secrets.unlockVault(args[0]);
-          resetVaultIdleTimer();
           return { ok: true, value: undefined };
         }
         if (channel === vaultChannels.lock && args.length === 0) {
-          clearTimeout(vaultIdleTimer);
-          vaultIdleTimer = undefined;
           await secrets.lockVault();
           if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
           return { ok: true, value: undefined };
@@ -225,10 +214,14 @@ export async function createMainWindow(
           return { ok: true, value: true };
         }
         const [identityId, value] = args;
-        if (
-          !validHostId(identityId) ||
-          !database.listSshIdentities().some((item) => item.id === identityId)
-        )
+        const isIdentity =
+          validHostId(identityId) &&
+          database.listSshIdentities().some((item) => item.id === identityId);
+        // Saved passwords can also belong to a host directly; keys are identity-only.
+        const isHost =
+          validHostId(identityId) && database.listHosts().some((item) => item.id === identityId);
+        const passwordChannel = [vaultChannels.status, vaultChannels.save, vaultChannels.delete];
+        if (!isIdentity && !(isHost && (passwordChannel as readonly string[]).includes(channel)))
           throw new AppFailure('vault-secret-missing');
         if (channel === vaultChannels.status && args.length === 1)
           return { ok: true, value: await secrets.passwordStatus(identityId) };
@@ -290,19 +283,9 @@ export async function createMainWindow(
       }
     });
   }
-  ipcMain.on(vaultEvents.activity, (event, ...args: unknown[]) => {
-    try {
-      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
-      if (args.length === 0 && vaultIdleTimer) resetVaultIdleTimer();
-    } catch {
-      diagnostics.record('terminal-operation-failed', 'vault-locked');
-    }
-  });
   window.once('closed', () => {
-    clearTimeout(vaultIdleTimer);
     void secrets.lockVault();
     for (const channel of Object.values(vaultChannels)) ipcMain.removeHandler(channel);
-    ipcMain.removeAllListeners(vaultEvents.activity);
   });
 
   attachClipboard(window, rendererUrl, diagnostics);
@@ -313,6 +296,7 @@ export async function createMainWindow(
     diagnostics,
     database,
     secrets,
+    () => store.preferences.recordHistory,
   );
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');

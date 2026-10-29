@@ -185,7 +185,7 @@ describe('SSH terminal transport', () => {
           size,
           new AbortController().signal,
         ),
-      ).rejects.toMatchObject({ code: 'ssh-failed' });
+      ).rejects.toMatchObject({ code: 'ssh-auth-failed' });
       const pendingController = new AbortController();
       const pending = openSsh(
         { ...host, port },

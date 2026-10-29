@@ -25,6 +25,26 @@ describe('saved SSH password resolution', () => {
     expect(secrets.getPassword).toHaveBeenCalledWith(identityId);
   });
 
+  it("uses the connecting host's own saved password, but not another host's", async () => {
+    const hostId = '9d6f0a51-2b1c-4b7e-8f3a-6c2d1e0b9a77';
+    const secrets = {
+      getPassword: vi.fn().mockResolvedValue('host-password'),
+    } as unknown as SshSecretStore;
+    const request = {
+      username: 'deploy',
+      method: 'password',
+      useSavedPassword: true,
+      savedPasswordIdentityId: hostId,
+      fingerprint: '',
+    };
+    const credentials = await resolveSshCredentials(request, null, secrets, hostId);
+    expect(credentials.password).toBe('host-password');
+    expect(secrets.getPassword).toHaveBeenCalledWith(hostId);
+    await expect(resolveSshCredentials(request, null, secrets, identityId)).rejects.toMatchObject({
+      code: 'vault-secret-missing',
+    });
+  });
+
   it('rejects stale identity references and missing saved passwords', async () => {
     const secrets = {
       getPassword: vi.fn().mockResolvedValue(undefined),

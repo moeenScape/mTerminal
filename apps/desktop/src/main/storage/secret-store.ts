@@ -5,7 +5,14 @@ import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';
-import type { CommandHistoryEntry } from '../../shared/history.js';
+import {
+  historyMatches,
+  isRecordableCommand,
+  type CommandHistoryEntry,
+  type HistorySearchMode,
+} from '../../shared/history.js';
+
+type StoredHistoryEntry = Omit<CommandHistoryEntry, 'source'>;
 
 export interface SafeStorageProvider {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -295,7 +302,7 @@ export class SshSecretStore {
     }
   }
 
-  private async readHistory(): Promise<CommandHistoryEntry[]> {
+  private async readHistory(): Promise<StoredHistoryEntry[]> {
     this.requireUnlocked();
     await this.requireSecureStorage();
     const path = join(this.directory, 'history.enc');
@@ -320,7 +327,7 @@ export class SshSecretStore {
           throw new AppFailure('vault-corrupt');
       }
       const recent = entries.filter(
-        (entry: CommandHistoryEntry) => entry.lastUsed > Date.now() - 30 * 86400000,
+        (entry: StoredHistoryEntry) => entry.lastUsed > Date.now() - 30 * 86400000,
       );
       if (recent.length !== entries.length) await this.writeHistory(recent);
       return recent;
@@ -330,7 +337,7 @@ export class SshSecretStore {
     }
   }
 
-  private async writeHistory(entries: CommandHistoryEntry[]): Promise<void> {
+  private async writeHistory(entries: StoredHistoryEntry[]): Promise<void> {
     while (entries.length > 500 || Buffer.byteLength(JSON.stringify(entries)) > 512 * 1024)
       entries.pop();
     await this.writeEncrypted(
@@ -340,21 +347,8 @@ export class SshSecretStore {
   }
 
   recordCommand(command: string, directory: string): Promise<void> {
-    // Filters are a convenience; command recording is opt-in because secrets cannot be detected reliably.
-    if (
-      !command.trim() ||
-      command.startsWith(' ') ||
-      command.length > 4096 ||
-      directory.length > 4096 ||
-      Array.from(command).some((character) => {
-        const code = character.charCodeAt(0);
-        return (code < 32 && code !== 10 && code !== 13) || code === 127;
-      }) ||
-      /(?:password|passwd|token|secret|api[_-]?key)\s*(?:=|\s)|https?:\/\/[^\s/]+:[^\s/]+@/i.test(
-        command,
-      )
-    )
-      return Promise.resolve();
+    // Filters are a convenience; secrets cannot be detected reliably.
+    if (!isRecordableCommand(command) || directory.length > 4096) return Promise.resolve();
     return this.serialize(async () => {
       const entries = await this.readHistory();
       const previous = entries.find(
@@ -373,17 +367,22 @@ export class SshSecretStore {
     });
   }
 
-  searchHistory(prefix: string, directory: string): Promise<CommandHistoryEntry[]> {
+  /** Every saved command matching `query`, ranked: current directory, then most recent. */
+  searchHistory(
+    query: string,
+    directory: string,
+    mode: HistorySearchMode = 'prefix',
+  ): Promise<CommandHistoryEntry[]> {
     return this.serialize(async () =>
       (await this.readHistory())
-        .filter((entry) => entry.command.startsWith(prefix))
+        .filter((entry) => historyMatches(entry.command, query, mode))
         .sort(
           (a, b) =>
             Number(b.directory === directory) - Number(a.directory === directory) ||
             b.lastUsed - a.lastUsed ||
             b.uses - a.uses,
         )
-        .slice(0, 20),
+        .map((entry) => ({ ...entry, source: 'saved' as const })),
     );
   }
 

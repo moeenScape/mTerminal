@@ -7,6 +7,8 @@ export async function resolveSshCredentials(
   value: unknown,
   assignedIdentityId: string | null | undefined,
   secrets: SshSecretStore,
+  /** The host being connected; its own saved password may be used. */
+  hostId?: string,
 ): Promise<SshCredentials> {
   const credentials = validateSshCredentials(value);
   if (credentials.useSavedPrivateKey) {
@@ -25,7 +27,7 @@ export async function resolveSshCredentials(
   }
   if (!credentials.useSavedPassword) return credentials;
   const identityId = credentials.savedPasswordIdentityId;
-  if (!identityId || assignedIdentityId !== identityId)
+  if (!identityId || (identityId !== assignedIdentityId && identityId !== hostId))
     throw new AppFailure('vault-secret-missing');
   const password = await secrets.getPassword(identityId);
   if (!password) throw new AppFailure('vault-secret-missing');

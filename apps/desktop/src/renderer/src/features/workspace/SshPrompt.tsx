@@ -7,12 +7,15 @@ export function SshPrompt({
   title,
   reconnect,
   hostId,
+  notice = '',
   onConnect,
   onCancel,
 }: {
   title: string;
   reconnect: boolean;
   hostId: string;
+  /** Shown at the top, e.g. when a saved password was rejected. */
+  notice?: string;
   onConnect: (credentials: SshCredentials) => void;
   onCancel: () => void;
 }) {
@@ -25,12 +28,14 @@ export function SshPrompt({
   const [privateKey, setPrivateKey] = useState('');
   const [keyLoading, setKeyLoading] = useState(false);
   const [identityId, setIdentityId] = useState<string | null>(null);
+  /** Where a typed password is saved: the host itself, or its shared identity. */
+  const [passwordOwner, setPasswordOwner] = useState(hostId);
   const [vaultAvailable, setVaultAvailable] = useState(false);
   const [savedPassword, setSavedPassword] = useState(false);
   const [savedKey, setSavedKey] = useState(false);
   const [useSavedKey, setUseSavedKey] = useState(false);
   const [useSavedPassword, setUseSavedPassword] = useState(false);
-  const [rememberPassword, setRememberPassword] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(true);
   const [forgetting, setForgetting] = useState(false);
   const selectedFile = useRef<File | null>(null);
   useEffect(() => {
@@ -64,18 +69,26 @@ export function SshPrompt({
               .catch(() => {
                 if (!cancelled) setSavedKey(false);
               });
-            void window.mterminal
-              .getSshPasswordStatus(identity.id)
-              .then((status) => {
-                if (cancelled) return;
-                setVaultAvailable(status.available);
-                setSavedPassword(status.saved);
-                setUseSavedPassword(status.available && status.saved);
-              })
-              .catch(() => {
-                if (!cancelled) setVaultAvailable(false);
-              });
           }
+          void (async () => {
+            try {
+              const own = await window.mterminal.getSshPasswordStatus(hostId);
+              const shared =
+                !own.saved && identity?.method === 'password'
+                  ? await window.mterminal.getSshPasswordStatus(identity.id)
+                  : undefined;
+              if (cancelled) return;
+              const owner = shared ? identity!.id : hostId;
+              const status = shared ?? own;
+              setPasswordOwner(owner);
+              setVaultAvailable(status.available);
+              setSavedPassword(status.saved);
+              // After a rejected saved password, ask for the new one instead.
+              setUseSavedPassword(status.available && status.saved && !notice);
+            } catch {
+              if (!cancelled) setVaultAvailable(false);
+            }
+          })();
         }
       })
       .catch(() => {});
@@ -84,7 +97,7 @@ export function SshPrompt({
       selectedFile.current = null;
       dialog?.close();
     };
-  }, [hostId]);
+  }, [hostId, notice]);
   return (
     <dialog ref={ref} className="terminal-dialog" aria-labelledby="ssh-title" onCancel={onCancel}>
       <form
@@ -105,8 +118,8 @@ export function SshPrompt({
               keyboardInteractive: data.get('keyboardInteractive') === 'on',
               fingerprint: data.get('fingerprint'),
             });
-            if (rememberPassword && identityId && credentials.password !== undefined)
-              await window.mterminal.saveSshPassword(identityId, credentials.password);
+            if (rememberPassword && vaultAvailable && credentials.password)
+              await window.mterminal.saveSshPassword(passwordOwner, credentials.password);
             selectedFile.current = null;
             setPrivateKey('');
             form.reset();
@@ -123,6 +136,11 @@ export function SshPrompt({
         <h2 id="ssh-title">
           {reconnect ? 'Reconnect' : 'Connect'} to “{title}”
         </h2>
+        {notice && (
+          <p className="dialog-error" role="alert">
+            {notice}
+          </p>
+        )}
         {reconnect && (
           <p>
             Reconnect starts a new remote shell and clears the displayed terminal output. The
@@ -160,7 +178,7 @@ export function SshPrompt({
             <option value="keyboard-interactive">Keyboard-interactive</option>
           </select>
         </label>
-        {method === 'password' && identityId && vaultAvailable && savedPassword && (
+        {method === 'password' && vaultAvailable && savedPassword && (
           <label>
             <input
               type="checkbox"
@@ -170,12 +188,12 @@ export function SshPrompt({
                 setRememberPassword(false);
               }}
             />
-            Use the saved password for this identity
+            Use the saved password
           </label>
         )}
         {method === 'password' && !useSavedPassword && (
           <label>
-            Session password
+            Password
             <input
               key="password"
               name="password"
@@ -185,35 +203,35 @@ export function SshPrompt({
             />
           </label>
         )}
-        {method === 'password' && identityId && vaultAvailable && !useSavedPassword && (
+        {method === 'password' && vaultAvailable && !useSavedPassword && (
           <label>
             <input
               type="checkbox"
               checked={rememberPassword}
               onChange={(event) => setRememberPassword(event.target.checked)}
             />
-            Save password securely for this identity on this device
+            Save password, so next time this host connects in one click
           </label>
         )}
-        {identityId && !vaultAvailable && (
-          <p role="status">Secure password storage is unavailable. Passwords will not be saved.</p>
+        {method === 'password' && !vaultAvailable && (
+          <p role="status">
+            Set up or unlock the vault (status bar) to save passwords. This password is used only
+            for this connection.
+          </p>
         )}
-        {method === 'password' && !identityId && (
-          <p>Assign an SSH identity to this host or group to save its password securely.</p>
-        )}
-        {savedPassword && identityId && (
+        {savedPassword && (
           <button type="button" onClick={() => setForgetting(true)}>
             Forget saved password
           </button>
         )}
-        {forgetting && identityId && (
+        {forgetting && (
           <ConfirmDialog
             title="Forget the saved password?"
             confirmLabel="Forget password"
             danger
             onConfirm={async () => {
               try {
-                await window.mterminal.deleteSshPassword(identityId);
+                await window.mterminal.deleteSshPassword(passwordOwner);
               } catch (cause) {
                 throw new Error(errorMessage(cause, 'Unable to forget saved password.'), { cause });
               }
@@ -224,8 +242,8 @@ export function SshPrompt({
             onCancel={() => setForgetting(false)}
           >
             <p>
-              The password saved for this SSH identity is removed from the local vault. You will be
-              asked for it on the next connection.
+              The saved password is removed from the local vault. You will be asked for it on the
+              next connection.
             </p>
           </ConfirmDialog>
         )}
@@ -312,8 +330,7 @@ export function SshPrompt({
         </label>
         <p>
           Unknown server keys require confirmation. If you have a fingerprint from a trusted
-          channel, enter it to require an exact match. Credentials are used only for this
-          connection.
+          channel, enter it to require an exact match.
         </p>
         {error && <p role="alert">{error}</p>}
         <div className="dialog-actions">

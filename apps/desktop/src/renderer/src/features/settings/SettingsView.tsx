@@ -110,6 +110,22 @@ export function SettingsView({
                 />
                 Remember window size and maximized state
               </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={draft.autocomplete}
+                  onChange={(event) => setDraft({ ...draft, autocomplete: event.target.checked })}
+                />
+                Suggest commands from history while typing
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={draft.recordHistory}
+                  onChange={(event) => setDraft({ ...draft, recordHistory: event.target.checked })}
+                />
+                Save new commands to the encrypted vault history
+              </label>
               <div className="settings-actions">
                 <button className="primary-button" type="submit">
                   {saving ? 'Saving…' : 'Save preferences'}

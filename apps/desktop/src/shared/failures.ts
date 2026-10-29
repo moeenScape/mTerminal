@@ -17,6 +17,7 @@ export const failureMessages = {
   'ssh-cancelled': 'SSH connection cancelled.',
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',
+  'ssh-auth-failed': 'The server rejected the username or password. Check them and try again.',
   'ssh-failed':
     'SSH connection failed. Check the address, port, username, password and server availability, then retry.',
   'ssh-key-mismatch':

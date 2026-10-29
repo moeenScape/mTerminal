@@ -35,10 +35,8 @@ const api: DesktopApi = {
     ipcRenderer.on(historyEvents.changed, receive);
     return () => ipcRenderer.removeListener(historyEvents.changed, receive);
   },
-  getHistoryEnabled: () => historyRequest<boolean>(historyChannels.enabled),
-  setHistoryEnabled: (enabled) => historyRequest<void>(historyChannels.enable, enabled),
-  searchHistory: (prefix, directory) =>
-    historyRequest<CommandHistoryEntry[]>(historyChannels.search, prefix, directory),
+  searchHistory: (query, directory, mode) =>
+    historyRequest<CommandHistoryEntry[]>(historyChannels.search, query, directory, mode),
   deleteHistory: (id) => historyRequest<void>(historyChannels.delete, id),
   clearHistory: () => historyRequest<void>(historyChannels.clear),
   exportWorkspace: () => ipcRenderer.invoke(backupChannels.export),
@@ -71,7 +69,6 @@ const api: DesktopApi = {
     if (!result.ok) throw new Error(failureMessages[result.code]);
     return result.value;
   },
-  recordVaultActivity: () => ipcRenderer.send(vaultEvents.activity),
   onVaultLocked: (listener) => {
     const receive = () => listener();
     ipcRenderer.on(vaultEvents.locked, receive);

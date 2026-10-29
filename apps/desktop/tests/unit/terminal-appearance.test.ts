@@ -35,7 +35,7 @@ const textColours = [
 
 describe('terminal appearance', () => {
   it('follows the app theme by default and applies independent terminal choices', () => {
-    expect(terminalOptions(defaultTerminalAppearance, 'dark').theme.background).toBe('#141620');
+    expect(terminalOptions(defaultTerminalAppearance, 'dark').theme.background).toBe('#141728');
     expect(terminalOptions(defaultTerminalAppearance, 'light').theme.background).toBe('#f5f6fa');
     const customized = terminalOptions(
       {

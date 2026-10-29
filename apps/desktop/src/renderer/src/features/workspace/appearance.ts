@@ -45,14 +45,14 @@ export const terminalThemeLabels: Record<TerminalTheme, string> = {
 /** Complete palettes, including all 16 ANSI colours used by shells and tools. */
 export const terminalThemes: Record<Exclude<TerminalTheme, 'system'>, Required<ITheme>> = {
   dark: palette({
-    background: '#141620',
+    background: '#141728',
     foreground: '#edf0f7',
-    cursor: '#8bd8c0',
-    selectionBackground: '#2f5a50',
+    cursor: '#2ab46d',
+    selectionBackground: '#1f4a3e',
     // prettier-ignore
     ansi: [
-      '#3a3f52', '#f07178', '#8bd8a4', '#f2c66d', '#7aa7ff', '#c792ea', '#78d6e0', '#c9cfdc',
-      '#6b7389', '#ff8f96', '#a6e8bc', '#ffd98a', '#9dc0ff', '#dbb0f5', '#9ee6ee', '#ffffff',
+      '#3a3f52', '#f07178', '#2ab46d', '#f2c66d', '#7aa7ff', '#c792ea', '#78d6e0', '#c9cfdc',
+      '#6b7389', '#ff8f96', '#4fd08a', '#ffd98a', '#9dc0ff', '#dbb0f5', '#9ee6ee', '#ffffff',
     ],
   }),
   light: palette({

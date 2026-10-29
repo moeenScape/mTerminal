@@ -1,8 +1,11 @@
 import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
+import { findSavedCredentials } from './saved-credentials';
+import { ConnectionProgress, type ConnectionLog } from './ConnectionProgress';
+import type { SshConnectionState } from '../../../../shared/terminal';
 import type { SshCredentials, SshChallenge } from '../../../../shared/ssh';
 import { defaultTerminalAppearance, terminalOptions } from './appearance';
-import { AppearanceDialog } from './AppearanceDialog';
+import { TerminalTools, type ToolTab, type ToolsPreferences } from './TerminalTools';
 import {
   ContextMenu,
   menuPositionFor,
@@ -44,6 +47,8 @@ export function TerminalPane({
   appearance,
   navigationShortcuts,
   onPhaseChange,
+  toolsPreferences,
+  onToolsPreferenceChange,
 }: {
   id: string;
   title: string;
@@ -53,6 +58,8 @@ export function TerminalPane({
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
   onPhaseChange: (id: string, phase: TabPhase) => void;
+  toolsPreferences: ToolsPreferences;
+  onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -78,22 +85,51 @@ export function TerminalPane({
   const inputReady = useRef(false);
   const autoStarted = useRef(false);
   const session = useRef<string | null>(null);
-  const history = useCommandHistory(active, !hostId, session, inputReady, container);
+  const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
+  const options = terminalOptions(terminalAppearance, appearance);
+  const history = useCommandHistory(
+    active,
+    !hostId,
+    session,
+    inputReady,
+    container,
+    toolsPreferences.autocomplete,
+    options.fontFamily,
+  );
   const {
     attach: attachHistory,
     onInput: historyInput,
     handleKey: historyKey,
     onSessionStatus: historyStatus,
   } = history;
-  const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
+  const [tools, setTools] = useState<ToolTab | null>(null);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [status, setStatus] = useState('No active session');
   const [sshPrompt, setSshPrompt] = useState(false);
+  /** Why the connect dialog opened instead of connecting with saved credentials. */
+  const [sshNotice, setSshNotice] = useState('');
+  const lookingUp = useRef(false);
+  /** Drives the full-pane connection screen while an SSH session starts. */
+  const [connection, setConnection] = useState<{
+    state: SshConnectionState | 'lookup';
+    error: string;
+    logs: ConnectionLog[];
+  } | null>(null);
+  const logConnection = useCallback(
+    (text: string, patch: Partial<{ state: SshConnectionState | 'lookup'; error: string }> = {}) =>
+      setConnection((current) => ({
+        state: 'connecting',
+        error: '',
+        ...current,
+        ...patch,
+        logs: [...(current?.logs ?? []), { at: Date.now(), text }],
+      })),
+    [],
+  );
   const [sshChallenge, setSshChallenge] = useState<SshChallenge | null>(null);
   const [menu, setMenu] = useState<MenuPosition | null>(null);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
   useEffect(
     () =>
       window.mterminal.onSshChallenge((challenge) => {
@@ -178,6 +214,8 @@ export function TerminalPane({
         if (!hostId) return;
         onPhaseChange(id, event.state);
         setStatus(sshStateMessages[event.state]);
+        if (event.state === 'connected') setConnection(null);
+        else logConnection(sshStateMessages[event.state], { state: event.state });
       } else if (event.kind === 'data') {
         term.write(event.data, () => {
           if (!disposed && session.current === event.id)
@@ -238,7 +276,16 @@ export function TerminalPane({
       sizing.current = null;
       term.dispose();
     };
-  }, [id, hostId, onPhaseChange, attachClipboard, attachHistory, historyInput, historyStatus]);
+  }, [
+    id,
+    hostId,
+    onPhaseChange,
+    attachClipboard,
+    attachHistory,
+    historyInput,
+    historyStatus,
+    logConnection,
+  ]);
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
@@ -286,12 +333,34 @@ export function TerminalPane({
   const start = useCallback(
     async (credentials?: SshCredentials) => {
       const term = terminal.current;
-      if (!term || session.current) return;
+      if (!term || session.current || lookingUp.current) return;
+      let usingSaved = false;
       if (hostId && !credentials) {
-        setSshPrompt(true);
-        return;
+        // One click: connect with saved credentials when there are any, as in Termius.
+        lookingUp.current = true;
+        setStatus('Connecting SSH…');
+        setConnection(null);
+        logConnection('Looking for saved credentials', { state: 'lookup', error: '' });
+        try {
+          credentials = await findSavedCredentials(hostId).catch(() => undefined);
+        } finally {
+          lookingUp.current = false;
+        }
+        if (!credentials || session.current) {
+          setConnection(null);
+          setStatus('No active session');
+          setSshNotice('');
+          setSshPrompt(true);
+          return;
+        }
+        usingSaved = true;
+        logConnection('Using saved credentials');
+      } else if (hostId) {
+        setConnection(null);
+        logConnection('Using the credentials you entered', { state: 'connecting', error: '' });
       }
       setSshPrompt(false);
+      setSshNotice('');
       const size = sizing.current?.fitNow();
       if (!size) {
         setStatus(
@@ -344,9 +413,28 @@ export function TerminalPane({
             ? error.message
             : failureMessages['terminal-failed'];
         setStatus(cancelled ? message : hostId ? `SSH failed. ${message}` : message);
+        if (hostId) {
+          if (cancelled) setConnection(null);
+          else logConnection(`Failed: ${message}`, { error: message });
+        }
+        if (
+          usingSaved &&
+          error instanceof Error &&
+          (error.message === failureMessages['ssh-auth-failed'] ||
+            error.message === failureMessages['vault-secret-missing'] ||
+            error.message === failureMessages['vault-locked'])
+        ) {
+          setSshNotice(
+            error.message === failureMessages['ssh-auth-failed']
+              ? 'The saved password was not accepted. Enter the current password; it will replace the saved one.'
+              : 'The saved password could not be read. Enter it again to connect.',
+          );
+          setConnection(null);
+          setSshPrompt(true);
+        }
       }
     },
-    [id, onPhaseChange, hostId],
+    [id, onPhaseChange, hostId, logConnection],
   );
   useEffect(() => {
     if (!active || autoStarted.current) return;
@@ -363,6 +451,7 @@ export function TerminalPane({
     inputReady.current = false;
     setSshChallenge(null);
     setSshPrompt(false);
+    setConnection(null);
     setStarting(false);
     setRunning(false);
     onPhaseChange(id, 'disconnected');
@@ -397,10 +486,11 @@ export function TerminalPane({
       },
     },
     {
-      label: 'Terminal appearance…',
+      label: 'Command history',
       separator: true,
-      onSelect: () => setAppearanceOpen(true),
+      onSelect: () => setTools('history'),
     },
+    { label: 'Terminal appearance…', onSelect: () => setTools('themes') },
     {
       label: running || starting ? 'Close session' : 'Close tab',
       danger: true,
@@ -435,6 +525,7 @@ export function TerminalPane({
           title={title}
           reconnect={attempted}
           hostId={hostId!}
+          notice={sshNotice}
           onConnect={(credentials) => void start(credentials)}
           onCancel={() => setSshPrompt(false)}
         />
@@ -474,17 +565,17 @@ export function TerminalPane({
         >
           <Icon name="search" />
         </button>
-        {!hostId && (
-          <button
-            type="button"
-            className="secondary-button"
-            aria-expanded={history.open}
-            aria-controls={history.panelId}
-            onClick={history.toggle}
-          >
-            History
-          </button>
-        )}
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Terminal tools"
+          aria-expanded={tools !== null}
+          aria-controls={`terminal-tools-${id}`}
+          title="Autocomplete, history and themes"
+          onClick={() => setTools((value) => (value ? null : 'history'))}
+        >
+          <Icon name="panel" />
+        </button>
         <button
           type="button"
           className="icon-button"
@@ -573,7 +664,7 @@ export function TerminalPane({
         <div
           className="terminal-container"
           ref={container}
-          style={{ background: terminalOptions(terminalAppearance, appearance).theme.background }}
+          style={{ background: options.theme.background }}
           aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -581,7 +672,45 @@ export function TerminalPane({
           }}
         />
         {history.overlay}
-        {history.panel}
+        {hostId && connection && !sshPrompt && (
+          <ConnectionProgress
+            hostId={hostId}
+            title={title}
+            state={connection.state}
+            error={connection.error}
+            logs={connection.logs}
+            onCancel={() => {
+              if (session.current) cancelConnection();
+              else setConnection(null);
+            }}
+            onRetry={() => {
+              setConnection(null);
+              void start();
+            }}
+            onClose={() => setConnection(null)}
+          />
+        )}
+        {tools && (
+          <TerminalTools
+            id={id}
+            title={title}
+            tab={tools}
+            onTabChange={setTools}
+            onClose={() => {
+              setTools(null);
+              terminal.current?.focus();
+            }}
+            local={!hostId}
+            integration={history.integration}
+            directory={history.directory}
+            onInsert={history.insert}
+            preferences={toolsPreferences}
+            onPreferenceChange={onToolsPreferenceChange}
+            appearance={terminalAppearance}
+            applicationTheme={appearance}
+            onAppearanceChange={setTerminalAppearance}
+          />
+        )}
       </div>
       {clipboard.pending && (
         <PasteDialog
@@ -589,14 +718,6 @@ export function TerminalPane({
           paste={clipboard.pending}
           onConfirm={clipboard.confirm}
           onCancel={clipboard.cancel}
-        />
-      )}
-      {appearanceOpen && (
-        <AppearanceDialog
-          title={title}
-          value={terminalAppearance}
-          onChange={setTerminalAppearance}
-          onClose={() => setAppearanceOpen(false)}
         />
       )}
       {menu && (
