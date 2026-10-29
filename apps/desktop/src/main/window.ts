@@ -68,6 +68,16 @@ export async function createMainWindow(
           return database.saveHostGroup(args[0]);
         if (channel === hostChannels.deleteGroup && args.length === 1)
           return database.deleteHostGroup(args[0]);
+        if (channel === hostChannels.identities && args.length === 0)
+          return database.listSshIdentities();
+        if (
+          channel === hostChannels.saveIdentity &&
+          args.length === 2 &&
+          (args[1] === undefined || validHostId(args[1]))
+        )
+          return database.saveSshIdentity(args[0], args[1]);
+        if (channel === hostChannels.deleteIdentity && args.length === 1)
+          return database.deleteSshIdentity(args[0]);
         if (channel === hostChannels.list && args.length === 0) return database.listHosts();
         if (
           channel === hostChannels.save &&

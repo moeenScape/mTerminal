@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F14 are implemented: the application window, restricted preload bridge, and initial Termius-style layout. Hosts, Workspace, and Settings views are navigable through the sidebar or keyboard-accessible tabs. Host search supports empty-result and clear states, and Settings shows real app information. Settings persist dark/light appearance, navigation shortcuts, the default shell executable, and window size/maximized state. Workspace supports up to 16 independent local terminal tabs with create, rename, reorder, switch and close actions. Sessions remain running across tab/view changes. Running-tab closure requires confirmation. Saved-host management and persisted workspace restoration are not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside.
+F01–F25 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles and reusable SSH identity metadata. Identity profiles share usernames and authentication preferences across hosts/groups; secret material is still entered for each connection until secure vault storage is implemented. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 

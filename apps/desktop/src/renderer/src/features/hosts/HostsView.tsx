@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   validateHost,
   validateGroup,
+  validateIdentity,
   resolveHost,
   type HostGroup,
   type SavedHost,
+  type SshIdentity,
 } from '../../../../shared/hosts';
 import { EmptyState } from '../../components/EmptyState';
 import { Icon } from '../../components/Icon';
@@ -19,6 +21,8 @@ interface HostsViewProps {
 export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: HostsViewProps) {
   const [hosts, setHosts] = useState<SavedHost[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
+  const [identities, setIdentities] = useState<SshIdentity[]>([]);
+  const [identityManager, setIdentityManager] = useState(false);
   const [groupFilter, setGroupFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [groupEditor, setGroupEditor] = useState<{ group?: HostGroup; deleting?: boolean } | null>(
@@ -30,11 +34,16 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([window.mterminal.listHosts(), window.mterminal.listHostGroups()])
-      .then(([items, savedGroups]) => {
+    void Promise.all([
+      window.mterminal.listHosts(),
+      window.mterminal.listHostGroups(),
+      window.mterminal.listSshIdentities(),
+    ])
+      .then(([items, savedGroups, savedIdentities]) => {
         if (!cancelled) {
           setHosts(items);
           setGroups(savedGroups);
+          setIdentities(savedIdentities);
           setLoading(false);
           setError('');
         }
@@ -60,11 +69,18 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
         host.name,
         host.address,
         host.username,
-        resolveHost(host, groups).username,
+        connectionUsername(host),
         host.groupPath ?? '',
         ...(host.tags ?? []),
       ].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())),
   );
+  function connectionUsername(host: SavedHost) {
+    const resolved = resolveHost(host, groups);
+    return (
+      identities.find((identity) => identity.id === resolved.identityId)?.username ||
+      resolved.username
+    );
+  }
   const tags = [...new Set(hosts.flatMap((host) => host.tags ?? []))].sort();
   const refresh = () => {
     setEditor(null);
@@ -147,6 +163,9 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
         <button onClick={() => setGroupEditor({})} disabled={loading || !!error}>
           New group
         </button>
+        <button onClick={() => setIdentityManager(true)} disabled={loading || !!error}>
+          SSH identities ({identities.length})
+        </button>
         {selectedGroup && (
           <>
             <button onClick={() => setGroupEditor({ group: selectedGroup })}>
@@ -196,9 +215,7 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
                 <div className="host-details">
                   <strong>{host.name}</strong>
                   <span>
-                    {resolveHost(host, groups).username
-                      ? `${resolveHost(host, groups).username}@`
-                      : ''}
+                    {connectionUsername(host) ? `${connectionUsername(host)}@` : ''}
                     {host.address}:{resolveHost(host, groups).port} · SSH
                   </span>
                   <span>
@@ -239,6 +256,7 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
             key={editor.host?.id ?? 'new'}
             host={editor.host}
             groups={groups}
+            identities={identities}
             deleting={!!editor.deleting}
             onClose={() => setEditor(null)}
             onSaved={refresh}
@@ -247,10 +265,21 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
         {groupEditor && (
           <GroupDialog
             group={groupEditor.group}
+            identities={identities}
             deleting={!!groupEditor.deleting}
             onClose={() => setGroupEditor(null)}
             onSaved={() => {
               setGroupFilter('');
+              refresh();
+            }}
+          />
+        )}
+        {identityManager && (
+          <IdentityDialog
+            identities={identities}
+            onClose={() => setIdentityManager(false)}
+            onSaved={() => {
+              setIdentityManager(false);
               refresh();
             }}
           />
@@ -263,12 +292,14 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
 function HostDialog({
   host,
   groups,
+  identities,
   deleting,
   onClose,
   onSaved,
 }: {
   host: SavedHost | undefined;
   groups: HostGroup[];
+  identities: SshIdentity[];
   deleting: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -303,6 +334,7 @@ function HostDialog({
             .filter(Boolean),
           inheritPort: data.get('inheritPort') === 'on',
           inheritUsername: data.get('inheritUsername') === 'on',
+          identityId: String(data.get('identityId') ?? '') || null,
         });
         await window.mterminal.saveHost(value, host?.id);
       }
@@ -333,13 +365,27 @@ function HostDialog({
           </p>
         ) : (
           <>
-            <p>SSH connection profile. Inherited values use the closest group default.</p>
+            <p>
+              SSH connection profile. Inherited values use the closest group default. An assigned
+              identity supplies the SSH username and preferred authentication method.
+            </p>
             <label>
               Group
               <select name="groupPath" defaultValue={host?.groupPath ?? ''}>
                 <option value="">Ungrouped</option>
                 {groups.map((g) => (
                   <option key={g.path}>{g.path}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              SSH identity
+              <select name="identityId" defaultValue={host?.identityId ?? ''}>
+                <option value="">Use group identity</option>
+                {identities.map((identity) => (
+                  <option key={identity.id} value={identity.id}>
+                    {identity.name} · {identity.username}
+                  </option>
                 ))}
               </select>
             </label>
@@ -417,11 +463,13 @@ function HostDialog({
 
 function GroupDialog({
   group,
+  identities,
   deleting,
   onClose,
   onSaved,
 }: {
   group: HostGroup | undefined;
+  identities: SshIdentity[];
   deleting: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -448,6 +496,7 @@ function GroupDialog({
             path: data.get('path'),
             port: data.get('port') ? Number(data.get('port')) : null,
             username: data.get('username') || null,
+            identityId: String(data.get('identityId') ?? '') || null,
           }),
         );
       onSaved();
@@ -478,7 +527,7 @@ function GroupDialog({
         {deleting ? (
           <p>
             This removes this group and all nested groups. Their hosts move to Ungrouped, retaining
-            their effective port, username and tags.
+            their effective port, username, identity and tags.
           </p>
         ) : (
           <>
@@ -508,7 +557,21 @@ function GroupDialog({
               Default username
               <input name="username" maxLength={100} defaultValue={group?.username ?? ''} />
             </label>
-            <p>Blank defaults inherit from the parent. Hosts can override each setting.</p>
+            <label>
+              Default SSH identity
+              <select name="identityId" defaultValue={group?.identityId ?? ''}>
+                <option value="">Inherit from parent</option>
+                {identities.map((identity) => (
+                  <option key={identity.id} value={identity.id}>
+                    {identity.name} · {identity.username}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p>
+              Blank defaults inherit from the parent. A selected identity supplies its username and
+              authentication method; hosts can override the identity.
+            </p>
           </>
         )}
         {error && <p role="alert">{error}</p>}
@@ -521,6 +584,150 @@ function GroupDialog({
           </button>
         </div>
       </form>
+    </dialog>
+  );
+}
+
+function IdentityDialog({
+  identities,
+  onClose,
+  onSaved,
+}: {
+  identities: SshIdentity[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [editing, setEditing] = useState<SshIdentity | 'new' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || !editing) return;
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
+    try {
+      const draft = validateIdentity({
+        name: data.get('name'),
+        username: data.get('username'),
+        method: data.get('method'),
+      });
+      await window.mterminal.saveSshIdentity(draft, editing === 'new' ? undefined : editing.id);
+      onSaved();
+    } catch {
+      setError('Unable to save identity. Check the fields and local storage.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(identity: SshIdentity) {
+    if (
+      busy ||
+      !window.confirm(
+        `Delete SSH identity “${identity.name}”? Hosts and groups will fall back to their parent or prompt.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError('');
+    try {
+      await window.mterminal.deleteSshIdentity(identity.id);
+      onSaved();
+    } catch {
+      setError('Unable to delete identity. Retry after checking local storage.');
+      setBusy(false);
+    }
+  }
+  return (
+    <dialog ref={ref} className="terminal-dialog" aria-labelledby="identity-title">
+      <h2 id="identity-title">SSH identities</h2>
+      {!editing ? (
+        <>
+          <p>
+            Reusable username and authentication preferences. Passwords and keys are never stored
+            here.
+          </p>
+          <ul className="host-list">
+            {identities.map((identity) => (
+              <li className="host-row" key={identity.id}>
+                <div className="host-details">
+                  <strong>{identity.name}</strong>
+                  <span>
+                    {identity.username} · {identity.method}
+                  </span>
+                </div>
+                <button type="button" disabled={busy} onClick={() => setEditing(identity)}>
+                  Edit
+                </button>
+                <button type="button" disabled={busy} onClick={() => void remove(identity)}>
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+          {!identities.length && <p>No identities yet. Create one to reuse SSH login details.</p>}
+          {error && <p role="alert">{error}</p>}
+          <div className="dialog-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+            <button type="button" onClick={() => setEditing('new')}>
+              New identity
+            </button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={(event) => void save(event)}>
+          <p>
+            {editing === 'new'
+              ? 'Create a reusable SSH login profile.'
+              : 'Update this reusable SSH login profile.'}{' '}
+            Secrets are requested when you connect.
+          </p>
+          <label>
+            Name
+            <input
+              name="name"
+              required
+              maxLength={100}
+              defaultValue={editing === 'new' ? '' : editing.name}
+            />
+          </label>
+          <label>
+            SSH username
+            <input
+              name="username"
+              required
+              maxLength={100}
+              autoComplete="off"
+              defaultValue={editing === 'new' ? '' : editing.username}
+            />
+          </label>
+          <label>
+            Preferred authentication method
+            <select name="method" defaultValue={editing === 'new' ? 'password' : editing.method}>
+              <option value="password">Password (ask at connection)</option>
+              <option value="privateKey">Private key (select at connection)</option>
+              <option value="keyboard-interactive">Keyboard-interactive</option>
+            </select>
+          </label>
+          {error && <p role="alert">{error}</p>}
+          <div className="dialog-actions">
+            <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+              Back
+            </button>
+            <button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Save identity'}
+            </button>
+          </div>
+        </form>
+      )}
     </dialog>
   );
 }

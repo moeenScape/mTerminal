@@ -5,6 +5,9 @@ export const hostChannels = {
   groups: 'hosts:groups',
   saveGroup: 'hosts:save-group',
   deleteGroup: 'hosts:delete-group',
+  identities: 'hosts:identities',
+  saveIdentity: 'hosts:save-identity',
+  deleteIdentity: 'hosts:delete-identity',
 } as const;
 export interface HostDraft {
   name: string;
@@ -16,6 +19,7 @@ export interface HostDraft {
   tags?: string[];
   inheritPort?: boolean;
   inheritUsername?: boolean;
+  identityId?: string | null;
 }
 export interface SavedHost extends HostDraft {
   id: string;
@@ -79,7 +83,10 @@ export function validateHost(value: unknown): HostDraft {
   for (const field of ['inheritPort', 'inheritUsername'])
     if (h[field] !== undefined && typeof h[field] !== 'boolean')
       throw new Error('Invalid inheritance flag.');
-  return {
+  const identityId = h.identityId == null || h.identityId === '' ? null : h.identityId;
+  if (identityId !== null && (typeof identityId !== 'string' || !validHostId(identityId)))
+    throw new Error('Invalid identity.');
+  const result: HostDraft = {
     name,
     address,
     username,
@@ -89,7 +96,9 @@ export function validateHost(value: unknown): HostDraft {
     tags,
     inheritPort: h.inheritPort === true,
     inheritUsername: h.inheritUsername === true,
+    identityId,
   };
+  return result;
 }
 export interface HostsApi {
   listHostGroups: () => Promise<HostGroup[]>;
@@ -98,12 +107,42 @@ export interface HostsApi {
   listHosts: () => Promise<SavedHost[]>;
   saveHost: (host: HostDraft, id?: string) => Promise<SavedHost>;
   deleteHost: (id: string) => Promise<void>;
+  listSshIdentities: () => Promise<SshIdentity[]>;
+  saveSshIdentity: (identity: SshIdentityDraft, id?: string) => Promise<SshIdentity>;
+  deleteSshIdentity: (id: string) => Promise<void>;
 }
 
 export interface HostGroup {
   path: string;
   port: number | null;
   username: string | null;
+  identityId?: string | null;
+}
+export interface SshIdentity {
+  id: string;
+  name: string;
+  username: string;
+  method: 'password' | 'privateKey' | 'keyboard-interactive';
+}
+export type SshIdentityDraft = Omit<SshIdentity, 'id'>;
+export function validateIdentity(value: unknown): SshIdentityDraft {
+  if (!value || typeof value !== 'object') throw new Error('Invalid identity.');
+  const { name, username, method } = value as Record<string, unknown>;
+  if (
+    typeof name !== 'string' ||
+    !name.trim() ||
+    name.length > 100 ||
+    Array.from(name).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
+    typeof username !== 'string' ||
+    !username.trim() ||
+    username.length > 100 ||
+    /\s/.test(username) ||
+    username.startsWith('-') ||
+    Array.from(username).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
+    !['password', 'privateKey', 'keyboard-interactive'].includes(String(method))
+  )
+    throw new Error('Invalid identity.');
+  return { name: name.trim(), username: username.trim(), method: method as SshIdentity['method'] };
 }
 export function validateGroupPath(value: unknown, allowEmpty = false): string {
   if (allowEmpty && value === '') return '';
@@ -137,24 +176,30 @@ export function validateGroup(value: unknown): HostGroup {
     port: g.port === null ? 22 : g.port,
     username: g.username === null ? '' : g.username,
   });
+  if (g.identityId != null && !validHostId(g.identityId)) throw new Error('Invalid identity.');
   return {
     path,
     port: g.port === null ? null : fields.port,
     username: g.username === null ? null : fields.username,
+    identityId: g.identityId ?? null,
   };
 }
 export function resolveHost(host: HostDraft, groups: HostGroup[]): HostDraft {
   let port = 22;
   let username = '';
+  let identityId: string | null = null;
   const parts = (host.groupPath ?? '').split('/');
   for (let i = 1; i <= parts.length; i++) {
     const group = groups.find((g) => g.path === parts.slice(0, i).join('/'));
     if (group?.port != null) port = group.port;
     if (group?.username != null) username = group.username;
+    if (group?.identityId) identityId = group.identityId;
   }
+  identityId = host.identityId ?? identityId;
   return {
     ...host,
     port: host.inheritPort ? port : host.port,
     username: host.inheritUsername ? username : host.username,
+    identityId,
   };
 }

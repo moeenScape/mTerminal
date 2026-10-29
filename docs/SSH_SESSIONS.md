@@ -129,3 +129,14 @@ were attempted with fail-fast: one launch failure from invalid chrome-sandbox
 ownership/mode, 34 not run. No sandbox permissions or settings were changed.
 External OpenSSH, desktop interaction and Windows/macOS verification remain
 pending. Earlier deferred-test notes describe their implementation checkpoints.
+
+## Reusable SSH identities
+
+Create identities from **Hosts → SSH identities** with a display name, SSH
+username and preferred authentication method. Select an identity on a host or
+as a group default; nested groups inherit the nearest identity and a host can
+override it. The connection prompt uses the identity username and method as
+defaults. Passwords, private key contents and passphrases are not part of an
+identity and are requested for every connection until secure secret storage is
+implemented. Deleting an identity clears references; hosts then use a parent
+group identity or their existing connection fields.

@@ -41,6 +41,9 @@ const api: DesktopApi = {
   listHosts: () => ipcRenderer.invoke(hostChannels.list),
   saveHost: (host, id) => ipcRenderer.invoke(hostChannels.save, host, id),
   deleteHost: (id) => ipcRenderer.invoke(hostChannels.delete, id),
+  listSshIdentities: () => ipcRenderer.invoke(hostChannels.identities),
+  saveSshIdentity: (identity, id) => ipcRenderer.invoke(hostChannels.saveIdentity, identity, id),
+  deleteSshIdentity: (id) => ipcRenderer.invoke(hostChannels.deleteIdentity, id),
   readClipboardText: async () => {
     const result: ClipboardReadResult = await ipcRenderer.invoke(clipboardChannels.read);
     if (!result.ok) throw new Error(failureMessages[result.code]);

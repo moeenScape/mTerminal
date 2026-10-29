@@ -5,8 +5,10 @@ import {
   validateGroup,
   validateGroupPath,
   resolveHost,
+  validateIdentity,
   type HostGroup,
   type SavedHost,
+  type SshIdentity,
 } from '../../shared/hosts.ts';
 import { AppFailure } from '../failures.ts';
 import { unlinkSync } from 'node:fs';
@@ -47,6 +49,16 @@ const migrations = [
       address TEXT NOT NULL, port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535),
       fingerprint TEXT NOT NULL, PRIMARY KEY(address, port)
     ) STRICT;`);
+  },
+  (connection: DatabaseSync) => {
+    connection.exec(`
+      CREATE TABLE ssh_identities (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL,
+        method TEXT NOT NULL CHECK(method IN ('password','privateKey','keyboard-interactive'))
+      ) STRICT;
+      ALTER TABLE hosts ADD COLUMN identityId TEXT REFERENCES ssh_identities(id) ON DELETE SET NULL;
+      ALTER TABLE host_groups ADD COLUMN identityId TEXT REFERENCES ssh_identities(id) ON DELETE SET NULL;
+    `);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -107,6 +119,11 @@ function validateDatabase(database: DatabaseSync): void {
   }
   if (pragmaNumber(database, 'user_version') >= 4)
     database.prepare('SELECT address, port, fingerprint FROM known_hosts LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 5) {
+    database.prepare('SELECT id, name, username, method FROM ssh_identities LIMIT 0').all();
+    database.prepare('SELECT identityId FROM hosts LIMIT 0').all();
+    database.prepare('SELECT identityId FROM host_groups LIMIT 0').all();
+  }
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -222,6 +239,7 @@ export class LocalDatabase {
             tags: JSON.parse(String(row.tags)),
             inheritPort: row.inheritPort === 1,
             inheritUsername: row.inheritUsername === 1,
+            identityId: row.identityId ?? null,
           }),
           id: row.id,
         };
@@ -238,10 +256,15 @@ export class LocalDatabase {
         !db.prepare('SELECT path FROM host_groups WHERE path=?').get(host.groupPath)
       )
         throw new Error('Group no longer exists.');
+      if (
+        host.identityId &&
+        !db.prepare('SELECT id FROM ssh_identities WHERE id=?').get(host.identityId)
+      )
+        throw new Error('Identity no longer exists.');
       if (id) {
         const result = db
           .prepare(
-            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=? WHERE id=?',
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=? WHERE id=?',
           )
           .run(
             host.name,
@@ -253,12 +276,13 @@ export class LocalDatabase {
             JSON.stringify(host.tags),
             Number(host.inheritPort),
             Number(host.inheritUsername),
+            host.identityId ?? null,
             key,
           );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           key,
           host.name,
@@ -270,6 +294,7 @@ export class LocalDatabase {
           JSON.stringify(host.tags),
           Number(host.inheritPort),
           Number(host.inheritUsername),
+          host.identityId ?? null,
         );
       }
     });
@@ -296,9 +321,14 @@ export class LocalDatabase {
         : '';
       if (parent && !db.prepare('SELECT path FROM host_groups WHERE path=?').get(parent))
         throw new Error('Parent group missing.');
+      if (
+        group.identityId &&
+        !db.prepare('SELECT id FROM ssh_identities WHERE id=?').get(group.identityId)
+      )
+        throw new Error('Identity no longer exists.');
       db.prepare(
-        'INSERT INTO host_groups VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET port=excluded.port, username=excluded.username',
-      ).run(group.path, group.port, group.username);
+        'INSERT INTO host_groups (path,port,username,identityId) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET port=excluded.port, username=excluded.username, identityId=excluded.identityId',
+      ).run(group.path, group.port, group.username, group.identityId ?? null);
     });
   }
 
@@ -313,13 +343,45 @@ export class LocalDatabase {
         for (const host of hosts.filter((h) => h.groupPath === group.path)) {
           const effective = resolveHost(host, groups);
           db.prepare(
-            "UPDATE hosts SET groupPath='', port=?, username=?, inheritPort=0, inheritUsername=0 WHERE id=?",
-          ).run(effective.port, effective.username, host.id);
+            "UPDATE hosts SET groupPath='', port=?, username=?, inheritPort=0, inheritUsername=0, identityId=? WHERE id=?",
+          ).run(effective.port, effective.username, effective.identityId ?? null, host.id);
         }
       }
       for (const group of descendants)
         db.prepare('DELETE FROM host_groups WHERE path=?').run(group.path);
     });
+  }
+
+  listSshIdentities(): SshIdentity[] {
+    return this.connection
+      .prepare('SELECT id,name,username,method FROM ssh_identities ORDER BY name COLLATE NOCASE,id')
+      .all()
+      .map((row) => {
+        if (!validHostId(row.id)) throw new AppFailure('database-invalid');
+        return { id: row.id, ...validateIdentity(row) };
+      });
+  }
+
+  saveSshIdentity(value: unknown, id?: string): SshIdentity {
+    const identity = validateIdentity(value);
+    if (id !== undefined && !validHostId(id)) throw new Error('Invalid identity ID.');
+    const key = id ?? randomUUID();
+    if (id) {
+      const result = this.connection
+        .prepare('UPDATE ssh_identities SET name=?,username=?,method=? WHERE id=?')
+        .run(identity.name, identity.username, identity.method, key);
+      if (result.changes !== 1) throw new Error('Identity no longer exists.');
+    } else {
+      this.connection
+        .prepare('INSERT INTO ssh_identities (id,name,username,method) VALUES (?,?,?,?)')
+        .run(key, identity.name, identity.username, identity.method);
+    }
+    return { id: key, ...identity };
+  }
+
+  deleteSshIdentity(value: unknown): void {
+    if (!validHostId(value)) throw new Error('Invalid identity ID.');
+    this.connection.prepare('DELETE FROM ssh_identities WHERE id=?').run(value);
   }
 
   getKnownHost(address: string, port: number): string | undefined {

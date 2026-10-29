@@ -28,11 +28,19 @@ export function SshPrompt({
     let cancelled = false;
     const dialog = ref.current;
     dialog?.showModal();
-    void Promise.all([window.mterminal.listHosts(), window.mterminal.listHostGroups()])
-      .then(([hosts, groups]) => {
+    void Promise.all([
+      window.mterminal.listHosts(),
+      window.mterminal.listHostGroups(),
+      window.mterminal.listSshIdentities(),
+    ])
+      .then(([hosts, groups, identities]) => {
         const host = hosts.find((item) => item.id === hostId);
-        if (host && !cancelled)
-          setUsername((current) => current || resolveHost(host, groups).username);
+        if (host && !cancelled) {
+          const resolved = resolveHost(host, groups);
+          const identity = identities.find((item) => item.id === resolved.identityId);
+          setUsername((current) => current || identity?.username || resolved.username);
+          setMethod(identity?.method ?? 'password');
+        }
       })
       .catch(() => {});
     return () => {

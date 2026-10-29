@@ -81,11 +81,14 @@ describe('host organization', () => {
       const host = db.saveHost(draft);
       db.transaction((connection) =>
         connection.exec(`
-        DROP TABLE host_groups; DROP TABLE known_hosts;
-        ALTER TABLE hosts DROP COLUMN groupPath;
-        ALTER TABLE hosts DROP COLUMN tags;
-        ALTER TABLE hosts DROP COLUMN inheritPort;
-        ALTER TABLE hosts DROP COLUMN inheritUsername;
+        CREATE TABLE hosts_v2 (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL,
+          port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535), username TEXT NOT NULL,
+          protocol TEXT NOT NULL CHECK(protocol = 'ssh')
+        ) STRICT;
+        INSERT INTO hosts_v2 SELECT id,name,address,port,username,protocol FROM hosts;
+        DROP TABLE hosts; ALTER TABLE hosts_v2 RENAME TO hosts;
+        DROP TABLE host_groups; DROP TABLE known_hosts; DROP TABLE ssh_identities;
         DELETE FROM schema_migrations WHERE version>=3;
         PRAGMA user_version=2;
       `),

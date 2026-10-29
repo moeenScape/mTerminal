@@ -744,6 +744,36 @@ test('opens an SSH credential prompt and cancels without starting a session', as
   await expect(page.getByRole('status').filter({ hasText: 'No active session' })).toBeVisible();
 });
 
+test('uses an assigned reusable SSH identity for the connection prompt', async () => {
+  await page.evaluate(async () => {
+    const identity = await window.mterminal.saveSshIdentity({
+      name: 'Deployment',
+      username: 'deploy',
+      method: 'privateKey',
+    });
+    await window.mterminal.saveHostGroup({
+      path: 'IdentityGroup',
+      port: null,
+      username: null,
+      identityId: identity.id,
+    });
+    await window.mterminal.saveHost({
+      name: 'Identity target',
+      address: '127.0.0.1',
+      port: 22,
+      username: '',
+      protocol: 'ssh',
+      groupPath: 'IdentityGroup',
+    });
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect to Identity target', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
+  await expect(dialog.getByLabel('Authentication method')).toHaveValue('privateKey');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('offers session-only private-key and keyboard-interactive authentication', async () => {
   await page.evaluate(async () => {
     await window.mterminal.saveHost({

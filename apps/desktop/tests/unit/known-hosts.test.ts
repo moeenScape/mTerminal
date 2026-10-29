@@ -110,7 +110,20 @@ describe('known host trust', () => {
       });
       db.transaction((connection) =>
         connection.exec(
-          'DROP TABLE known_hosts; DELETE FROM schema_migrations WHERE version=4; PRAGMA user_version=3;',
+          `CREATE TABLE hosts_v3 (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL,
+            port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535), username TEXT NOT NULL,
+            protocol TEXT NOT NULL CHECK(protocol = 'ssh'), groupPath TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]', inheritPort INTEGER NOT NULL DEFAULT 0 CHECK(inheritPort IN (0,1)),
+            inheritUsername INTEGER NOT NULL DEFAULT 0 CHECK(inheritUsername IN (0,1))
+          ) STRICT;
+          INSERT INTO hosts_v3 SELECT id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername FROM hosts;
+          CREATE TABLE host_groups_v3 (path TEXT PRIMARY KEY, port INTEGER CHECK(port BETWEEN 1 AND 65535), username TEXT) STRICT;
+          INSERT INTO host_groups_v3 SELECT path,port,username FROM host_groups;
+          DROP TABLE hosts; ALTER TABLE hosts_v3 RENAME TO hosts;
+          DROP TABLE host_groups; ALTER TABLE host_groups_v3 RENAME TO host_groups;
+          DROP TABLE ssh_identities; DROP TABLE known_hosts;
+          DELETE FROM schema_migrations WHERE version>=4; PRAGMA user_version=3;`,
         ),
       );
       db.close();
