@@ -35,6 +35,92 @@ export function SettingsView({
         </div>
       </header>
       <div className="settings-body">
+        <section aria-labelledby="preferences-heading">
+          <h2 id="preferences-heading">Preferences</h2>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              setSaving(true);
+              setMessage('');
+              void onSave(draft)
+                .then(() => setMessage('Preferences saved.'))
+                .catch((error: unknown) =>
+                  setMessage(
+                    error instanceof Error
+                      ? error.message
+                      : 'Unable to save preferences. Try again.',
+                  ),
+                )
+                .finally(() => setSaving(false));
+            }}
+          >
+            <fieldset disabled={!ready || saving} className="preference-fields">
+              <div className="setting-row">
+                <label htmlFor="appearance">Appearance</label>
+                <select
+                  id="appearance"
+                  value={draft.appearance}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      appearance: event.target.value as Preferences['appearance'],
+                    })
+                  }
+                >
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                </select>
+              </div>
+              <div className="setting-row">
+                <label htmlFor="default-shell">Default shell executable</label>
+                <input
+                  id="default-shell"
+                  value={draft.defaultShell}
+                  maxLength={1024}
+                  spellCheck={false}
+                  aria-describedby="default-shell-hint"
+                  placeholder={
+                    info?.platform === 'win32'
+                      ? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+                      : '/bin/bash'
+                  }
+                  onChange={(event) => setDraft({ ...draft, defaultShell: event.target.value })}
+                />
+                <p id="default-shell-hint" className="field-hint">
+                  Leave blank to use your Unix login shell or the platform fallback (Bash on Linux,
+                  Zsh on macOS, PowerShell on Windows). Enter an absolute path without arguments or
+                  quotes. Applies to new sessions.
+                </p>
+              </div>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={draft.navigationShortcuts}
+                  onChange={(event) =>
+                    setDraft({ ...draft, navigationShortcuts: event.target.checked })
+                  }
+                />
+                Enable Ctrl+Alt+1/2/3 to open Hosts, Workspace, and Settings
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={draft.rememberWindow}
+                  onChange={(event) => setDraft({ ...draft, rememberWindow: event.target.checked })}
+                />
+                Remember window size and maximized state
+              </label>
+              <div className="settings-actions">
+                <button className="primary-button" type="submit">
+                  {saving ? 'Saving…' : 'Save preferences'}
+                </button>
+                <p role="status" className="settings-status">
+                  {loadError || message || (!ready ? 'Loading preferences…' : '')}
+                </p>
+              </div>
+            </fieldset>
+          </form>
+        </section>
         <section aria-labelledby="backup-heading">
           <h2 id="backup-heading">Workspace backup</h2>
           <p className="section-description">
@@ -85,10 +171,12 @@ export function SettingsView({
               Import backup
             </button>
           </div>
-          <p role="status">{backupBusy ? 'Working…' : backupMessage}</p>
+          <p role="status" className="settings-status">
+            {backupBusy ? 'Working…' : backupMessage}
+          </p>
         </section>
         <section aria-labelledby="application-heading">
-          <h2 id="application-heading">Application</h2>
+          <h2 id="application-heading">About</h2>
           <p className="section-description">Your local mTerminal installation.</p>
           <dl className="settings-list">
             <div>
@@ -108,83 +196,6 @@ export function SettingsView({
               <dd>Local workspace</dd>
             </div>
           </dl>
-        </section>
-        <section aria-labelledby="preferences-heading">
-          <h2 id="preferences-heading">Preferences</h2>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSaving(true);
-              setMessage('');
-              void onSave(draft)
-                .then(() => setMessage('Preferences saved.'))
-                .catch((error: unknown) =>
-                  setMessage(
-                    error instanceof Error
-                      ? error.message
-                      : 'Unable to save preferences. Try again.',
-                  ),
-                )
-                .finally(() => setSaving(false));
-            }}
-          >
-            <fieldset disabled={!ready || saving} className="preference-fields">
-              <label htmlFor="appearance">Appearance</label>
-              <select
-                id="appearance"
-                value={draft.appearance}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    appearance: event.target.value as Preferences['appearance'],
-                  })
-                }
-              >
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
-              <label>
-                Default shell executable
-                <input
-                  value={draft.defaultShell}
-                  maxLength={1024}
-                  placeholder={
-                    info?.platform === 'win32'
-                      ? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
-                      : '/bin/bash'
-                  }
-                  onChange={(event) => setDraft({ ...draft, defaultShell: event.target.value })}
-                />
-              </label>
-              <p className="section-description">
-                Leave blank to use your Unix login shell or the platform fallback (Bash on Linux,
-                Zsh on macOS, PowerShell on Windows). Changes apply to new sessions. Enter an
-                absolute executable path without arguments or surrounding quotes.
-              </p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.navigationShortcuts}
-                  onChange={(event) =>
-                    setDraft({ ...draft, navigationShortcuts: event.target.checked })
-                  }
-                />{' '}
-                Enable Ctrl+Alt+1/2/3 to open Hosts, Workspace, and Settings
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.rememberWindow}
-                  onChange={(event) => setDraft({ ...draft, rememberWindow: event.target.checked })}
-                />{' '}
-                Remember window size and maximized state
-              </label>
-              <button className="primary-button" type="submit">
-                {saving ? 'Saving…' : 'Save preferences'}
-              </button>
-            </fieldset>
-            <p role="status">{loadError || message || (!ready ? 'Loading preferences…' : '')}</p>
-          </form>
         </section>
       </div>
     </div>

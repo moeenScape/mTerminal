@@ -32,6 +32,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { failureMessages } from '../../../../shared/failures';
+import { mirrorTerminalStyles } from './xterm-styles';
 import { useCommandHistory } from './useCommandHistory';
 
 export function TerminalPane({
@@ -113,9 +114,7 @@ export function TerminalPane({
     if (!host) return;
     const term = new Terminal({
       allowProposedApi: true,
-      cursorBlink: true,
-      fontFamily: '"DejaVu Sans Mono", Consolas, monospace',
-      fontSize: 14,
+      ...terminalOptions(defaultTerminalAppearance, 'dark'),
       scrollback: TERMINAL_SCROLLBACK_LINES,
       screenReaderMode: true,
     });
@@ -126,6 +125,7 @@ export function TerminalPane({
     const finder = new SearchAddon({ highlightLimit: SEARCH_HIGHLIGHT_LIMIT });
     term.loadAddon(finder);
     term.open(host);
+    const disposeStyles = mirrorTerminalStyles(host);
     const controller = new TerminalSearch(finder, term, setResults);
     search.current = controller;
     terminal.current = term;
@@ -217,6 +217,7 @@ export function TerminalPane({
     return () => {
       disposed = true;
       disposeClipboard();
+      disposeStyles();
       disposeHistory();
       controller.dispose();
       search.current = null;
@@ -572,6 +573,7 @@ export function TerminalPane({
         <div
           className="terminal-container"
           ref={container}
+          style={{ background: terminalOptions(terminalAppearance, appearance).theme.background }}
           aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
           onContextMenu={(event) => {
             event.preventDefault();

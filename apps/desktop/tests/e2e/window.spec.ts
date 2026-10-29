@@ -620,6 +620,27 @@ test('keeps terminal appearance settings independent between tabs', async () => 
   await expect(dialog.getByRole('combobox', { name: 'Cursor', exact: true })).toHaveValue('block');
 });
 
+test('renders terminal output with the bundled font and theme colours', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(info.platform === 'win32', 'This fixture uses a Unix shell.');
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type("printf '\\033[31mCSP_RED\\033[0m\\n'");
+  await page.keyboard.press('Enter');
+  const rows = page.locator('.terminal-pane:not([hidden]) .xterm-rows');
+  const red = rows.getByText('CSP_RED', { exact: true });
+  await expect(red).toBeVisible();
+  // xterm's inline <style> rules are blocked by the CSP; these come from the mirrored sheet.
+  expect(await rows.evaluate((element) => getComputedStyle(element).fontFamily)).toContain(
+    'JetBrains Mono',
+  );
+  expect(await red.evaluate((element) => getComputedStyle(element).color)).toBe(
+    'rgb(240, 113, 120)',
+  );
+  expect(await page.evaluate(() => document.fonts.check('14px "JetBrains Mono"', 'A'))).toBe(true);
+});
+
 test('opens terminal and tab menus from the keyboard', async () => {
   await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();

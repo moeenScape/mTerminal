@@ -23,6 +23,8 @@ export default defineConfig({
         },
       },
     ],
+    // Keep fonts as files: the Content-Security-Policy blocks data: fonts.
+    build: { assetsInlineLimit: (file) => (/\.(woff2?|ttf|otf)$/.test(file) ? false : undefined) },
     server: { host: '127.0.0.1', port: 5173, strictPort: true },
   },
 });

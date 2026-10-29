@@ -138,7 +138,7 @@ export function App() {
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="brand">
           <Icon name="terminal" className="brand-symbol" />
-          <span>mTerminal</span>
+          <span className="brand-name">mTerminal</span>
         </div>
         <nav aria-label="Main navigation">
           {viewItems.map((view) => (
@@ -146,11 +146,12 @@ export function App() {
               key={view.id}
               type="button"
               className="nav-item"
+              title={view.label}
               aria-current={activeView === view.id ? 'page' : undefined}
               onClick={() => setActiveView(view.id)}
             >
               <Icon name={view.icon} />
-              <span>{view.label}</span>
+              <span className="nav-label">{view.label}</span>
               {counts[view.id] !== undefined && (
                 <span className="nav-count" aria-hidden="true">
                   {counts[view.id]}
@@ -206,13 +207,18 @@ export function App() {
         </section>
 
         <footer className="status-bar">
+          {/* Only loading and failure need attention; "ready" stays for assistive tech. */}
           <span role="status" className={state.status === 'error' ? 'status-error' : ''}>
-            <span className={`status-dot status-dot--${state.status}`} aria-hidden="true" />
-            {state.status === 'ready'
-              ? 'Application ready'
-              : state.status === 'error'
-                ? 'Application information unavailable. Please restart mTerminal.'
-                : 'Starting application…'}
+            {state.status === 'ready' ? (
+              <span className="sr-only">Application ready</span>
+            ) : (
+              <>
+                <span className={`status-dot status-dot--${state.status}`} aria-hidden="true" />
+                {state.status === 'error'
+                  ? 'Application information unavailable. Please restart mTerminal.'
+                  : 'Starting application…'}
+              </>
+            )}
           </span>
           <div className="status-details">
             <span className="vault-status">

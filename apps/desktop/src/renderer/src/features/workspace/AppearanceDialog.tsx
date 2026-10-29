@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import {
   defaultTerminalAppearance,
+  terminalFontLabels,
+  terminalThemeLabels,
   type TerminalAppearance,
   type TerminalCursor,
   type TerminalFont,
@@ -43,9 +45,11 @@ export function AppearanceDialog({
             value={value.theme}
             onChange={(event) => onChange({ ...value, theme: event.target.value as TerminalTheme })}
           >
-            <option value="system">Follow app</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
+            {Object.entries(terminalThemeLabels).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -54,9 +58,11 @@ export function AppearanceDialog({
             value={value.font}
             onChange={(event) => onChange({ ...value, font: event.target.value as TerminalFont })}
           >
-            <option value="default">Default</option>
-            <option value="monospace">System monospace</option>
-            <option value="dejavu">DejaVu Sans Mono</option>
+            {Object.entries(terminalFontLabels).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <label>
