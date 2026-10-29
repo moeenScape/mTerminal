@@ -164,3 +164,14 @@ identity's saved password or a one-time SSH password and writes through SFTP. Ex
 authorized keys are preserved, duplicate keys are skipped, and `.ssh` / `authorized_keys`
 permissions are set to 0700 / 0600. This installer currently requires password authentication
 and a Unix-style remote home directory; keyboard-interactive-only hosts are not supported.
+
+## Vault lock and restart behavior
+
+Set up the local vault from the sidebar with a passphrase of 12–256 characters. Existing
+saved passwords and private keys are migrated to the passphrase-protected vault during setup;
+an interrupted migration resumes at the next unlock. Electron `safeStorage` remains the outer
+OS-protected layer. The workspace locks after five minutes without keyboard, pointer, or wheel
+activity and on every application restart. Unlock with the vault passphrase. Locking prevents
+new saved-credential reads and hides the workspace, but existing SSH sessions remain connected.
+There is no passphrase recovery yet: forgetting it makes saved credentials unrecoverable.
+Host and identity metadata is not encrypted by the vault passphrase.

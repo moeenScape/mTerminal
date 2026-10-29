@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import { SshSecretStore, type SafeStorageProvider } from '../../src/main/storage
 import { utils } from 'ssh2';
 
 const identityId = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+const vaultPassphrase = 'a sufficiently long vault passphrase';
 function fakeStorage(backend = 'gnome_libsecret'): SafeStorageProvider {
   return {
     isAsyncEncryptionAvailable: async () => true,
@@ -32,6 +33,7 @@ describe('OS-encrypted SSH password storage', () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-'));
     try {
       const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
       await store.savePassword(identityId, 'secret-password');
       const path = join(directory, 'vault', `${identityId}.password.enc`);
       const encrypted = await readFile(path);
@@ -54,13 +56,14 @@ describe('OS-encrypted SSH password storage', () => {
         fakeStorage('basic_text'),
         'linux',
       );
-      await expect(insecure.savePassword(identityId, 'never-written')).rejects.toMatchObject({
+      await expect(insecure.setupVault(vaultPassphrase)).rejects.toMatchObject({
         code: 'vault-unavailable',
       });
       await expect(readdir(join(directory, 'insecure'))).rejects.toMatchObject({ code: 'ENOENT' });
 
       const provider = fakeStorage();
       const store = new SshSecretStore(join(directory, 'secure'), provider, 'linux');
+      await store.setupVault(vaultPassphrase);
       await store.savePassword(identityId, 'kept-password');
       vi.mocked(provider.encryptStringAsync).mockRejectedValueOnce(
         new Error('keychain unavailable'),
@@ -77,6 +80,7 @@ describe('OS-encrypted SSH password storage', () => {
     try {
       const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
       await expect(store.getPassword('../identity')).rejects.toThrow('Invalid identity ID.');
+      await store.setupVault(vaultPassphrase);
       await store.savePassword(identityId, 'secret-password');
       await writeFile(join(directory, 'vault', `${identityId}.password.enc`), 'broken');
       await expect(store.getPassword(identityId)).rejects.toMatchObject({
@@ -93,6 +97,7 @@ describe('OS-encrypted SSH key storage', () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
     try {
       const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
       const pair = utils.generateKeyPairSync('ed25519');
       await store.savePrivateKey(identityId, pair.private);
       const path = join(directory, 'vault', `${identityId}.key.enc`);
@@ -117,6 +122,7 @@ describe('OS-encrypted SSH key storage', () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
     try {
       const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
       const pair = utils.generateKeyPairSync('ed25519');
       await store.savePrivateKey(identityId, pair.private);
       await expect(store.savePrivateKey(identityId, 'not a private key')).rejects.toThrow();
@@ -130,8 +136,58 @@ describe('OS-encrypted SSH key storage', () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
     try {
       const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
       await store.generatePrivateKey(identityId, 'key-passphrase');
       expect(await store.getPrivateKey(identityId)).toMatchObject({ passphrase: 'key-passphrase' });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('vault passphrase and lock lifecycle', () => {
+  it('migrates legacy secrets and requires the passphrase after lock and restart', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-lock-'));
+    const vaultDirectory = join(directory, 'vault');
+    try {
+      const provider = fakeStorage();
+      await mkdir(vaultDirectory, { recursive: true });
+      await writeFile(
+        join(vaultDirectory, `${identityId}.password.enc`),
+        await provider.encryptStringAsync('legacy-password'),
+      );
+      const store = new SshSecretStore(vaultDirectory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      expect(await store.getPassword(identityId)).toBe('legacy-password');
+      const migrated = await provider.decryptStringAsync(
+        await readFile(join(vaultDirectory, `${identityId}.password.enc`)),
+      );
+      expect(migrated.result).toContain('mterminal-v1:');
+
+      await store.lockVault();
+      expect(await store.vaultStatus()).toMatchObject({ configured: true, locked: true });
+      await expect(store.getPassword(identityId)).rejects.toMatchObject({ code: 'vault-locked' });
+      await expect(store.unlockVault('a different long passphrase')).rejects.toMatchObject({
+        code: 'vault-passphrase-wrong',
+      });
+      await store.unlockVault(vaultPassphrase);
+      expect(await store.getPassword(identityId)).toBe('legacy-password');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('locks new stores by default and rejects weak passphrases', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-lock-'));
+    try {
+      const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      expect(await store.vaultStatus()).toMatchObject({ configured: false, locked: false });
+      await expect(store.setupVault('too short')).rejects.toMatchObject({
+        code: 'vault-passphrase-weak',
+      });
+      await expect(store.savePassword(identityId, 'session-only')).rejects.toMatchObject({
+        code: 'vault-locked',
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

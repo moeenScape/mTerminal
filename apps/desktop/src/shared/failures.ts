@@ -5,6 +5,9 @@ export const failureMessages = {
     'A saved credential could not be read. Preserve the mTerminal data directory and check secure storage before replacing it.',
   'vault-secret-missing':
     'The saved credential is missing. Enter the password again or import the private key for this identity.',
+  'vault-locked': 'The local vault is locked. Unlock it to use saved credentials.',
+  'vault-passphrase-wrong': 'Vault passphrase was incorrect. No saved credentials were changed.',
+  'vault-passphrase-weak': 'Choose a vault passphrase between 12 and 256 characters.',
   'ssh-key-invalid':
     'The private key could not be imported. Check its format and passphrase, then try again.',
   'ssh-host-unverified':

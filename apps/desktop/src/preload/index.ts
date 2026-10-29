@@ -12,11 +12,45 @@ import {
 } from '../shared/terminal.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
 import { PREFERENCES_GET, PREFERENCES_SAVE } from '../shared/preferences.js';
-import { vaultChannels, type VaultResponse } from '../shared/vault.js';
+import {
+  vaultChannels,
+  vaultEvents,
+  type VaultResponse,
+  type VaultState,
+} from '../shared/vault.js';
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 
 const api: DesktopApi = {
+  getVaultState: async () => {
+    const result: VaultResponse<VaultState> = await ipcRenderer.invoke(vaultChannels.state);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
+  setupVault: async (passphrase) => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(
+      vaultChannels.setup,
+      passphrase,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
+  unlockVault: async (passphrase) => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(
+      vaultChannels.unlock,
+      passphrase,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
+  lockVault: async () => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(vaultChannels.lock);
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
+  recordVaultActivity: () => ipcRenderer.send(vaultEvents.activity),
+  onVaultLocked: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on(vaultEvents.locked, receive);
+    return () => ipcRenderer.removeListener(vaultEvents.locked, receive);
+  },
   answerSshChallenge: (id, token, answers) =>
     ipcRenderer.send(channels.sshAnswer, id, token, answers),
   onSshChallenge: (listener) => {

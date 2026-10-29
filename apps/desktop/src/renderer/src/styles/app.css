@@ -113,6 +113,55 @@ button {
 .vault-summary span {
   display: block;
 }
+.vault-summary button {
+  margin-left: auto;
+  padding: 5px 8px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.vault-access-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+}
+.vault-access-dialog::backdrop {
+  background: rgb(5 7 12 / 78%);
+  backdrop-filter: blur(3px);
+}
+.vault-access-dialog h1 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+.vault-access-dialog p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.vault-access-dialog label {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.vault-access-dialog input {
+  width: 100%;
+  padding: 10px;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+.vault-access-dialog .vault-warning {
+  color: var(--error);
+  font-size: 12px;
+}
 
 .vault-summary strong {
   color: var(--text);

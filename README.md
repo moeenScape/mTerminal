@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F28 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, OS-encrypted password and private-key storage, and confirmed public-key installation over SFTP. Secrets are saved separately from SQLite and are returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
+F01–F29 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, OS-encrypted password and private-key storage, confirmed public-key installation over SFTP, and passphrase-protected vault lock/unlock. Secrets are saved separately from SQLite and returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 
@@ -232,3 +232,9 @@ prompts. Cancellation keeps the terminal tab and output, closes pending network
 resources and ignores late replies. Phase 2's unit gate passed (113 tests on
 Linux/Node 24.12.0). Desktop launch remains blocked by the recorded sandbox
 configuration error; visual and Windows/macOS acceptance are still pending.
+
+Set up the local vault from the sidebar. It locks after five minutes without activity and
+whenever mTerminal restarts. Locking blocks new saved-credential reads and hides the workspace;
+existing SSH sessions stay connected. The vault passphrase cannot be reset if forgotten, so
+keep it safe. Host and identity metadata remain local but are not encrypted by the vault
+passphrase.

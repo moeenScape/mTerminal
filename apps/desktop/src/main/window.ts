@@ -13,7 +13,12 @@ import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, session, dialog } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo } from '../shared/app-info.js';
 import { allowRendererReload, getRendererUrl, validateAppInfoRequest } from './security.js';
-import { vaultChannels, type VaultResponse } from '../shared/vault.js';
+import {
+  vaultChannels,
+  vaultEvents,
+  type VaultResponse,
+  type VaultState,
+} from '../shared/vault.js';
 import { SshSecretStore } from './storage/secret-store.js';
 import { readFile } from 'node:fs/promises';
 import { utils } from 'ssh2';
@@ -64,6 +69,18 @@ export async function createMainWindow(
       webviewTag: false,
     },
   });
+
+  const vaultIdleTimeout = 5 * 60 * 1000;
+  let vaultIdleTimer: NodeJS.Timeout | undefined;
+  const resetVaultIdleTimer = () => {
+    clearTimeout(vaultIdleTimer);
+    vaultIdleTimer = setTimeout(() => {
+      vaultIdleTimer = undefined;
+      void secrets.lockVault().then(() => {
+        if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
+      });
+    }, vaultIdleTimeout);
+  };
 
   for (const channel of Object.values(hostChannels)) {
     ipcMain.handle(channel, async (event, ...args: unknown[]) => {
@@ -119,6 +136,25 @@ export async function createMainWindow(
     ipcMain.handle(channel, async (event, ...args: unknown[]): Promise<VaultResponse<unknown>> => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
       try {
+        if (channel === vaultChannels.state && args.length === 0)
+          return { ok: true, value: (await secrets.vaultStatus()) as VaultState };
+        if (channel === vaultChannels.setup && args.length === 1 && typeof args[0] === 'string') {
+          await secrets.setupVault(args[0]);
+          resetVaultIdleTimer();
+          return { ok: true, value: undefined };
+        }
+        if (channel === vaultChannels.unlock && args.length === 1 && typeof args[0] === 'string') {
+          await secrets.unlockVault(args[0]);
+          resetVaultIdleTimer();
+          return { ok: true, value: undefined };
+        }
+        if (channel === vaultChannels.lock && args.length === 0) {
+          clearTimeout(vaultIdleTimer);
+          vaultIdleTimer = undefined;
+          await secrets.lockVault();
+          if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
+          return { ok: true, value: undefined };
+        }
         const [identityId, value] = args;
         if (
           !validHostId(identityId) ||
@@ -185,8 +221,19 @@ export async function createMainWindow(
       }
     });
   }
+  ipcMain.on(vaultEvents.activity, (event, ...args: unknown[]) => {
+    try {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      if (args.length === 0 && vaultIdleTimer) resetVaultIdleTimer();
+    } catch {
+      diagnostics.record('terminal-operation-failed', 'vault-locked');
+    }
+  });
   window.once('closed', () => {
+    clearTimeout(vaultIdleTimer);
+    void secrets.lockVault();
     for (const channel of Object.values(vaultChannels)) ipcMain.removeHandler(channel);
+    ipcMain.removeAllListeners(vaultEvents.activity);
   });
 
   attachClipboard(window, rendererUrl, diagnostics);

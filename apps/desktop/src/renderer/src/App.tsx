@@ -1,7 +1,8 @@
 import { isWorkspaceShortcut } from './components/keyboard';
 import { defaultPreferences, type Preferences } from '../../shared/preferences';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AppInfo } from '../../shared/app-info';
+import type { VaultState } from '../../shared/vault';
 import { Icon } from './components/Icon';
 import { ViewTabs, viewItems, type ViewId } from './components/ViewTabs';
 import { HostsView } from './features/hosts/HostsView';
@@ -18,6 +19,8 @@ export function App() {
   const [preferencesError, setPreferencesError] = useState('');
   const [terminalCount, setTerminalCount] = useState(0);
   const [hostQuery, setHostQuery] = useState('');
+  const [vaultState, setVaultState] = useState<VaultState | null>(null);
+  const [showVaultSetup, setShowVaultSetup] = useState(false);
   const [sshRequest, setSshRequest] = useState<{
     id: string;
     hostId: string;
@@ -41,6 +44,44 @@ export function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const off = window.mterminal.onVaultLocked(() => {
+      setVaultState((current) =>
+        current ? { ...current, configured: true, locked: true } : current,
+      );
+    });
+    void window.mterminal
+      .getVaultState()
+      .then((value) => {
+        if (mounted) setVaultState(value);
+      })
+      .catch(() => {
+        if (mounted) setVaultState({ configured: true, locked: true, available: false });
+      });
+    return () => {
+      mounted = false;
+      off();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!vaultState?.configured || vaultState.locked) return;
+    let lastSent = 0;
+    const activity = () => {
+      const now = Date.now();
+      if (now - lastSent < 10000) return;
+      lastSent = now;
+      window.mterminal.recordVaultActivity();
+    };
+    for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'])
+      document.addEventListener(event, activity, { passive: true });
+    return () => {
+      for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'])
+        document.removeEventListener(event, activity);
+    };
+  }, [vaultState]);
 
   useEffect(() => {
     let mounted = true;
@@ -89,8 +130,28 @@ export function App() {
           <Icon name="lock" />
           <div>
             <strong>Local vault</strong>
-            <span>On this device</span>
+            <span>
+              {vaultState === null
+                ? 'Checking…'
+                : vaultState.configured
+                  ? vaultState.locked
+                    ? 'Locked'
+                    : 'Unlocked'
+                  : vaultState.available
+                    ? 'Not set up'
+                    : 'Secure storage unavailable'}
+            </span>
           </div>
+          {vaultState?.configured && !vaultState.locked && (
+            <button type="button" onClick={() => void window.mterminal.lockVault().catch(() => {})}>
+              Lock
+            </button>
+          )}
+          {vaultState && !vaultState.configured && vaultState.available && (
+            <button type="button" onClick={() => setShowVaultSetup(true)}>
+              Set up
+            </button>
+          )}
         </div>
         <p className="sidebar-label">WORKSPACE</p>
         <nav aria-label="Main navigation">
@@ -178,6 +239,162 @@ export function App() {
           </div>
         </footer>
       </main>
+      {(vaultState === null || vaultState.locked || showVaultSetup) && (
+        <VaultAccessGate
+          configured={vaultState?.configured === true}
+          available={vaultState?.available === true}
+          onClose={() => setShowVaultSetup(false)}
+          onRetry={async () => {
+            try {
+              setVaultState(await window.mterminal.getVaultState());
+            } catch {
+              setVaultState({ configured: true, locked: true, available: false });
+            }
+          }}
+          onSetup={async (passphrase) => {
+            try {
+              await window.mterminal.setupVault(passphrase);
+            } finally {
+              setVaultState(await window.mterminal.getVaultState());
+            }
+            setShowVaultSetup(false);
+          }}
+          onUnlock={async (passphrase) => {
+            await window.mterminal.unlockVault(passphrase);
+            setVaultState(await window.mterminal.getVaultState());
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function VaultAccessGate({
+  configured,
+  available,
+  onClose,
+  onRetry,
+  onSetup,
+  onUnlock,
+}: {
+  configured: boolean;
+  available: boolean;
+  onClose: () => void;
+  onRetry: () => Promise<void>;
+  onSetup: (passphrase: string) => Promise<void>;
+  onUnlock: (passphrase: string) => Promise<void>;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    if (!configured && passphrase !== confirmation) {
+      setError('The passphrases do not match.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      if (configured) await onUnlock(passphrase);
+      else await onSetup(passphrase);
+      setPassphrase('');
+      setConfirmation('');
+    } catch (cause) {
+      setPassphrase('');
+      setError(cause instanceof Error ? cause.message : 'Unable to open the local vault.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <dialog
+      ref={ref}
+      className="vault-access-dialog"
+      aria-labelledby="vault-access-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!configured) onClose();
+      }}
+    >
+      <form onSubmit={(event) => void submit(event)}>
+        <h1 id="vault-access-title">{configured ? 'Unlock local vault' : 'Set up local vault'}</h1>
+        {!available ? (
+          <p role="alert">
+            {configured
+              ? 'The configured vault or OS keychain is unavailable. Preserve the mTerminal data directory and check the keychain before retrying.'
+              : 'OS secure storage is unavailable. Setting up the vault requires a supported operating-system keychain.'}
+          </p>
+        ) : (
+          <>
+            <p>
+              {configured
+                ? 'Enter your vault passphrase. The vault locks again after five minutes of inactivity and whenever mTerminal restarts.'
+                : 'Choose a passphrase of at least 12 characters. Existing saved SSH credentials will be migrated into the encrypted vault.'}
+            </p>
+            <label>
+              Vault passphrase
+              <input
+                type="password"
+                value={passphrase}
+                onChange={(event) => setPassphrase(event.target.value)}
+                minLength={12}
+                maxLength={256}
+                autoComplete={configured ? 'current-password' : 'new-password'}
+                autoFocus
+                required
+              />
+            </label>
+            {!configured && (
+              <>
+                <label>
+                  Confirm passphrase
+                  <input
+                    type="password"
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                    minLength={12}
+                    maxLength={256}
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+                <p className="vault-warning">
+                  If you forget this passphrase, saved passwords and private keys cannot be
+                  recovered. Existing host and identity records are not encrypted by this
+                  passphrase.
+                </p>
+              </>
+            )}
+          </>
+        )}
+        {error && <p role="alert">{error}</p>}
+        <div className="dialog-actions">
+          {!available && (
+            <button type="button" disabled={busy} onClick={() => void onRetry()}>
+              Retry
+            </button>
+          )}
+          {!configured && (
+            <button type="button" disabled={busy} onClick={onClose}>
+              Cancel
+            </button>
+          )}
+          {available && (
+            <button type="submit" disabled={busy || passphrase.length < 12}>
+              {busy ? 'Working…' : configured ? 'Unlock vault' : 'Create vault'}
+            </button>
+          )}
+        </div>
+      </form>
+    </dialog>
   );
 }
