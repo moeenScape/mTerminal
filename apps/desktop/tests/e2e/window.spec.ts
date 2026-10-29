@@ -32,6 +32,12 @@ async function tabAction(tab: string, name: string) {
   await page.getByRole('menu').getByRole('menuitem', { name, exact: true }).click();
 }
 
+/** Chooses an item from a host card's action menu. */
+async function hostAction(host: string, name: string) {
+  await page.getByRole('button', { name: `More actions for ${host}`, exact: true }).click();
+  await page.getByRole('menu').getByRole('menuitem', { name, exact: true }).click();
+}
+
 /** Sidebar button for a main view (Hosts, Workspace, Settings). */
 function navButton(name: string) {
   return page
@@ -691,11 +697,11 @@ test('persists, searches, edits and confirms deletion of saved hosts', async () 
   await page.getByRole('button', { name: 'Edit Build server' }).click();
   await form.getByLabel('Port', { exact: true }).fill('2222');
   await form.getByRole('button', { name: 'Save host' }).click();
-  await expect(page.getByText('deploy@build.example.com:2222 · SSH')).toBeVisible();
-  await page.getByRole('button', { name: 'Delete Build server' }).click();
+  await expect(page.getByText('deploy@build.example.com:2222', { exact: true })).toBeVisible();
+  await hostAction('Build server', 'Delete…');
   await form.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByText('Build server', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Delete Build server' }).click();
+  await hostAction('Build server', 'Delete…');
   await form.getByRole('button', { name: 'Delete host', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your connections start here' })).toBeVisible();
 });
@@ -744,18 +750,33 @@ test('organizes hosts with nested groups, tags and inherited defaults', async ()
       inheritUsername: true,
     });
   });
-  await page.reload();
-  await expect(page.getByText('ops@prod.example.com:2222 · SSH')).toBeVisible();
-  await page.getByLabel('Group', { exact: true }).selectOption('Work');
-  await page.getByLabel('Tag', { exact: true }).selectOption('prod');
-  await expect(page.getByText('Production', { exact: true })).toBeVisible();
+  // Reopen Hosts so it reloads the records saved above.
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
+  const production = page.getByRole('button', { name: 'Connect to Production', exact: true });
+  await expect(production).toBeHidden();
+  await page.getByRole('button', { name: 'Work 1 host', exact: true }).click();
+  await page.getByRole('button', { name: 'Production 1 host', exact: true }).click();
+  await expect(production).toContainText('ops@prod.example.com:2222');
+  await page
+    .getByRole('navigation', { name: 'Group' })
+    .getByRole('button', { name: 'Work' })
+    .click();
+  await expect(production).toBeHidden();
+  await page
+    .getByRole('group', { name: 'Filter by tag' })
+    .getByRole('button', { name: 'prod' })
+    .click();
+  await expect(production).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Results (1)' })).toBeVisible();
   await page.getByRole('button', { name: 'Delete group', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
   expect((await page.evaluate(() => window.mterminal.listHostGroups())).length).toBe(2);
   await page.getByRole('button', { name: 'Delete group', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete group', exact: true }).click();
-  await expect(page.getByText('Ungrouped · prod')).toBeVisible();
-  await expect(page.getByText('ops@prod.example.com:2222 · SSH')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Group' })).not.toContainText('Work');
+  await expect(production).toContainText('ops@prod.example.com:2222');
+  await expect(page.getByRole('button', { name: 'Work 1 host' })).toBeHidden();
 });
 
 test('opens an SSH credential prompt and cancels without starting a session', async () => {
@@ -799,7 +820,9 @@ test('uses an assigned reusable SSH identity for the connection prompt', async (
       groupPath: 'IdentityGroup',
     });
   });
-  await page.reload();
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'IdentityGroup 1 host', exact: true }).click();
   await page.getByRole('button', { name: 'Connect to Identity target', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
@@ -870,7 +893,7 @@ test('generates, installs, and removes a managed key through app dialogs', async
   await expect(page.getByLabel('SSH public key')).toHaveValue(/^ssh-ed25519 /);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Install key to Key target', exact: true }).click();
+  await hostAction('Key target', 'Install key…');
   const install = page.getByRole('dialog', { name: 'Install key on “Key target”' });
   await expect(install).toContainText('deploy@127.0.0.1:2222');
   await expect(install.getByLabel('Public key to install')).toHaveValue(/^ssh-ed25519 /);

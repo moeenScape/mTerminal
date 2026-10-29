@@ -8,6 +8,9 @@ const paths = {
   unlock: 'M5 10h14v11H5z M8 10V6a4 4 0 0 1 7.5-1.9',
   plus: 'M12 5v14 M5 12h14',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  edit: 'M4 20h4L19 9l-4-4L4 16z M14 6l4 4',
+  chevron: 'm9 6 6 6-6 6',
 } as const;
 
 export type IconName = keyof typeof paths;
