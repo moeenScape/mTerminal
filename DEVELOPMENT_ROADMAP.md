@@ -24,7 +24,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F31 implemented; Phase 3 implementation complete; Phase 2 desktop/platform acceptance remains blocked |
+| Active feature | CH01–CH04 implemented — Local Bash command history and suggestions, inserted before F32 at user request |
 | Next feature | F32 — File browser; Phase 2 desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
@@ -126,6 +126,23 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 Completion criteria: No secrets leak into logs, ordinary database records, or default exports. Minimize secret exposure to the renderer. Unavailable secure storage must never silently fall back to plaintext. Verify restoration and migration failure recovery.
 
 ## Phase 4 — SFTP file manager
+
+The user requested command history before continuing Phase 4. F32 resumes after the local
+history feature. Existing F32–F78 IDs and ordering are unchanged.
+
+### Command history addition (CH)
+
+- [x] **CH01 — Command capture:** Opt-in temporary Bash 5+ prompt integration; preserve user dotfiles, consume bounded session-tagged recording frames in the main process, and skip unsupported shells.
+- [x] **CH02 — Encrypted history:** Use vault/OS encryption, 500-entry and size limits, 30-day expiry, deduplication, directory ranking, and deletion; exclude history from default exports.
+- [x] **CH03 — History panel:** Prefix search, insert without executing, copy, delete/clear confirmation, recording controls, and vault-unavailable messages.
+- [x] **CH04 — Inline suggestions:** Display a suffix at an integrated prompt, accept with Right Arrow, dismiss with Escape, and preserve Tab completion. Require the cursor at the end and suppress suggestions during programs/password entry.
+- [ ] **CH05 — Additional shell support:** Zsh, PowerShell, and explicitly enabled remote SSH integration; schedule after the original roadmap resumes.
+
+Validation: all 144 unit tests passed on Linux, including real Bash capture, split/token-checked
+protocol frames, encryption, deduplication, locking, deletion, and reset preservation. Typecheck,
+lint, formatting, production build, and diff checks passed. Interactive suggestion placement and
+keyboard behavior, Electron E2E, and Windows/macOS remain unverified.
+Setup, architecture, privacy, and supported-shell limits: `docs/COMMAND_HISTORY.md`.
 
 Dependencies: Phase 3 and the SSH connection layer.
 

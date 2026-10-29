@@ -29,6 +29,7 @@ export const sshStateMessages = {
 } as const;
 export type SshConnectionState = keyof typeof sshStateMessages;
 export type TerminalEvent =
+  | { kind: 'history-error'; id: string; code: FailureCode }
   | { kind: 'state'; id: string; state: SshConnectionState }
   | { kind: 'data'; id: string; data: string }
   | {

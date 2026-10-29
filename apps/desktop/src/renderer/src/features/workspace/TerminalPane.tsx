@@ -32,6 +32,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { failureMessages } from '../../../../shared/failures';
+import { useCommandHistory } from './useCommandHistory';
 
 export function TerminalPane({
   id,
@@ -76,6 +77,8 @@ export function TerminalPane({
   const inputReady = useRef(false);
   const autoStarted = useRef(false);
   const session = useRef<string | null>(null);
+  const history = useCommandHistory(active, !hostId, terminal, session, inputReady, container);
+  const { attach: attachHistory, onInput: historyInput, handleKey: historyKey } = history;
   const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -121,6 +124,7 @@ export function TerminalPane({
     const controller = new TerminalSearch(finder, term, setResults);
     search.current = controller;
     terminal.current = term;
+    const disposeHistory = attachHistory(term);
     const disposeClipboard = attachClipboard(term, host);
 
     let disposed = false;
@@ -156,6 +160,7 @@ export function TerminalPane({
     resize();
     const sendInput = (data: string, kind: TerminalInput['kind']) => {
       if (!session.current) return;
+      historyInput(data);
       for (const input of terminalInputChunks(data, kind))
         window.mterminal.writeTerminal(session.current, input);
     };
@@ -173,6 +178,8 @@ export function TerminalPane({
           if (!disposed && session.current === event.id)
             window.mterminal.ackTerminal(event.id, event.data.length);
         });
+      } else if (event.kind === 'history-error') {
+        setStatus(`Command history was not saved. ${failureMessages[event.code]}`);
       } else {
         setSshChallenge(null);
         inputReady.current = false;
@@ -203,6 +210,7 @@ export function TerminalPane({
     return () => {
       disposed = true;
       disposeClipboard();
+      disposeHistory();
       controller.dispose();
       search.current = null;
       if (searchFrame.current !== undefined) cancelAnimationFrame(searchFrame.current);
@@ -222,7 +230,7 @@ export function TerminalPane({
       sizing.current = null;
       term.dispose();
     };
-  }, [id, hostId, onPhaseChange, attachClipboard]);
+  }, [id, hostId, onPhaseChange, attachClipboard, attachHistory, historyInput]);
   useEffect(() => {
     const term = terminal.current;
     if (!term) return;
@@ -231,6 +239,7 @@ export function TerminalPane({
   }, [appearance, terminalAppearance]);
   useEffect(() => {
     terminal.current?.attachCustomKeyEventHandler((event) => {
+      if (!historyKey(event)) return false;
       if (isTerminalSearchShortcut(event)) {
         if (event.type === 'keydown') {
           event.preventDefault();
@@ -240,7 +249,7 @@ export function TerminalPane({
       }
       return !(navigationShortcuts && isWorkspaceShortcut(event));
     });
-  }, [navigationShortcuts, openSearch]);
+  }, [navigationShortcuts, openSearch, historyKey]);
   useEffect(() => {
     if (active) {
       sizing.current?.schedule();
@@ -457,6 +466,16 @@ export function TerminalPane({
         >
           <Icon name="search" />
         </button>
+        {!hostId && (
+          <button
+            type="button"
+            className="secondary-button"
+            aria-expanded={history.open}
+            onClick={history.toggle}
+          >
+            History
+          </button>
+        )}
         <button
           type="button"
           className="icon-button"
@@ -469,6 +488,7 @@ export function TerminalPane({
           <Icon name="more" />
         </button>
       </header>
+      {history.panel}
       {searchOpen && (
         <form
           className="terminal-search"
@@ -550,6 +570,7 @@ export function TerminalPane({
           setMenu({ x: event.clientX, y: event.clientY });
         }}
       />
+      {history.overlay}
       {clipboard.pending && (
         <PasteDialog
           title={title}

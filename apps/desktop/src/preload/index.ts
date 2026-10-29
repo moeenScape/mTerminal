@@ -21,8 +21,26 @@ import {
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
+import { historyChannels, historyEvents, type CommandHistoryEntry } from '../shared/history.js';
+
+async function historyRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result: VaultResponse<T> = await ipcRenderer.invoke(channel, ...args);
+  if (!result.ok) throw new Error(failureMessages[result.code]);
+  return result.value;
+}
 
 const api: DesktopApi = {
+  onHistoryChanged: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on(historyEvents.changed, receive);
+    return () => ipcRenderer.removeListener(historyEvents.changed, receive);
+  },
+  getHistoryEnabled: () => historyRequest<boolean>(historyChannels.enabled),
+  setHistoryEnabled: (enabled) => historyRequest<void>(historyChannels.enable, enabled),
+  searchHistory: (prefix, directory) =>
+    historyRequest<CommandHistoryEntry[]>(historyChannels.search, prefix, directory),
+  deleteHistory: (id) => historyRequest<void>(historyChannels.delete, id),
+  clearHistory: () => historyRequest<void>(historyChannels.clear),
   exportWorkspace: () => ipcRenderer.invoke(backupChannels.export),
   importWorkspace: () => ipcRenderer.invoke(backupChannels.import),
   getVaultState: async () => {

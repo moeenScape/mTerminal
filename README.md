@@ -148,6 +148,10 @@ Startup and storage failures show fixed recovery instructions and an event code.
 
 ## Local terminal (F07)
 
+Local Bash terminals support opt-in encrypted command history and inline suggestions.
+Open **History**, enable recording, then open a new Bash terminal. See
+[command history setup and privacy](docs/COMMAND_HISTORY.md).
+
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
 local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use
 **Close session** to stop it. Changing views preserves the running terminal;

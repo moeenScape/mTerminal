@@ -5,6 +5,7 @@ import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';
+import type { CommandHistoryEntry } from '../../shared/history.js';
 
 export interface SafeStorageProvider {
   isAsyncEncryptionAvailable(): Promise<boolean>;
@@ -178,7 +179,10 @@ export class SshSecretStore {
           throw error;
         }
         const files = names.filter(
-          (name) => name === 'vault.master' || /^[0-9a-f-]{36}\.(password|key)\.enc$/.test(name),
+          (name) =>
+            name === 'vault.master' ||
+            name === 'history.enc' ||
+            /^[0-9a-f-]{36}\.(password|key)\.enc$/.test(name),
         );
         if (!files.length) return;
         const recoveryDirectory = join(this.directory, `recovery-${Date.now()}-${randomUUID()}`);
@@ -289,6 +293,105 @@ export class SshSecretStore {
       const protectedValue = await this.protect(decrypted.result, true);
       await this.writeEncrypted(path, await this.storage.encryptStringAsync(protectedValue));
     }
+  }
+
+  private async readHistory(): Promise<CommandHistoryEntry[]> {
+    this.requireUnlocked();
+    await this.requireSecureStorage();
+    const path = join(this.directory, 'history.enc');
+    try {
+      const info = await lstat(path);
+      if (!info.isFile() || info.size > 2 * 1024 * 1024) throw new AppFailure('vault-corrupt');
+      const decrypted = await this.storage.decryptStringAsync(await readFile(path));
+      const entries: unknown = JSON.parse(await this.reveal(decrypted.result));
+      if (!Array.isArray(entries) || entries.length > 500) throw new AppFailure('vault-corrupt');
+      for (const entry of entries) {
+        if (
+          !entry ||
+          !validHostId(entry.id) ||
+          typeof entry.command !== 'string' ||
+          entry.command.length > 4096 ||
+          typeof entry.directory !== 'string' ||
+          entry.directory.length > 4096 ||
+          !Number.isFinite(entry.lastUsed) ||
+          !Number.isSafeInteger(entry.uses) ||
+          entry.uses < 1
+        )
+          throw new AppFailure('vault-corrupt');
+      }
+      const recent = entries.filter(
+        (entry: CommandHistoryEntry) => entry.lastUsed > Date.now() - 30 * 86400000,
+      );
+      if (recent.length !== entries.length) await this.writeHistory(recent);
+      return recent;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  private async writeHistory(entries: CommandHistoryEntry[]): Promise<void> {
+    while (entries.length > 500 || Buffer.byteLength(JSON.stringify(entries)) > 512 * 1024)
+      entries.pop();
+    await this.writeEncrypted(
+      join(this.directory, 'history.enc'),
+      await this.storage.encryptStringAsync(await this.protect(JSON.stringify(entries))),
+    );
+  }
+
+  recordCommand(command: string, directory: string): Promise<void> {
+    // Filters are a convenience; command recording is opt-in because secrets cannot be detected reliably.
+    if (
+      !command.trim() ||
+      command.startsWith(' ') ||
+      command.length > 4096 ||
+      directory.length > 4096 ||
+      Array.from(command).some((character) => {
+        const code = character.charCodeAt(0);
+        return (code < 32 && code !== 10 && code !== 13) || code === 127;
+      }) ||
+      /(?:password|passwd|token|secret|api[_-]?key)\s*(?:=|\s)|https?:\/\/[^\s/]+:[^\s/]+@/i.test(
+        command,
+      )
+    )
+      return Promise.resolve();
+    return this.serialize(async () => {
+      const entries = await this.readHistory();
+      const previous = entries.find(
+        (entry) => entry.command === command && entry.directory === directory,
+      );
+      await this.writeHistory([
+        {
+          id: previous?.id ?? randomUUID(),
+          command,
+          directory,
+          lastUsed: Date.now(),
+          uses: Math.min((previous?.uses ?? 0) + 1, 1000000),
+        },
+        ...entries.filter((entry) => entry !== previous),
+      ]);
+    });
+  }
+
+  searchHistory(prefix: string, directory: string): Promise<CommandHistoryEntry[]> {
+    return this.serialize(async () =>
+      (await this.readHistory())
+        .filter((entry) => entry.command.startsWith(prefix))
+        .sort(
+          (a, b) =>
+            Number(b.directory === directory) - Number(a.directory === directory) ||
+            b.lastUsed - a.lastUsed ||
+            b.uses - a.uses,
+        )
+        .slice(0, 20),
+    );
+  }
+
+  deleteHistory(id?: string): Promise<void> {
+    return this.serialize(async () => {
+      const entries = await this.readHistory();
+      await this.writeHistory(id ? entries.filter((entry) => entry.id !== id) : []);
+    });
   }
 
   private async requireSecureStorage(): Promise<void> {

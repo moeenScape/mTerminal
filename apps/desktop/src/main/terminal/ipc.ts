@@ -26,6 +26,8 @@ import { installPublicKey } from './install-public-key.js';
 import { utils } from '../ssh2-module.js';
 import { AppFailure } from '../failures.js';
 import { formatSshPublicKey } from '../../shared/ssh.js';
+import { historyChannels, historyEvents } from '../../shared/history.js';
+import { bashHistoryRc, BashHistoryStream } from './bash-history.js';
 
 export function attachTerminal(
   window: BrowserWindow,
@@ -35,6 +37,51 @@ export function attachTerminal(
   database: LocalDatabase,
   secrets: SshSecretStore,
 ): TerminalRegistry {
+  let historyEnabled = false;
+  for (const channel of Object.values(historyChannels)) {
+    ipcMain.handle(channel, async (event, ...args: unknown[]) => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      try {
+        if (channel === historyChannels.enabled && !args.length)
+          return { ok: true, value: historyEnabled };
+        if (
+          channel === historyChannels.enable &&
+          args.length === 1 &&
+          typeof args[0] === 'boolean'
+        ) {
+          if (args[0]) {
+            const state = await secrets.vaultStatus();
+            if (!state.configured || state.locked || !state.available)
+              throw new AppFailure('vault-locked');
+          }
+          historyEnabled = args[0];
+          return { ok: true, value: undefined };
+        }
+        if (
+          channel === historyChannels.search &&
+          args.length === 2 &&
+          typeof args[0] === 'string' &&
+          args[0].length <= 4096 &&
+          typeof args[1] === 'string' &&
+          args[1].length <= 4096
+        )
+          return { ok: true, value: await secrets.searchHistory(args[0], args[1]) };
+        if (channel === historyChannels.clear && !args.length) {
+          await secrets.deleteHistory();
+          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+          return { ok: true, value: undefined };
+        }
+        if (channel === historyChannels.delete && args.length === 1 && validTerminalId(args[0])) {
+          await secrets.deleteHistory(args[0]);
+          if (!window.webContents.isDestroyed()) window.webContents.send(historyEvents.changed);
+          return { ok: true, value: undefined };
+        }
+        throw new Error('Invalid history request.');
+      } catch (error) {
+        return { ok: false, code: failureCode(error, 'vault-unavailable') };
+      }
+    });
+  }
   const terminal = new TerminalRegistry((event) => {
     if (event.kind === 'error') diagnostics.record('terminal-operation-failed', event.code);
     if (!window.webContents.isDestroyed()) window.webContents.send(channels.event, event);
@@ -80,13 +127,60 @@ export function attachTerminal(
           'NODE_OPTIONS',
         ])
           delete env[key as keyof typeof env];
-        return spawn(shell, [], {
-          name: 'xterm-256color',
-          cwd: homedir(),
-          cols: size.cols,
-          rows: size.rows,
-          env,
+        const integration =
+          historyEnabled && /(?:^|\/)bash$/.test(shell) ? await bashHistoryRc() : undefined;
+        if (signal.aborted) {
+          await integration?.dispose();
+          throw new Error('Terminal start cancelled.');
+        }
+        let pty;
+        try {
+          pty = spawn(shell, integration ? ['--rcfile', integration.path, '-i'] : [], {
+            name: 'xterm-256color',
+            cwd: homedir(),
+            cols: size.cols,
+            rows: size.rows,
+            env,
+          });
+        } catch (error) {
+          await integration?.dispose();
+          throw error;
+        }
+        if (!integration) return pty;
+        const clean = () => {
+          void integration.dispose().catch(() => {});
+        };
+        const parser = new BashHistoryStream(integration.token, (command, directory) => {
+          if (!historyEnabled || signal.aborted) return;
+          void secrets.recordCommand(command, directory).catch((error: unknown) => {
+            if (!window.webContents.isDestroyed())
+              window.webContents.send(channels.event, {
+                kind: 'history-error',
+                id,
+                code: failureCode(error, 'vault-unavailable'),
+              });
+          });
         });
+        return {
+          write: (data) => pty.write(data),
+          resize: (cols, rows) => pty.resize(cols, rows),
+          pause: () => pty.pause(),
+          resume: () => pty.resume(),
+          kill: (signal) => {
+            clean();
+            pty.kill(signal);
+          },
+          onData: (listener) =>
+            pty.onData((data) => {
+              const text = parser.feed(data);
+              if (text) listener(text);
+            }),
+          onExit: (listener) =>
+            pty.onExit((event) => {
+              clean();
+              listener(event);
+            }),
+        };
       });
       return { ok: true };
     } catch (error) {
@@ -233,6 +327,7 @@ export function attachTerminal(
   window.webContents.on('did-navigate', () => terminal.reset());
   window.webContents.on('render-process-gone', () => terminal.reset());
   window.once('closed', () => {
+    for (const channel of Object.values(historyChannels)) ipcMain.removeHandler(channel);
     terminal.dispose();
     ipcMain.removeHandler(channels.open);
     ipcMain.removeHandler(channels.ssh);

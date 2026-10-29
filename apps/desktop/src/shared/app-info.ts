@@ -2,6 +2,7 @@ import type { HostsApi } from './hosts.js';
 import type { TerminalApi } from './terminal.js';
 import type { VaultApi } from './vault.js';
 import type { BackupApi } from './backup.js';
+import type { HistoryApi } from './history.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -10,7 +11,7 @@ export interface AppInfo {
   platform: string;
 }
 
-export interface DesktopApi extends TerminalApi, HostsApi, VaultApi, BackupApi {
+export interface DesktopApi extends TerminalApi, HostsApi, VaultApi, BackupApi, HistoryApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
