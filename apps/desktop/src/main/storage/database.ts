@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, rename, rm, stat, open, link } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
+import { validateWorkspaceBackup, type WorkspaceBackup } from '../../shared/backup.ts';
 
 const APPLICATION_ID = 0x4d544552;
 const migrations = [
@@ -410,6 +411,81 @@ export class LocalDatabase {
 
   get workspaceId(): string {
     return String(this.connection.prepare('SELECT id FROM workspaces').get()?.id);
+  }
+
+  exportWorkspace(): WorkspaceBackup {
+    return validateWorkspaceBackup({
+      format: 'mterminal-workspace',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      hosts: this.listHosts(),
+      groups: this.listHostGroups(),
+      identities: this.listSshIdentities(),
+      knownHosts: this.connection
+        .prepare('SELECT address,port,fingerprint FROM known_hosts ORDER BY address,port')
+        .all(),
+    });
+  }
+
+  importWorkspace(value: unknown): number {
+    const data = validateWorkspaceBackup(value);
+    const count =
+      data.hosts.length + data.groups.length + data.identities.length + data.knownHosts.length;
+    this.transaction((db) => {
+      for (const identity of data.identities)
+        if (db.prepare('SELECT id FROM ssh_identities WHERE id=?').get(identity.id))
+          throw new Error('Backup conflicts with an existing identity. No records were imported.');
+      for (const group of data.groups)
+        if (db.prepare('SELECT path FROM host_groups WHERE path=?').get(group.path))
+          throw new Error('Backup conflicts with an existing group. No records were imported.');
+      for (const host of data.hosts)
+        if (db.prepare('SELECT id FROM hosts WHERE id=?').get(host.id))
+          throw new Error('Backup conflicts with an existing host. No records were imported.');
+      for (const known of data.knownHosts) {
+        const current = db
+          .prepare('SELECT fingerprint FROM known_hosts WHERE address=? AND port=?')
+          .get(known.address, known.port);
+        if (current && current.fingerprint !== known.fingerprint)
+          throw new Error('Backup conflicts with a trusted host key. No records were imported.');
+      }
+      for (const identity of data.identities)
+        db.prepare('INSERT INTO ssh_identities (id,name,username,method) VALUES (?,?,?,?)').run(
+          identity.id,
+          identity.name,
+          identity.username,
+          identity.method,
+        );
+      for (const group of [...data.groups].sort(
+        (a, b) => a.path.split('/').length - b.path.split('/').length,
+      ))
+        db.prepare('INSERT INTO host_groups (path,port,username,identityId) VALUES (?,?,?,?)').run(
+          group.path,
+          group.port,
+          group.username,
+          group.identityId ?? null,
+        );
+      for (const host of data.hosts)
+        db.prepare(
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        ).run(
+          host.id,
+          host.name,
+          host.address,
+          host.port,
+          host.username,
+          host.protocol,
+          host.groupPath ?? '',
+          JSON.stringify(host.tags ?? []),
+          Number(host.inheritPort),
+          Number(host.inheritUsername),
+          host.identityId ?? null,
+        );
+      for (const known of data.knownHosts)
+        db.prepare(
+          'INSERT OR IGNORE INTO known_hosts (address,port,fingerprint) VALUES (?,?,?)',
+        ).run(known.address, known.port, known.fingerprint);
+    });
+    return count;
   }
 
   async createBackup(

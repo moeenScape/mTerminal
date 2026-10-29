@@ -53,6 +53,48 @@ describe('local SQLite storage', () => {
       expect(await readFile(join(directory, preserved!), 'utf8')).toBe('damaged file');
     });
   });
+  it('exports versioned metadata without secrets and atomically merges it', async () => {
+    await fixture(async (directory) => {
+      let source: LocalDatabase | undefined;
+      let target: LocalDatabase | undefined;
+      try {
+        source = await LocalDatabase.open(join(directory, 'source.sqlite'));
+        const identity = source.saveSshIdentity({
+          name: 'Production',
+          username: 'ops',
+          method: 'password',
+        });
+        source.saveHostGroup({
+          path: 'Production',
+          port: 2222,
+          username: 'ops',
+          identityId: identity.id,
+        });
+        source.saveHost({
+          name: 'API',
+          address: 'api.example.com',
+          port: 2222,
+          username: 'ops',
+          protocol: 'ssh',
+          groupPath: 'Production',
+          identityId: identity.id,
+        });
+        source.trustKnownHost('api.example.com', 2222, `SHA256:${'a'.repeat(43)}`);
+        const archive = source.exportWorkspace();
+        expect(Object.keys(archive)).not.toContain('secrets');
+        target = await LocalDatabase.open(join(directory, 'target.sqlite'));
+        expect(target.importWorkspace(archive)).toBe(4);
+        expect(target.listHosts()).toHaveLength(1);
+        expect(target.listSshIdentities()).toEqual([identity]);
+        expect(target.getKnownHost('api.example.com', 2222)).toBe(`SHA256:${'a'.repeat(43)}`);
+        expect(() => target!.importWorkspace(archive)).toThrow('No records were imported');
+        expect(target.listHosts()).toHaveLength(1);
+      } finally {
+        source?.close();
+        target?.close();
+      }
+    });
+  });
   it('refuses corrupt backups, unknown schemas, and recovery with live journals', async () => {
     await fixture(async (directory) => {
       const path = join(directory, 'mterminal.sqlite');

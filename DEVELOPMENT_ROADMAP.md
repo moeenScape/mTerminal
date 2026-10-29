@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F29 implemented; Phase 3 active at F30; Phase 2 desktop/platform acceptance remains blocked |
-| Next feature | F30 — Backup and export; Phase 2 desktop/platform acceptance remains outstanding |
-| Implementation status | F01–F29 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, and passphrase-protected vault lock/unlock; desktop verification pending |
+| Active feature | F30 implemented; Phase 3 active at F31; Phase 2 desktop/platform acceptance remains blocked |
+| Next feature | F31 — Recovery; Phase 2 desktop/platform acceptance remains outstanding |
+| Implementation status | F01–F30 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, and versioned workspace backup/import; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -120,7 +120,7 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 - [x] **F27 — SSH keys (implementation):** Import supported OpenSSH/RFC4716/PPK private keys, generate Ed25519 keys or passphrase-protected RSA 2048 keys, store key/passphrase ciphertext through OS secure storage, and use a managed key only with its assigned identity. The identity manager exposes the public key for copying. Tests written; Phase 3 gate deferred.
 - [x] **F28 — Public-key installation (implementation):** Install the assigned identity's managed public key to a confirmed host/account using SFTP, after the host fingerprint has been trusted. Preserve existing `authorized_keys` entries, avoid duplicates, and enforce `.ssh`/file permissions. Authentication uses the identity's saved password or a one-time password. Tests written; Phase 3 gate deferred.
 - [x] **F29 — Lock and unlock (implementation):** Add a vault passphrase that wraps the vault key, migrate existing encrypted credential files, lock on restart and after five idle minutes, and gate saved-credential access while locked. Tests written; Phase 3 gate deferred.
-- [ ] **F30 — Backup and export:** Versioned import/export with explicit secret handling.
+- [x] **F30 — Backup and export (implementation):** Export versioned workspace JSON without secrets; validate and merge imports transactionally, rejecting conflicts without overwriting records. Tests written; Phase 3 gate deferred.
 - [ ] **F31 — Recovery:** Missing keychain, forgotten password, and corrupted storage.
 
 Completion criteria: No secrets leak into logs, ordinary database records, or default exports. Minimize secret exposure to the renderer. Unavailable secure storage must never silently fall back to plaintext. Verify restoration and migration failure recovery.
@@ -782,4 +782,13 @@ the next unlock. The app starts locked after restart and locks after five minute
 renderer activity. Locking hides the workspace and blocks future vault reads; already-open
 SSH sessions remain connected. Forgotten passphrases cannot recover saved secrets; host and
 identity metadata remain local and unencrypted by the vault passphrase. Tests are written and
-deferred until the Phase 3 gate; next: F30 backup and export.
+deferred until the Phase 3 gate.
+
+### F30 implementation
+
+Settings can export a version 1 JSON workspace archive containing hosts, groups, SSH identity
+metadata, and trusted host fingerprints. Saved passwords and private keys are excluded; credential
+files remain protected in the local vault. Import validates archive size, schema, record values,
+references, duplicates, and collisions before applying a single SQLite transaction. It merges new
+records and never replaces existing records. User confirmation precedes import. Tests are written
+and deferred until the Phase 3 gate; next: F31 recovery.

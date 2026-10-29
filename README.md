@@ -238,3 +238,7 @@ whenever mTerminal restarts. Locking blocks new saved-credential reads and hides
 existing SSH sessions stay connected. The vault passphrase cannot be reset if forgotten, so
 keep it safe. Host and identity metadata remain local but are not encrypted by the vault
 passphrase.
+
+Use **Settings → Workspace backup** to export versioned workspace metadata or merge it from a
+backup. Passwords and private keys are excluded. Imports require confirmation and abort entirely
+if any record conflicts with existing data.

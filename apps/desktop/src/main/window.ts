@@ -23,6 +23,9 @@ import { SshSecretStore } from './storage/secret-store.js';
 import { readFile } from 'node:fs/promises';
 import { utils } from 'ssh2';
 import { formatSshPublicKey } from '../shared/ssh.js';
+import { backupChannels } from '../shared/backup.js';
+import { chmod, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -130,6 +133,57 @@ export async function createMainWindow(
   }
   window.once('closed', () => {
     for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
+  });
+
+  ipcMain.handle(backupChannels.export, async (event) => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+    const selection = await dialog.showSaveDialog(window, {
+      title: 'Export mTerminal workspace',
+      defaultPath: 'mterminal-workspace.json',
+      filters: [{ name: 'mTerminal backup', extensions: ['json'] }],
+    });
+    if (selection.canceled || !selection.filePath) return false;
+    const temporary = `${selection.filePath}.tmp-${randomUUID()}`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(database.exportWorkspace(), null, 2)}\n`, {
+        mode: 0o600,
+        flag: 'wx',
+      });
+      await chmod(temporary, 0o600);
+      await rename(temporary, selection.filePath);
+      return true;
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  });
+  ipcMain.handle(backupChannels.import, async (event) => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+    const selection = await dialog.showOpenDialog(window, {
+      title: 'Import mTerminal workspace',
+      properties: ['openFile'],
+      filters: [{ name: 'mTerminal backup', extensions: ['json'] }],
+    });
+    if (selection.canceled || !selection.filePaths[0]) return undefined;
+    const path = selection.filePaths[0];
+    const info = await stat(path);
+    if (!info.isFile() || info.size > 5 * 1024 * 1024) throw new Error('Backup file is too large.');
+    const records = JSON.parse((await readFile(path, 'utf8')) as string) as unknown;
+    const confirmation = await dialog.showMessageBox(window, {
+      type: 'warning',
+      buttons: ['Import records', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Import workspace records',
+      message: 'Import hosts, groups, identities, and trusted host keys?',
+      detail:
+        'Records are merged without replacing existing entries. Conflicts abort the entire import. Saved passwords and private keys are not included.',
+    });
+    if (confirmation.response !== 0) return undefined;
+    return database.importWorkspace(records);
+  });
+  window.once('closed', () => {
+    ipcMain.removeHandler(backupChannels.export);
+    ipcMain.removeHandler(backupChannels.import);
   });
 
   for (const channel of Object.values(vaultChannels)) {

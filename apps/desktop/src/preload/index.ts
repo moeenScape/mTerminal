@@ -20,8 +20,11 @@ import {
 } from '../shared/vault.js';
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
+import { backupChannels } from '../shared/backup.js';
 
 const api: DesktopApi = {
+  exportWorkspace: () => ipcRenderer.invoke(backupChannels.export),
+  importWorkspace: () => ipcRenderer.invoke(backupChannels.import),
   getVaultState: async () => {
     const result: VaultResponse<VaultState> = await ipcRenderer.invoke(vaultChannels.state);
     if (!result.ok) throw new Error(failureMessages[result.code]);

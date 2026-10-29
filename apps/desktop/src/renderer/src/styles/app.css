@@ -484,6 +484,12 @@ h2 {
   line-height: 1.8;
 }
 
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .settings-list {
   margin: 0;
   font-size: 12px;

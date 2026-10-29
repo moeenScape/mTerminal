@@ -175,3 +175,8 @@ activity and on every application restart. Unlock with the vault passphrase. Loc
 new saved-credential reads and hides the workspace, but existing SSH sessions remain connected.
 There is no passphrase recovery yet: forgetting it makes saved credentials unrecoverable.
 Host and identity metadata is not encrypted by the vault passphrase.
+
+Workspace JSON backups contain host profiles, groups, identity metadata, and trusted host
+fingerprints. They never contain saved passwords or private-key material. Imports require
+confirmation, add only non-conflicting records, and apply as one SQLite transaction; conflicts
+leave the workspace unchanged.

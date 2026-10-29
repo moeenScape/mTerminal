@@ -18,6 +18,8 @@ export function SettingsView({
   const [draft, setDraft] = useState(preferences);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMessage, setBackupMessage] = useState('');
   const platformNames: Record<string, string> = {
     linux: 'Linux',
     darwin: 'macOS',
@@ -33,6 +35,57 @@ export function SettingsView({
         </div>
       </header>
       <div className="settings-body">
+        <section aria-labelledby="backup-heading">
+          <h2 id="backup-heading">Workspace backup</h2>
+          <p className="section-description">
+            Export or merge hosts, groups, SSH identities, and trusted host keys. Saved passwords
+            and private keys are never included; keep the backup file in a secure location.
+          </p>
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={backupBusy}
+              onClick={() => {
+                setBackupBusy(true);
+                setBackupMessage('');
+                void window.mterminal
+                  .exportWorkspace()
+                  .then((saved) =>
+                    setBackupMessage(saved ? 'Backup exported.' : 'Export cancelled.'),
+                  )
+                  .catch(() => setBackupMessage('Unable to export the workspace backup.'))
+                  .finally(() => setBackupBusy(false));
+              }}
+            >
+              Export backup
+            </button>
+            <button
+              type="button"
+              disabled={backupBusy}
+              onClick={() => {
+                setBackupBusy(true);
+                setBackupMessage('');
+                void window.mterminal
+                  .importWorkspace()
+                  .then((count) =>
+                    setBackupMessage(
+                      count === undefined ? 'Import cancelled.' : `Imported ${count} records.`,
+                    ),
+                  )
+                  .catch((error: unknown) =>
+                    setBackupMessage(
+                      error instanceof Error ? error.message : 'Unable to import the backup.',
+                    ),
+                  )
+                  .finally(() => setBackupBusy(false));
+              }}
+            >
+              Import backup
+            </button>
+          </div>
+          <p role="status">{backupBusy ? 'Working…' : backupMessage}</p>
+        </section>
         <section aria-labelledby="application-heading">
           <h2 id="application-heading">Application</h2>
           <p className="section-description">Your local mTerminal installation.</p>
