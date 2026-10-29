@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AppInfo } from '../../shared/app-info';
 import type { VaultState } from '../../shared/vault';
 import { Icon } from './components/Icon';
-import { ViewTabs, viewItems, type ViewId } from './components/ViewTabs';
+import { viewItems, type ViewId } from './components/views';
 import { HostsView } from './features/hosts/HostsView';
 import { SettingsView } from './features/settings/SettingsView';
 import { WorkspaceView } from './features/workspace/WorkspaceView';
@@ -18,6 +18,8 @@ export function App() {
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [preferencesError, setPreferencesError] = useState('');
   const [terminalCount, setTerminalCount] = useState(0);
+  const [hostCount, setHostCount] = useState(0);
+  const [sessionBar, setSessionBar] = useState<HTMLDivElement | null>(null);
   const [hostQuery, setHostQuery] = useState('');
   const [vaultState, setVaultState] = useState<VaultState | null>(null);
   const [showVaultSetup, setShowVaultSetup] = useState(false);
@@ -119,6 +121,18 @@ export function App() {
     const saved = await window.mterminal.savePreferences(value);
     setPreferences(saved);
   }
+  const vaultLabel =
+    vaultState === null
+      ? 'Checking vault…'
+      : vaultState.configured
+        ? vaultState.locked
+          ? 'Vault locked'
+          : 'Vault unlocked'
+        : vaultState.available
+          ? 'Vault not set up'
+          : 'Secure storage unavailable';
+  const counts: Partial<Record<ViewId, number>> = { hosts: hostCount, workspace: terminalCount };
+  const activeLabel = viewItems.find((view) => view.id === activeView)!.label;
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workspace navigation">
@@ -126,34 +140,6 @@ export function App() {
           <Icon name="terminal" className="brand-symbol" />
           <span>mTerminal</span>
         </div>
-        <div className="vault-summary">
-          <Icon name="lock" />
-          <div>
-            <strong>Local vault</strong>
-            <span>
-              {vaultState === null
-                ? 'Checking…'
-                : vaultState.configured
-                  ? vaultState.locked
-                    ? 'Locked'
-                    : 'Unlocked'
-                  : vaultState.available
-                    ? 'Not set up'
-                    : 'Secure storage unavailable'}
-            </span>
-          </div>
-          {vaultState?.configured && !vaultState.locked && (
-            <button type="button" onClick={() => void window.mterminal.lockVault().catch(() => {})}>
-              Lock
-            </button>
-          )}
-          {vaultState && !vaultState.configured && vaultState.available && (
-            <button type="button" onClick={() => setShowVaultSetup(true)}>
-              Set up
-            </button>
-          )}
-        </div>
-        <p className="sidebar-label">WORKSPACE</p>
         <nav aria-label="Main navigation">
           {viewItems.map((view) => (
             <button
@@ -165,29 +151,28 @@ export function App() {
             >
               <Icon name={view.icon} />
               <span>{view.label}</span>
-              {view.id === 'hosts' && <span className="nav-count">0</span>}
+              {counts[view.id] !== undefined && (
+                <span className="nav-count" aria-hidden="true">
+                  {counts[view.id]}
+                </span>
+              )}
             </button>
           ))}
         </nav>
-        <div className="sidebar-note">
-          <span className="local-indicator" aria-hidden="true" />
-          Local workspace
-        </div>
       </aside>
 
       <main className="workspace">
-        <ViewTabs activeView={activeView} onViewChange={setActiveView} />
-        <section
-          id="view-panel"
-          role="tabpanel"
-          aria-labelledby={`view-tab-${activeView}`}
-          tabIndex={0}
-          className="view-panel"
-        >
+        <div
+          className="session-bar"
+          ref={setSessionBar}
+          data-dimmed={activeView === 'workspace' ? undefined : ''}
+        />
+        <section id="view-panel" aria-label={activeLabel} tabIndex={-1} className="view-panel">
           {activeView === 'hosts' && (
             <HostsView
               query={hostQuery}
               onQueryChange={setHostQuery}
+              onCountChange={setHostCount}
               onOpenWorkspace={() => setActiveView('workspace')}
               onConnect={(host) => {
                 setSshRequest({
@@ -205,6 +190,8 @@ export function App() {
             active={activeView === 'workspace'}
             appearance={preferences.appearance}
             onCountChange={setTerminalCount}
+            tabBarTarget={sessionBar}
+            onActivate={() => setActiveView('workspace')}
           />
           {activeView === 'settings' && (
             <SettingsView
@@ -228,6 +215,33 @@ export function App() {
                 : 'Starting application…'}
           </span>
           <div className="status-details">
+            <span className="vault-status">
+              <Icon
+                name={vaultState?.configured && !vaultState.locked ? 'unlock' : 'lock'}
+                className="vault-status-icon"
+              />
+              {vaultLabel}
+              {vaultState?.configured && !vaultState.locked && (
+                <button
+                  type="button"
+                  className="status-action"
+                  aria-label="Lock vault"
+                  onClick={() => void window.mterminal.lockVault().catch(() => {})}
+                >
+                  Lock
+                </button>
+              )}
+              {vaultState && !vaultState.configured && vaultState.available && (
+                <button
+                  type="button"
+                  className="status-action"
+                  aria-label="Set up vault"
+                  onClick={() => setShowVaultSetup(true)}
+                >
+                  Set up
+                </button>
+              )}
+            </span>
             <span>
               {terminalCount} {terminalCount === 1 ? 'session' : 'sessions'}
             </span>

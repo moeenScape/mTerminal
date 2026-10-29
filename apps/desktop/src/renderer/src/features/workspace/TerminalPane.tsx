@@ -1,13 +1,16 @@
 import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
 import type { SshCredentials, SshChallenge } from '../../../../shared/ssh';
+import { defaultTerminalAppearance, terminalOptions } from './appearance';
+import { AppearanceDialog } from './AppearanceDialog';
 import {
-  defaultTerminalAppearance,
-  terminalOptions,
-  type TerminalTheme,
-  type TerminalFont,
-  type TerminalCursor,
-} from './appearance';
+  ContextMenu,
+  menuPositionFor,
+  shortcutLabel,
+  type MenuItem,
+  type MenuPosition,
+} from '../../components/ContextMenu';
+import { Icon } from '../../components/Icon';
 import { SearchAddon } from '@xterm/addon-search';
 import { TERMINAL_SCROLLBACK_LINES, sshStateMessages } from '../../../../shared/terminal';
 import {
@@ -80,6 +83,8 @@ export function TerminalPane({
   const [status, setStatus] = useState('No active session');
   const [sshPrompt, setSshPrompt] = useState(false);
   const [sshChallenge, setSshChallenge] = useState<SshChallenge | null>(null);
+  const [menu, setMenu] = useState<MenuPosition | null>(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   useEffect(
     () =>
       window.mterminal.onSshChallenge((challenge) => {
@@ -348,6 +353,45 @@ export function TerminalPane({
     window.mterminal.closeTerminal(expectedId);
   }
 
+  const menuItems: MenuItem[] = [
+    {
+      label: 'Copy',
+      shortcut: shortcutLabel('C'),
+      disabled: !clipboard.selected,
+      onSelect: () => void clipboard.copy(),
+    },
+    {
+      label: 'Paste',
+      shortcut: shortcutLabel('V'),
+      disabled: !running || clipboard.busy,
+      onSelect: () => void clipboard.paste(),
+    },
+    {
+      label: 'Select all',
+      shortcut: shortcutLabel('A'),
+      onSelect: () => terminal.current?.selectAll(),
+    },
+    { label: 'Find…', shortcut: shortcutLabel('F'), separator: true, onSelect: openSearch },
+    {
+      label: 'Scroll to bottom',
+      onSelect: () => {
+        terminal.current?.scrollToBottom();
+        terminal.current?.focus();
+      },
+    },
+    {
+      label: 'Terminal appearance…',
+      separator: true,
+      onSelect: () => setAppearanceOpen(true),
+    },
+    {
+      label: running || starting ? 'Close session' : 'Close tab',
+      danger: true,
+      separator: true,
+      onSelect: () => onRequestClose(id),
+    },
+  ];
+
   return (
     <div
       className="terminal-pane"
@@ -378,159 +422,53 @@ export function TerminalPane({
           onCancel={() => setSshPrompt(false)}
         />
       )}
-      <header className="terminal-toolbar">
+      <header className="pane-bar">
         <p className="terminal-status" role="status">
           {status}
         </p>
-        <div className="terminal-clipboard-tools">
+        {starting ? (
           <button
             type="button"
-            disabled={!clipboard.selected}
-            onClick={() => void clipboard.copy()}
-          >
-            Copy selection
-          </button>
-          <button
-            type="button"
-            disabled={!running || clipboard.busy}
-            onClick={() => void clipboard.paste()}
-          >
-            Paste
-          </button>
-          <button type="button" onClick={openSearch}>
-            Search
-          </button>
-          <button
-            type="button"
-            aria-label="Scroll to bottom"
+            className="secondary-button pane-bar-action"
             onClick={() => {
-              terminal.current?.scrollToBottom();
-              terminal.current?.focus();
-            }}
-          >
-            Bottom
-          </button>
-          <button type="button" onClick={() => terminal.current?.selectAll()}>
-            Select all
-          </button>
-        </div>
-        {running || starting ? (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              if (hostId && starting) cancelConnection();
+              if (hostId) cancelConnection();
               else onRequestClose(id);
             }}
           >
-            {hostId && starting ? 'Cancel connection' : starting ? 'Cancel' : 'Close session'}
+            {hostId ? 'Cancel connection' : 'Cancel'}
           </button>
         ) : (
-          <button type="button" className="secondary-button" onClick={() => void start()}>
-            {hostId ? (attempted ? 'Reconnect SSH' : 'Connect SSH') : 'Start local shell'}
-          </button>
+          !running && (
+            <button
+              type="button"
+              className="primary-button pane-bar-action"
+              onClick={() => void start()}
+            >
+              {hostId ? (attempted ? 'Reconnect SSH' : 'Connect SSH') : 'Start local shell'}
+            </button>
+          )
         )}
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Search"
+          title={`Find in output (${shortcutLabel('F')})`}
+          onClick={openSearch}
+        >
+          <Icon name="search" />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
+          title="More actions (or right-click the terminal)"
+          onClick={(event) => setMenu(menuPositionFor(event.currentTarget))}
+        >
+          <Icon name="more" />
+        </button>
       </header>
-      <details className="terminal-appearance">
-        <summary>Terminal appearance</summary>
-        <div className="appearance-controls">
-          <label>
-            Theme
-            <select
-              value={terminalAppearance.theme}
-              onChange={(event) =>
-                setTerminalAppearance({
-                  ...terminalAppearance,
-                  theme: event.target.value as TerminalTheme,
-                })
-              }
-            >
-              <option value="system">Follow app</option>
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </label>
-          <label>
-            Font
-            <select
-              value={terminalAppearance.font}
-              onChange={(event) =>
-                setTerminalAppearance({
-                  ...terminalAppearance,
-                  font: event.target.value as TerminalFont,
-                })
-              }
-            >
-              <option value="default">Default</option>
-              <option value="monospace">System monospace</option>
-              <option value="dejavu">DejaVu Sans Mono</option>
-            </select>
-          </label>
-          <label>
-            Font size
-            <select
-              value={terminalAppearance.fontSize}
-              onChange={(event) =>
-                setTerminalAppearance({
-                  ...terminalAppearance,
-                  fontSize: Number(event.target.value),
-                })
-              }
-            >
-              {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((size) => (
-                <option key={size} value={size}>
-                  {size}px
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Zoom
-            <select
-              value={terminalAppearance.zoom}
-              onChange={(event) =>
-                setTerminalAppearance({ ...terminalAppearance, zoom: Number(event.target.value) })
-              }
-            >
-              {[75, 90, 100, 110, 125, 150].map((zoom) => (
-                <option key={zoom} value={zoom}>
-                  {zoom}%
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Cursor
-            <select
-              value={terminalAppearance.cursor}
-              onChange={(event) =>
-                setTerminalAppearance({
-                  ...terminalAppearance,
-                  cursor: event.target.value as TerminalCursor,
-                })
-              }
-            >
-              <option value="block">Block</option>
-              <option value="bar">Bar</option>
-              <option value="underline">Underline</option>
-            </select>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={terminalAppearance.blink}
-              onChange={(event) =>
-                setTerminalAppearance({ ...terminalAppearance, blink: event.target.checked })
-              }
-            />
-            Blink cursor
-          </label>
-          <button type="button" onClick={() => setTerminalAppearance(defaultTerminalAppearance)}>
-            Reset appearance
-          </button>
-        </div>
-        <p>Changes apply to this terminal tab for this app session.</p>
-      </details>
       {searchOpen && (
         <form
           className="terminal-search"
@@ -603,13 +541,37 @@ export function TerminalPane({
           used when configured. Closing a session stops its foreground work.
         </p>
       )}
-      <div className="terminal-container" ref={container} aria-label="Local terminal" />
+      <div
+        className="terminal-container"
+        ref={container}
+        aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({ x: event.clientX, y: event.clientY });
+        }}
+      />
       {clipboard.pending && (
         <PasteDialog
           title={title}
           paste={clipboard.pending}
           onConfirm={clipboard.confirm}
           onCancel={clipboard.cancel}
+        />
+      )}
+      {appearanceOpen && (
+        <AppearanceDialog
+          title={title}
+          value={terminalAppearance}
+          onChange={setTerminalAppearance}
+          onClose={() => setAppearanceOpen(false)}
+        />
+      )}
+      {menu && (
+        <ContextMenu
+          label={`Actions for ${title}`}
+          position={menu}
+          items={menuItems}
+          onClose={() => setMenu(null)}
         />
       )}
     </div>

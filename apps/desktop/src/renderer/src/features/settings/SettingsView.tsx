@@ -44,7 +44,7 @@ export function SettingsView({
           <div className="settings-actions">
             <button
               type="button"
-              className="primary-button"
+              className="secondary-button"
               disabled={backupBusy}
               onClick={() => {
                 setBackupBusy(true);
@@ -62,6 +62,7 @@ export function SettingsView({
             </button>
             <button
               type="button"
+              className="secondary-button"
               disabled={backupBusy}
               onClick={() => {
                 setBackupBusy(true);

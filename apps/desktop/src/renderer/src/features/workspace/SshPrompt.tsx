@@ -1,6 +1,7 @@
 import { resolveHost } from '../../../../shared/hosts';
 import { useEffect, useRef, useState } from 'react';
 import { validateSshCredentials, type SshCredentials } from '../../../../shared/ssh';
+import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
 export function SshPrompt({
   title,
@@ -30,6 +31,7 @@ export function SshPrompt({
   const [useSavedKey, setUseSavedKey] = useState(false);
   const [useSavedPassword, setUseSavedPassword] = useState(false);
   const [rememberPassword, setRememberPassword] = useState(false);
+  const [forgetting, setForgetting] = useState(false);
   const selectedFile = useRef<File | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -200,23 +202,32 @@ export function SshPrompt({
           <p>Assign an SSH identity to this host or group to save its password securely.</p>
         )}
         {savedPassword && identityId && (
-          <button
-            type="button"
-            onClick={async () => {
-              if (!window.confirm('Forget the saved password for this SSH identity?')) return;
-              try {
-                await window.mterminal.deleteSshPassword(identityId);
-                setSavedPassword(false);
-                setUseSavedPassword(false);
-              } catch (error) {
-                setError(
-                  error instanceof Error ? error.message : 'Unable to forget saved password.',
-                );
-              }
-            }}
-          >
+          <button type="button" onClick={() => setForgetting(true)}>
             Forget saved password
           </button>
+        )}
+        {forgetting && identityId && (
+          <ConfirmDialog
+            title="Forget the saved password?"
+            confirmLabel="Forget password"
+            danger
+            onConfirm={async () => {
+              try {
+                await window.mterminal.deleteSshPassword(identityId);
+              } catch (cause) {
+                throw new Error(errorMessage(cause, 'Unable to forget saved password.'), { cause });
+              }
+              setSavedPassword(false);
+              setUseSavedPassword(false);
+              setForgetting(false);
+            }}
+            onCancel={() => setForgetting(false)}
+          >
+            <p>
+              The password saved for this SSH identity is removed from the local vault. You will be
+              asked for it on the next connection.
+            </p>
+          </ConfirmDialog>
         )}
         {method === 'privateKey' && (
           <>

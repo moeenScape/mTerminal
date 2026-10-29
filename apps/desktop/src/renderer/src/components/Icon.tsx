@@ -5,6 +5,9 @@ const paths = {
   search: 'M16 16l5 5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   close: 'm6 6 12 12 M18 6 6 18',
   lock: 'M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4',
+  unlock: 'M5 10h14v11H5z M8 10V6a4 4 0 0 1 7.5-1.9',
+  plus: 'M12 5v14 M5 12h14',
+  more: 'M5 12h.01 M12 12h.01 M19 12h.01',
 } as const;
 
 export type IconName = keyof typeof paths;
@@ -21,6 +24,7 @@ export function Icon({ name, className }: { name: IconName; className?: string }
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
+      data-icon={name}
       aria-hidden="true"
       focusable="false"
     >

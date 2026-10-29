@@ -11,6 +11,34 @@ let application: ElectronApplication;
 let page: Page;
 let userData: string;
 
+/** Opens the visible terminal's action menu and returns it. */
+async function openTerminalMenu() {
+  await page
+    .locator('.terminal-pane:not([hidden])')
+    .getByRole('button', { name: 'More actions', exact: true })
+    .click();
+  return page.getByRole('menu');
+}
+
+/** Chooses an item from the visible terminal's action menu. */
+async function terminalAction(name: string) {
+  const menu = await openTerminalMenu();
+  await menu.getByRole('menuitem', { name, exact: true }).click();
+}
+
+/** Chooses an item from a session tab's right-click menu. */
+async function tabAction(tab: string, name: string) {
+  await page.getByRole('tab', { name: tab, exact: true }).click({ button: 'right' });
+  await page.getByRole('menu').getByRole('menuitem', { name, exact: true }).click();
+}
+
+/** Sidebar button for a main view (Hosts, Workspace, Settings). */
+function navButton(name: string) {
+  return page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name, exact: true });
+}
+
 test.beforeEach(async () => {
   userData = await mkdtemp(join(tmpdir(), 'mterminal-e2e-'));
 
@@ -120,15 +148,12 @@ test('retains the bridge after reload and uses the production CSP', async () => 
 test('switches views through navigation and shows real application information', async () => {
   const navigation = page.getByRole('navigation', { name: 'Main navigation' });
   await navigation.getByRole('button', { name: 'Workspace', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Workspace' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workspace' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start local shell' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Workspace', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(navButton('Workspace')).toHaveAttribute('aria-current', 'page');
 
   await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Settings' })).toBeVisible();
   const info = await page.evaluate(() => window.mterminal.getAppInfo());
   await expect(page.locator('dd').filter({ hasText: info.version })).toHaveText(info.version);
   await expect(navigation.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute(
@@ -141,8 +166,8 @@ test('searches an empty host list, preserves the query between views, and clears
   const search = page.getByRole('searchbox', { name: 'Search hosts' });
   await search.fill('staging');
   await expect(page.getByRole('heading', { name: 'No matching hosts' })).toBeVisible();
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await navButton('Workspace').click();
+  await navButton('Hosts').click();
   await expect(search).toHaveValue('staging');
   await page.getByRole('button', { name: 'Clear host search', exact: true }).click();
   await expect(search).toHaveValue('');
@@ -150,29 +175,22 @@ test('searches an empty host list, preserves the query between views, and clears
   await expect(page.getByRole('heading', { name: 'Your connections start here' })).toBeVisible();
 });
 
-test('supports arrow, Home, and End keys in the workspace tab strip', async () => {
-  const hosts = page.getByRole('tab', { name: 'Hosts', exact: true });
-  const workspace = page.getByRole('tab', { name: 'Workspace', exact: true });
-  const settings = page.getByRole('tab', { name: 'Settings', exact: true });
-
-  await hosts.focus();
-  await hosts.press('ArrowRight');
-  await expect(workspace).toBeFocused();
-  await expect(workspace).toHaveAttribute('aria-selected', 'true');
-  await workspace.press('End');
-  await expect(settings).toBeFocused();
-  await settings.press('ArrowRight');
-  await expect(hosts).toBeFocused();
-  await hosts.press('ArrowLeft');
-  await expect(settings).toBeFocused();
-  await settings.press('Home');
-  await expect(hosts).toBeFocused();
+test('switches views with keyboard shortcuts and shows live sidebar counts', async () => {
+  await expect(navButton('Hosts')).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('Control+Alt+2');
+  await expect(navButton('Workspace')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'No terminal tabs' })).toBeVisible();
+  await page.keyboard.press('Control+Alt+3');
+  await expect(navButton('Settings')).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('Control+Alt+1');
+  await expect(navButton('Hosts')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeVisible();
 });
 
 test('keeps navigation and search usable at the minimum desktop window size', async () => {
   await page.setViewportSize({ width: 760, height: 520 });
   await expect(page.getByRole('searchbox', { name: 'Search hosts' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Settings', exact: true })).toBeVisible();
+  await expect(navButton('Settings')).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
@@ -180,12 +198,12 @@ test('keeps navigation and search usable at the minimum desktop window size', as
   await page.screenshot({ path: test.info().outputPath('hosts-minimum.png') });
   await page.getByRole('button', { name: 'Open workspace', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await navButton('Hosts').click();
   await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
 });
 
 test('saves appearance and rejects malformed preference IPC without changing saved values', async () => {
-  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await navButton('Settings').click();
   await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
   await page.getByLabel('Appearance', { exact: true }).selectOption('light');
   await page.getByRole('button', { name: 'Save preferences' }).click();
@@ -205,7 +223,7 @@ test('saves appearance and rejects malformed preference IPC without changing sav
 });
 
 test('keeps unsaved preferences on write failure and logs only a safe failure code', async () => {
-  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await navButton('Settings').click();
   await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
   const shell = page.getByLabel('Default shell executable', { exact: true });
   const shells = await page.evaluate(() => window.mterminal.getShells());
@@ -231,7 +249,7 @@ test('keeps unsaved preferences on write failure and logs only a safe failure co
 });
 
 test('starts a real local shell, preserves it across views, and closes the session', async () => {
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.keyboard.type('echo MTERMINAL_F07_READY');
@@ -244,10 +262,10 @@ test('starts a real local shell, preserves it across views, and closes the sessi
         ).length - 1,
     )
     .toBeGreaterThanOrEqual(2);
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await navButton('Hosts').click();
+  await navButton('Workspace').click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await terminalAction('Close session');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Close terminal', exact: true })
@@ -256,7 +274,7 @@ test('starts a real local shell, preserves it across views, and closes the sessi
 });
 
 test('rejects an unavailable shell override while preserving saved preferences', async () => {
-  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await navButton('Settings').click();
   await expect(page.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
   const info = await page.evaluate(() => window.mterminal.getAppInfo());
   const invalid =
@@ -290,7 +308,7 @@ test('renders Unicode/ANSI output and keeps shell control keys out of native men
     const preferences = await window.mterminal.getPreferences();
     await window.mterminal.savePreferences({ ...preferences, defaultShell: path! });
   }, bash?.path);
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   // The completed marker does not appear literally in the typed command.
@@ -310,7 +328,7 @@ test('renders Unicode/ANSI output and keeps shell control keys out of native men
   await page.keyboard.press('Control+r');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Control+u');
-  await expect(page.getByRole('button', { name: 'Close session' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.keyboard.type('sleep 30');
   await page.keyboard.press('Enter');
   await expect(tree).toContainText('sleep 30');
@@ -335,7 +353,7 @@ test('keeps the PTY grid equal to xterm after resizing and restoring a hidden wo
     const preferences = await window.mterminal.getPreferences();
     await window.mterminal.savePreferences({ ...preferences, defaultShell: path! });
   }, bash?.path);
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   async function checkSize(tag: string) {
@@ -351,14 +369,14 @@ test('keeps the PTY grid equal to xterm after resizing and restoring a hidden wo
   await checkSize('LARGE');
   await page.setViewportSize({ width: 760, height: 520 });
   await checkSize('SMALL');
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await navButton('Hosts').click();
   await page.setViewportSize({ width: 1000, height: 700 });
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await checkSize('RESTORED');
 });
 
 test('creates independent tabs, renames, reorders, switches, and confirms closing', async () => {
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.keyboard.type('echo TAB_ONE_ONLY');
@@ -375,16 +393,13 @@ test('creates independent tabs, renames, reorders, switches, and confirms closin
   await expect(
     page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
   ).not.toContainText('TAB_ONE_ONLY');
-  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await tabAction('Terminal 2', 'Rename…');
   await page.getByRole('dialog').getByLabel('Terminal name').fill('Build shell');
   await page.keyboard.press('Control+Alt+1');
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Workspace', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(navButton('Workspace')).toHaveAttribute('aria-current', 'page');
   await page.getByRole('dialog').getByRole('button', { name: 'Save name' }).click();
-  await page.getByRole('button', { name: 'Move left', exact: true }).click();
+  await tabAction('Build shell', 'Move left');
   const tabs = page.getByRole('tablist', { name: 'Terminal sessions' });
   await expect(tabs.getByRole('tab').nth(0)).toHaveAttribute('aria-label', 'Build shell');
   await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-label', 'Terminal 1');
@@ -410,7 +425,7 @@ test('creates independent tabs, renames, reorders, switches, and confirms closin
 });
 
 test('supports terminal tab keyboard navigation, rename, and reorder', async () => {
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   const tabs = page.getByRole('tablist', { name: 'Terminal sessions' });
@@ -426,13 +441,6 @@ test('supports terminal tab keyboard navigation, rename, and reorder', async () 
   await expect(renamed).toBeFocused();
   await renamed.press('Alt+Shift+ArrowRight');
   await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-label', 'Keyboard shell');
-  const workspaceView = page.getByRole('tab', { name: 'Workspace', exact: true });
-  await workspaceView.focus();
-  await workspaceView.press('ArrowLeft');
-  const hostsView = page.getByRole('tab', { name: 'Hosts', exact: true });
-  await expect(hostsView).toBeFocused();
-  await hostsView.press('ArrowRight');
-  await expect(workspaceView).toBeFocused();
 });
 
 test('copies selection and confirms/cancels multiline paste without touching the real OS clipboard', async () => {
@@ -443,19 +451,20 @@ test('copies selection and confirms/cancels multiline paste without touching the
       Reflect.set(globalThis, '__copiedFixtureText', text);
     };
   });
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy selection', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  const actions = await openTerminalMenu();
+  await expect(actions.getByRole('menuitem', { name: 'Copy', exact: true })).toBeDisabled();
+  await actions.getByRole('menuitem', { name: 'Paste', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Text pasted.' })).toBeVisible();
   const textarea = page.locator('.terminal-pane:not([hidden]) textarea');
   await textarea.press('Enter');
   await expect(
     page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree'),
   ).toContainText('CLIP_SINGLE');
-  await page.getByRole('button', { name: 'Select all', exact: true }).click();
-  await page.getByRole('button', { name: 'Copy selection', exact: true }).click();
+  await terminalAction('Select all');
+  await terminalAction('Copy');
   await expect(page.getByRole('status').filter({ hasText: 'Selection copied.' })).toBeVisible();
   const copied = await application.evaluate(
     () => Reflect.get(globalThis, '__copiedFixtureText') as string,
@@ -464,14 +473,14 @@ test('copies selection and confirms/cancels multiline paste without touching the
   await application.evaluate(({ clipboard }) => {
     clipboard.readText = async () => 'echo MULTI_ONE\necho MULTI_TWO\n';
   });
-  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await terminalAction('Paste');
   const preview = page.getByRole('dialog', { name: 'Paste into “Terminal 1”?' });
   await expect(preview.getByLabel('Paste preview')).toContainText('echo MULTI_ONE');
   const tree = page.locator('.terminal-pane:not([hidden]) .xterm-accessibility-tree');
   await expect(tree).not.toContainText('MULTI_ONE');
   await preview.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(tree).not.toContainText('MULTI_ONE');
-  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  await terminalAction('Paste');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Paste into terminal', exact: true })
@@ -491,7 +500,7 @@ test('intercepts native paste events and refuses a confirmed paste into an exite
       Reflect.set(globalThis, '__fixtureSession', id);
     });
   });
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.locator('.terminal-pane:not([hidden]) textarea').evaluate((element) => {
@@ -531,7 +540,7 @@ test('intercepts native paste events and refuses a confirmed paste into an exite
 test('searches retained terminal output and keeps searches isolated by tab', async () => {
   const info = await page.evaluate(() => window.mterminal.getAppInfo());
   test.skip(info.platform === 'win32', 'This fixture uses a Unix shell.');
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.keyboard.type('echo SEARCH_F13_MARKER');
@@ -555,28 +564,52 @@ test('searches retained terminal output and keeps searches isolated by tab', asy
 });
 
 test('keeps terminal appearance settings independent between tabs', async () => {
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
-  const first = page.getByRole('tabpanel', { name: 'Terminal 1' });
-  await first.getByText('Terminal appearance').click();
-  await first.getByLabel('Theme', { exact: true }).selectOption('light');
-  await first.getByLabel('Font size').selectOption('20');
-  await first.getByLabel('Zoom', { exact: true }).selectOption('125');
-  await first.getByLabel('Cursor', { exact: true }).selectOption('bar');
+  await terminalAction('Terminal appearance…');
+  let dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 1”' });
+  await dialog.getByRole('combobox', { name: 'Theme', exact: true }).selectOption('light');
+  await dialog.getByRole('combobox', { name: 'Font size', exact: true }).selectOption('20');
+  await dialog.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('125');
+  await dialog.getByRole('combobox', { name: 'Cursor', exact: true }).selectOption('bar');
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
-  const second = page.getByRole('tabpanel', { name: 'Terminal 2' });
-  await second.getByText('Terminal appearance').click();
-  await expect(second.getByLabel('Theme', { exact: true })).toHaveValue('system');
-  await expect(second.getByLabel('Font size')).toHaveValue('14');
+  await terminalAction('Terminal appearance…');
+  dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 2”' });
+  await expect(dialog.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('system');
+  await expect(dialog.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('14');
+  await page.keyboard.press('Escape');
   await page.getByRole('tab', { name: 'Terminal 1', exact: true }).click();
-  await expect(first.getByLabel('Theme', { exact: true })).toHaveValue('light');
-  await expect(first.getByLabel('Font size')).toHaveValue('20');
-  await first.getByRole('button', { name: 'Reset appearance' }).click();
-  await expect(first.getByLabel('Cursor', { exact: true })).toHaveValue('block');
+  await terminalAction('Terminal appearance…');
+  dialog = page.getByRole('dialog', { name: 'Appearance of “Terminal 1”' });
+  await expect(dialog.getByRole('combobox', { name: 'Theme', exact: true })).toHaveValue('light');
+  await expect(dialog.getByRole('combobox', { name: 'Font size', exact: true })).toHaveValue('20');
+  await dialog.getByRole('button', { name: 'Reset appearance' }).click();
+  await expect(dialog.getByRole('combobox', { name: 'Cursor', exact: true })).toHaveValue('block');
+});
+
+test('opens terminal and tab menus from the keyboard', async () => {
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const tab = page.getByRole('tab', { name: 'Terminal 1', exact: true });
+  await tab.focus();
+  await tab.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Tab actions for Terminal 1' });
+  await expect(menu.getByRole('menuitem', { name: 'Rename…' })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'Move left' })).toBeDisabled();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(tab).toBeFocused();
+  await page.locator('.terminal-pane:not([hidden]) .terminal-container').click({ button: 'right' });
+  await expect(page.getByRole('menu', { name: 'Actions for Terminal 1' })).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('cancelling window close preserves an active terminal', async () => {
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await application.evaluate(({ dialog, BrowserWindow }) => {
@@ -588,7 +621,7 @@ test('cancelling window close preserves an active terminal', async () => {
 
 test('closing a terminal hangs up its foreground job on Unix', async () => {
   test.skip(process.platform === 'win32', 'Unix shell and hangup semantics only');
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   const pidFile = join(userData, 'foreground.pid');
@@ -606,7 +639,7 @@ test('closing a terminal hangs up its foreground job on Unix', async () => {
       }
     })
     .toBe(true);
-  await page.getByRole('button', { name: 'Close session' }).click();
+  await terminalAction('Close session');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Close terminal', exact: true })
@@ -625,15 +658,15 @@ test('closing a terminal hangs up its foreground job on Unix', async () => {
 
 test('renders a sustained output burst and remains usable', async () => {
   test.skip(process.platform === 'win32', 'Unix awk workload');
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Workspace').click();
   await page.getByRole('button', { name: 'Start local shell' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
   await page.keyboard.type(
     "awk 'BEGIN { for (i=0; i<30000; i++) print i, \"terminal output workload\" }'; printf '\\nF16_%s\\n' DONE",
   );
   await page.keyboard.press('Enter');
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Hosts').click();
+  await navButton('Workspace').click();
   await expect
     .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '', {
       timeout: 30000,
@@ -647,7 +680,7 @@ test('persists, searches, edits and confirms deletion of saved hosts', async () 
   const form = page.getByRole('dialog');
   await form.getByLabel('Name', { exact: true }).fill('Build server');
   await form.getByLabel('Address').fill('build.example.com');
-  await form.getByLabel('Username').fill('deploy');
+  await form.getByLabel('Username', { exact: true }).fill('deploy');
   await form.getByRole('button', { name: 'Save host' }).click();
   await expect(page.getByText('Build server', { exact: true })).toBeVisible();
   await page.reload();
@@ -656,7 +689,7 @@ test('persists, searches, edits and confirms deletion of saved hosts', async () 
   await expect(page.getByRole('heading', { name: 'No matching hosts' })).toBeVisible();
   await page.getByLabel('Clear host search').click();
   await page.getByRole('button', { name: 'Edit Build server' }).click();
-  await form.getByLabel('Port').fill('2222');
+  await form.getByLabel('Port', { exact: true }).fill('2222');
   await form.getByRole('button', { name: 'Save host' }).click();
   await expect(page.getByText('deploy@build.example.com:2222 · SSH')).toBeVisible();
   await page.getByRole('button', { name: 'Delete Build server' }).click();
@@ -772,6 +805,85 @@ test('uses an assigned reusable SSH identity for the connection prompt', async (
   await expect(dialog.getByLabel('SSH username')).toHaveValue('deploy');
   await expect(dialog.getByLabel('Authentication method')).toHaveValue('privateKey');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('confirms SSH identity deletion in an app dialog that names the identity', async () => {
+  await page.evaluate(async () => {
+    await window.mterminal.saveSshIdentity({ name: 'Ops', username: 'ops', method: 'password' });
+  });
+  // Reopen Hosts so it reloads the records saved above.
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
+  page.on('dialog', (dialog) => {
+    throw new Error(`Unexpected native ${dialog.type()} dialog`);
+  });
+  await page.getByRole('button', { name: 'SSH identities (1)' }).click();
+  await page.getByRole('button', { name: 'Delete Ops', exact: true }).click();
+  let confirmation = page.getByRole('dialog', { name: 'Delete SSH identity “Ops”?' });
+  await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'SSH identities' })).toContainText('Ops');
+  await page.getByRole('button', { name: 'Delete Ops', exact: true }).click();
+  confirmation = page.getByRole('dialog', { name: 'Delete SSH identity “Ops”?' });
+  await confirmation.getByRole('button', { name: 'Delete identity' }).click();
+  await expect(page.getByRole('button', { name: 'SSH identities (0)' })).toBeVisible();
+});
+
+test('generates, installs, and removes a managed key through app dialogs', async () => {
+  const vault = await page.evaluate(() => window.mterminal.getVaultState());
+  test.skip(!vault.available, 'OS secure storage is unavailable on this machine.');
+  await page.evaluate(async () => {
+    await window.mterminal.setupVault('e2e vault passphrase');
+    const identity = await window.mterminal.saveSshIdentity({
+      name: 'Keys',
+      username: 'deploy',
+      method: 'privateKey',
+    });
+    await window.mterminal.saveHost({
+      name: 'Key target',
+      address: '127.0.0.1',
+      port: 2222,
+      username: '',
+      protocol: 'ssh',
+      identityId: identity.id,
+    });
+  });
+  // Reopen Hosts so it reloads the records saved above.
+  await navButton('Settings').click();
+  await navButton('Hosts').click();
+  page.on('dialog', (dialog) => {
+    throw new Error(`Unexpected native ${dialog.type()} dialog`);
+  });
+  await page.getByRole('button', { name: 'SSH identities (1)' }).click();
+  const generate = page.getByRole('button', { name: 'Generate key', exact: true });
+  test.skip(await generate.isDisabled(), 'Secure key storage is unavailable on this machine.');
+  await generate.click();
+  const passphrase = page.getByRole('dialog', { name: 'Generate SSH key for “Keys”' });
+  await passphrase.getByLabel('Passphrase (optional)').fill('first-passphrase');
+  await passphrase.getByLabel('Confirm passphrase').fill('other-passphrase');
+  await passphrase.getByRole('button', { name: 'Generate key' }).click();
+  await expect(passphrase.getByRole('alert')).toHaveText('The passphrases do not match.');
+  await passphrase.getByLabel('Passphrase (optional)').fill('');
+  await passphrase.getByRole('button', { name: 'Generate key' }).click();
+  await expect(passphrase).toBeHidden();
+  await expect(page.getByLabel('SSH public key')).toHaveValue(/^ssh-ed25519 /);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Install key to Key target', exact: true }).click();
+  const install = page.getByRole('dialog', { name: 'Install key on “Key target”' });
+  await expect(install).toContainText('deploy@127.0.0.1:2222');
+  await expect(install.getByLabel('Public key to install')).toHaveValue(/^ssh-ed25519 /);
+  await expect(install.getByLabel('SSH password for deploy@127.0.0.1')).toBeFocused();
+  await install.getByRole('button', { name: 'Cancel' }).click();
+  await expect(install).toBeHidden();
+
+  await page.getByRole('button', { name: 'SSH identities (1)' }).click();
+  await page.getByRole('button', { name: 'Remove key', exact: true }).click();
+  const removal = page.getByRole('dialog', { name: 'Remove the saved key for “Keys”?' });
+  await removal.getByRole('button', { name: 'Remove key' }).click();
+  await expect(removal).toBeHidden();
+  await expect(page.getByText('No managed key')).toBeVisible();
 });
 
 test('offers session-only private-key and keyboard-interactive authentication', async () => {
@@ -948,7 +1060,10 @@ for (const outcome of ['disconnected', 'failed'] as const) {
     await expect
       .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '')
       .toContain('F22_FINAL_OUTPUT');
-    await expect(page.getByRole('button', { name: 'Paste', exact: true })).toBeDisabled();
+    const actions = await openTerminalMenu();
+    await expect(actions.getByRole('menuitem', { name: 'Paste', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(actions).toBeHidden();
     await expect(page.getByRole('button', { name: 'Reconnect SSH', exact: true })).toBeVisible();
   });
 }
@@ -1062,8 +1177,8 @@ test('reconnect asks for fresh credentials, preserves output on cancel and never
     .poll(async () => (await page.locator('.xterm-accessibility-tree').textContent()) ?? '')
     .toContain('F23_OUTPUT_1');
   expect((await inspect()).attempts).toHaveLength(1);
-  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
-  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await navButton('Hosts').click();
+  await navButton('Workspace').click();
   expect((await inspect()).attempts).toHaveLength(1);
   await page.getByRole('button', { name: 'Reconnect SSH' }).click();
   await expect(dialog.getByLabel('Session password')).toHaveValue('');

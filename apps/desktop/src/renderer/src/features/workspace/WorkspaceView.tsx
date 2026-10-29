@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Icon } from '../../components/Icon';
+import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
 import { MAX_TERMINAL_TABS } from '../../../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
 import {
@@ -90,24 +93,31 @@ export function WorkspaceView({
   navigationShortcuts,
   onCountChange,
   sshRequest,
+  tabBarTarget,
+  onActivate,
 }: {
   sshRequest: { id: string; hostId: string; title: string } | null;
   active: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
   onCountChange: (count: number) => void;
+  /** Element in the app's top bar that hosts the session tab strip. */
+  tabBarTarget: HTMLElement | null;
+  /** Shows the workspace view, e.g. when a session tab is chosen from another view. */
+  onActivate: () => void;
 }) {
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], activeId: null });
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const nextNumber = useRef(1);
   const dragged = useRef<string | null>(null);
   const focusFrame = useRef<number | undefined>(undefined);
-  const current = state.tabs.find((tab) => tab.id === state.activeId);
   const running = state.tabs.filter(
     (tab) => tab.phase === 'running' || tab.phase === 'connected',
   ).length;
   const dialogTab = state.tabs.find((tab) => tab.id === dialog?.id);
+  const menuTab = state.tabs.find((tab) => tab.id === tabMenu?.id);
   const phaseChanged = useCallback(
     (id: string, phase: TabPhase) => dispatch({ type: 'phase', id, phase }),
     [],
@@ -143,8 +153,8 @@ export function WorkspaceView({
     if (!active) return;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement?.getAttribute('role') === 'tab') return;
-      const panelId = workspace.current
-        ?.querySelector('[role="tab"][aria-selected="true"]')
+      const panelId = document
+        .querySelector('[role="tablist"][aria-label="Terminal sessions"] [aria-selected="true"]')
         ?.getAttribute('aria-controls');
       if (panelId)
         document.getElementById(panelId)?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
@@ -166,6 +176,7 @@ export function WorkspaceView({
     if (state.tabs.length >= MAX_TERMINAL_TABS) return;
     const id = crypto.randomUUID();
     dispatch({ type: 'add', id, title: `Terminal ${nextNumber.current++}` });
+    onActivate();
     focus(id, true);
   }
   function close(id: string) {
@@ -180,6 +191,11 @@ export function WorkspaceView({
   };
   function keyDown(event: React.KeyboardEvent, index: number) {
     const tab = state.tabs[index]!;
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      setTabMenu({ id: tab.id, position: menuPositionFor(event.currentTarget) });
+      return;
+    }
     if (event.key === 'F2') {
       event.preventDefault();
       setDialog({ id: tab.id, mode: 'rename' });
@@ -210,122 +226,108 @@ export function WorkspaceView({
       focus(state.tabs[to]!.id);
     }
   }
+  const sessionTabs = (
+    <>
+      {state.tabs.length > 0 && (
+        <div className="terminal-tabs" role="tablist" aria-label="Terminal sessions">
+          {state.tabs.map((tab, index) => (
+            <div
+              key={tab.id}
+              className="terminal-tab-item"
+              draggable
+              onDragStart={(event) => {
+                dragged.current = tab.id;
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', tab.id);
+              }}
+              onDragEnd={() => {
+                dragged.current = null;
+              }}
+              onDragOver={(event) => {
+                if (dragged.current) event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (dragged.current) dispatch({ type: 'move', id: dragged.current, to: index });
+                dragged.current = null;
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                id={`terminal-tab-${tab.id}`}
+                aria-label={tab.title}
+                aria-describedby={`terminal-phase-${tab.id}`}
+                aria-selected={state.activeId === tab.id}
+                aria-controls={`terminal-panel-${tab.id}`}
+                tabIndex={state.activeId === tab.id ? 0 : -1}
+                title={`${tab.title} — ${tabPhaseLabels[tab.phase]}`}
+                onClick={() => {
+                  dispatch({ type: 'select', id: tab.id });
+                  onActivate();
+                  focus(tab.id, true);
+                }}
+                onKeyDown={(event) => keyDown(event, index)}
+                onDoubleClick={() => setDialog({ id: tab.id, mode: 'rename' })}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setTabMenu({ id: tab.id, position: { x: event.clientX, y: event.clientY } });
+                }}
+              >
+                <span
+                  className={`terminal-tab-dot terminal-tab-dot--${phaseTone(tab.phase)}`}
+                  aria-hidden="true"
+                />
+                <span className="terminal-tab-title">{tab.title}</span>
+                <span id={`terminal-phase-${tab.id}`} className="sr-only">
+                  {tabPhaseLabels[tab.phase]}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="terminal-tab-close"
+                tabIndex={state.activeId === tab.id ? 0 : -1}
+                aria-label={`Close ${tab.title}`}
+                onClick={() => requestClose(tab.id)}
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        className="session-new"
+        aria-label="New terminal"
+        title={`New local terminal (up to ${MAX_TERMINAL_TABS} tabs)`}
+        disabled={state.tabs.length >= MAX_TERMINAL_TABS}
+        onClick={add}
+      >
+        <Icon name="plus" />
+      </button>
+    </>
+  );
   return (
     <div className="local-workspace" ref={workspace} hidden={!active}>
-      {limitError && <p role="alert">{limitError}</p>}
-      <header className="terminal-toolbar">
-        <div>
-          <h1>Workspace</h1>
-          <span>
-            {state.tabs.length} tabs · {running} running
-          </span>
-        </div>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={state.tabs.length >= MAX_TERMINAL_TABS}
-          title={`Up to ${MAX_TERMINAL_TABS} terminal tabs`}
-          onClick={add}
-        >
-          New terminal
-        </button>
-      </header>
+      {tabBarTarget && createPortal(sessionTabs, tabBarTarget)}
+      <h1 className="sr-only">Workspace</h1>
+      {limitError && (
+        <p className="workspace-alert" role="alert">
+          {limitError}
+        </p>
+      )}
       {state.tabs.length === 0 ? (
         <div className="terminal-empty">
+          <Icon name="terminal" className="empty-state-icon" />
           <h2>No terminal tabs</h2>
-          <p>Open a local shell to start working.</p>
-          <button type="button" className="secondary-button" onClick={add}>
+          <p>Open a local shell, or connect to a saved host from Hosts.</p>
+          <button type="button" className="primary-button" onClick={add}>
             Start local shell
           </button>
         </div>
       ) : (
         <>
-          <div className="terminal-tabs" role="tablist" aria-label="Terminal sessions">
-            {state.tabs.map((tab, index) => (
-              <div
-                key={tab.id}
-                className="terminal-tab-item"
-                draggable
-                onDragStart={(event) => {
-                  dragged.current = tab.id;
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', tab.id);
-                }}
-                onDragEnd={() => {
-                  dragged.current = null;
-                }}
-                onDragOver={(event) => {
-                  if (dragged.current) event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (dragged.current) dispatch({ type: 'move', id: dragged.current, to: index });
-                  dragged.current = null;
-                }}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  id={`terminal-tab-${tab.id}`}
-                  aria-label={tab.title}
-                  aria-describedby={`terminal-phase-${tab.id}`}
-                  aria-selected={state.activeId === tab.id}
-                  aria-controls={`terminal-panel-${tab.id}`}
-                  tabIndex={state.activeId === tab.id ? 0 : -1}
-                  onClick={() => {
-                    dispatch({ type: 'select', id: tab.id });
-                    focus(tab.id, true);
-                  }}
-                  onKeyDown={(event) => keyDown(event, index)}
-                  onDoubleClick={() => setDialog({ id: tab.id, mode: 'rename' })}
-                >
-                  <span className="terminal-tab-title" title={tab.title}>
-                    {tab.title}
-                  </span>
-                  <span id={`terminal-phase-${tab.id}`} className="terminal-tab-phase">
-                    {tabPhaseLabels[tab.phase]}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="terminal-tab-close"
-                  tabIndex={state.activeId === tab.id ? 0 : -1}
-                  aria-label={`Close ${tab.title}`}
-                  onClick={() => requestClose(tab.id)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="terminal-tab-actions">
-            <button
-              type="button"
-              onClick={() => current && setDialog({ id: current.id, mode: 'rename' })}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              disabled={state.tabs[0]?.id === state.activeId}
-              onClick={() =>
-                current &&
-                dispatch({ type: 'move', id: current.id, to: state.tabs.indexOf(current) - 1 })
-              }
-            >
-              Move left
-            </button>
-            <button
-              type="button"
-              disabled={state.tabs.at(-1)?.id === state.activeId}
-              onClick={() =>
-                current &&
-                dispatch({ type: 'move', id: current.id, to: state.tabs.indexOf(current) + 1 })
-              }
-            >
-              Move right
-            </button>
-          </div>
           <div className="terminal-panels">
             {state.tabs.map((tab) => (
               <TerminalPane
@@ -342,6 +344,38 @@ export function WorkspaceView({
             ))}
           </div>
         </>
+      )}
+      {tabMenu && menuTab && (
+        <ContextMenu
+          label={`Tab actions for ${menuTab.title}`}
+          position={tabMenu.position}
+          onClose={() => setTabMenu(null)}
+          items={[
+            {
+              label: 'Rename…',
+              shortcut: 'F2',
+              onSelect: () => setDialog({ id: menuTab.id, mode: 'rename' }),
+            },
+            {
+              label: 'Move left',
+              disabled: state.tabs[0]?.id === menuTab.id,
+              onSelect: () =>
+                dispatch({ type: 'move', id: menuTab.id, to: state.tabs.indexOf(menuTab) - 1 }),
+            },
+            {
+              label: 'Move right',
+              disabled: state.tabs.at(-1)?.id === menuTab.id,
+              onSelect: () =>
+                dispatch({ type: 'move', id: menuTab.id, to: state.tabs.indexOf(menuTab) + 1 }),
+            },
+            {
+              label: 'Close',
+              danger: true,
+              separator: true,
+              onSelect: () => requestClose(menuTab.id),
+            },
+          ]}
+        />
       )}
       {dialog && dialogTab && (
         <TabDialog
@@ -361,4 +395,11 @@ export function WorkspaceView({
       )}
     </div>
   );
+}
+
+function phaseTone(phase: TabPhase): 'live' | 'pending' | 'error' | 'idle' {
+  if (phase === 'running' || phase === 'connected') return 'live';
+  if (phase === 'error' || phase === 'failed') return 'error';
+  if (isLiveTab(phase)) return 'pending';
+  return 'idle';
 }

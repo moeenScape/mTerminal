@@ -9,16 +9,25 @@ import {
   type SshIdentity,
 } from '../../../../shared/hosts';
 import { EmptyState } from '../../components/EmptyState';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { InstallKeyDialog, PassphraseDialog } from './KeyDialogs';
 import { Icon } from '../../components/Icon';
 
 interface HostsViewProps {
   query: string;
   onQueryChange: (query: string) => void;
+  onCountChange: (count: number) => void;
   onOpenWorkspace: () => void;
   onConnect: (host: SavedHost) => void;
 }
 
-export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: HostsViewProps) {
+export function HostsView({
+  query,
+  onQueryChange,
+  onCountChange,
+  onOpenWorkspace,
+  onConnect,
+}: HostsViewProps) {
   const [hosts, setHosts] = useState<SavedHost[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
   const [identities, setIdentities] = useState<SshIdentity[]>([]);
@@ -42,6 +51,7 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
       .then(([items, savedGroups, savedIdentities]) => {
         if (!cancelled) {
           setHosts(items);
+          onCountChange(items.length);
           setGroups(savedGroups);
           setIdentities(savedIdentities);
           setLoading(false);
@@ -57,7 +67,7 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
     return () => {
       cancelled = true;
     };
-  }, [reload]);
+  }, [reload, onCountChange]);
   const filtered = hosts.filter(
     (host) =>
       (!groupFilter ||
@@ -87,32 +97,14 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
     setGroupEditor(null);
     setReload((n) => n + 1);
   };
-  async function installKey(host: SavedHost) {
+  const [installing, setInstalling] = useState<SavedHost | null>(null);
+  const installTarget = installing && installDetails(installing);
+  function installDetails(host: SavedHost) {
     const resolved = resolveHost(host, groups);
     const identity = identities.find((item) => item.id === resolved.identityId);
-    if (!identity) return;
+    if (!identity) return null;
     const username = identity.username || resolved.username;
-    try {
-      const keyStatus = await window.mterminal.getSshKeyStatus(identity.id);
-      if (!keyStatus.saved || !keyStatus.publicKey)
-        throw new Error('This identity has no managed public key.');
-      if (
-        !window.confirm(
-          `Install this key for “${identity.name}” on ${username}@${resolved.address}:${resolved.port} in ~/.ssh/authorized_keys?\n\n${keyStatus.publicKey}\n\nExisting entries are preserved; .ssh and authorized_keys permissions will be set to 700 and 600.`,
-        )
-      )
-        return;
-      const status = await window.mterminal.getSshPasswordStatus(identity.id);
-      const password =
-        status.available && status.saved
-          ? ''
-          : window.prompt(`SSH password for ${username}@${resolved.address}:`);
-      if (password === null) return;
-      await window.mterminal.installSshPublicKey(host.id, password);
-      window.alert(`Public key installed for ${username}@${resolved.address}.`);
-    } catch (cause) {
-      window.alert(cause instanceof Error ? cause.message : 'Unable to install the public key.');
-    }
+    return { host, identity, target: `${username}@${resolved.address}:${resolved.port}` };
   }
   const selectedGroup = groups.find((group) => group.path === groupFilter);
   const searching = query.trim().length > 0 || !!groupFilter || !!tagFilter;
@@ -252,7 +244,7 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
                 </div>
                 {resolveHost(host, groups).identityId && (
                   <button
-                    onClick={() => void installKey(host)}
+                    onClick={() => setInstalling(host)}
                     aria-label={`Install key to ${host.name}`}
                   >
                     Install key
@@ -309,6 +301,16 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
             }}
           />
         )}
+        {installTarget && (
+          <InstallKeyDialog
+            hostId={installTarget.host.id}
+            hostName={installTarget.host.name}
+            identityId={installTarget.identity.id}
+            identityName={installTarget.identity.name}
+            target={installTarget.target}
+            onClose={() => setInstalling(null)}
+          />
+        )}
         {identityManager && (
           <IdentityDialog
             identities={identities}
@@ -324,12 +326,18 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
   );
 }
 
-function IdentityKeyControls({ identityId }: { identityId: string }) {
+function IdentityKeyControls({
+  identityId,
+  identityName,
+}: {
+  identityId: string;
+  identityName: string;
+}) {
   const [saved, setSaved] = useState(false);
   const [available, setAvailable] = useState(false);
   const [error, setError] = useState('');
   const [publicKey, setPublicKey] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<'import' | 'generate' | 'delete' | null>(null);
   const refresh = useCallback(
     () =>
       window.mterminal
@@ -348,38 +356,21 @@ function IdentityKeyControls({ identityId }: { identityId: string }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  async function run(operation: 'import' | 'generate' | 'delete') {
-    if (busy) return;
-    const passphrase =
-      operation === 'delete'
-        ? ''
-        : window.prompt(
-            operation === 'import'
-              ? 'Enter the private key passphrase, if it has one (leave blank otherwise).'
-              : 'Choose an optional passphrase. Without one, an Ed25519 key is generated; with one, an RSA 2048 key is generated.',
-            '',
-          );
-    if (passphrase === null) return;
-    if (
-      operation === 'delete' &&
-      !window.confirm('Remove the saved SSH private key for this identity?')
-    )
-      return;
-    setBusy(true);
+  async function run(operation: 'import' | 'generate' | 'delete', passphrase = '') {
     setError('');
-    try {
-      if (operation === 'import')
-        setPublicKey(await window.mterminal.importSshKey(identityId, passphrase));
-      else if (operation === 'generate')
-        setPublicKey(await window.mterminal.generateSshKey(identityId, passphrase));
-      else await window.mterminal.deleteSshKey(identityId);
-      if (operation === 'delete') setPublicKey('');
-      await refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to manage SSH key.');
-    } finally {
-      setBusy(false);
+    if (operation === 'import') {
+      const key = await window.mterminal.importSshKey(identityId, passphrase);
+      // An empty result means the file picker was cancelled; keep the dialog open.
+      if (!key) return;
+      setPublicKey(key);
+    } else if (operation === 'generate')
+      setPublicKey(await window.mterminal.generateSshKey(identityId, passphrase));
+    else {
+      await window.mterminal.deleteSshKey(identityId);
+      setPublicKey('');
     }
+    setPending(null);
+    await refresh();
   }
   return (
     <div className="host-details">
@@ -390,14 +381,14 @@ function IdentityKeyControls({ identityId }: { identityId: string }) {
             ? 'No managed key'
             : 'Secure key storage unavailable'}
       </span>
-      <button type="button" disabled={busy || !available} onClick={() => void run('import')}>
+      <button type="button" disabled={!available} onClick={() => setPending('import')}>
         Import key
       </button>
-      <button type="button" disabled={busy || !available} onClick={() => void run('generate')}>
+      <button type="button" disabled={!available} onClick={() => setPending('generate')}>
         Generate key
       </button>
       {saved && (
-        <button type="button" disabled={busy} onClick={() => void run('delete')}>
+        <button type="button" onClick={() => setPending('delete')}>
           Remove key
         </button>
       )}
@@ -410,6 +401,28 @@ function IdentityKeyControls({ identityId }: { identityId: string }) {
         </>
       )}
       {error && <span role="alert">{error}</span>}
+      {(pending === 'import' || pending === 'generate') && (
+        <PassphraseDialog
+          mode={pending}
+          identityName={identityName}
+          onSubmit={(passphrase) => run(pending, passphrase)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending === 'delete' && (
+        <ConfirmDialog
+          title={`Remove the saved key for “${identityName}”?`}
+          confirmLabel="Remove key"
+          danger
+          onConfirm={() => run('delete')}
+          onCancel={() => setPending(null)}
+        >
+          <p>
+            The private key is deleted from the local vault. Copies already installed on servers
+            stay in their authorized_keys files.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
@@ -577,7 +590,11 @@ function HostDialog({
           <button type="button" disabled={busy} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" disabled={busy}>
+          <button
+            type="submit"
+            className={deleting ? 'danger-button' : 'primary-button'}
+            disabled={busy}
+          >
             {busy ? 'Saving…' : deleting ? 'Delete host' : 'Save host'}
           </button>
         </div>
@@ -704,7 +721,11 @@ function GroupDialog({
           <button type="button" disabled={busy} onClick={onClose}>
             Cancel
           </button>
-          <button disabled={busy} type="submit">
+          <button
+            type="submit"
+            className={deleting ? 'danger-button' : 'primary-button'}
+            disabled={busy}
+          >
             {busy ? 'Saving…' : deleting ? 'Delete group' : 'Save group'}
           </button>
         </div>
@@ -751,23 +772,15 @@ function IdentityDialog({
       setBusy(false);
     }
   }
+  const [removing, setRemoving] = useState<SshIdentity | null>(null);
   async function remove(identity: SshIdentity) {
-    if (
-      busy ||
-      !window.confirm(
-        `Delete SSH identity “${identity.name}”? Hosts and groups will fall back to their parent or prompt.`,
-      )
-    )
-      return;
-    setBusy(true);
-    setError('');
     try {
       await window.mterminal.deleteSshIdentity(identity.id);
-      onSaved();
     } catch {
-      setError('Unable to delete identity. Retry after checking local storage.');
-      setBusy(false);
+      throw new Error('Unable to delete identity. Retry after checking local storage.');
     }
+    setRemoving(null);
+    onSaved();
   }
   return (
     <dialog ref={ref} className="terminal-dialog" aria-labelledby="identity-title">
@@ -787,17 +800,36 @@ function IdentityDialog({
                     {identity.username} · {identity.method}
                   </span>
                 </div>
-                <IdentityKeyControls identityId={identity.id} />
+                <IdentityKeyControls identityId={identity.id} identityName={identity.name} />
                 <button type="button" disabled={busy} onClick={() => setEditing(identity)}>
                   Edit
                 </button>
-                <button type="button" disabled={busy} onClick={() => void remove(identity)}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={`Delete ${identity.name}`}
+                  onClick={() => setRemoving(identity)}
+                >
                   Delete
                 </button>
               </li>
             ))}
           </ul>
           {!identities.length && <p>No identities yet. Create one to reuse SSH login details.</p>}
+          {removing && (
+            <ConfirmDialog
+              title={`Delete SSH identity “${removing.name}”?`}
+              confirmLabel="Delete identity"
+              danger
+              onConfirm={() => remove(removing)}
+              onCancel={() => setRemoving(null)}
+            >
+              <p>
+                Hosts and groups using it fall back to their parent group’s identity, or ask for
+                login details when connecting. Its saved password and private key are removed.
+              </p>
+            </ConfirmDialog>
+          )}
           {error && <p role="alert">{error}</p>}
           <div className="dialog-actions">
             <button type="button" onClick={onClose}>
