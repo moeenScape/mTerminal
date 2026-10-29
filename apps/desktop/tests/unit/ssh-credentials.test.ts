@@ -45,3 +45,42 @@ describe('saved SSH password resolution', () => {
     });
   });
 });
+
+describe('saved SSH key resolution', () => {
+  it('loads a managed key in main and binds it to the assigned identity', async () => {
+    const key = { privateKey: 'private-key', passphrase: 'key-passphrase' };
+    const secrets = { getPrivateKey: vi.fn().mockResolvedValue(key) } as unknown as SshSecretStore;
+    const credentials = await resolveSshCredentials(
+      {
+        username: 'deploy',
+        method: 'privateKey',
+        useSavedPrivateKey: true,
+        savedPrivateKeyIdentityId: identityId,
+        fingerprint: '',
+      },
+      identityId,
+      secrets,
+    );
+    expect(credentials).toMatchObject({ ...key, method: 'privateKey' });
+    expect(credentials).not.toHaveProperty('useSavedPrivateKey');
+    expect(secrets.getPrivateKey).toHaveBeenCalledWith(identityId);
+  });
+
+  it('rejects a managed key reference for a different identity', async () => {
+    const secrets = { getPrivateKey: vi.fn() } as unknown as SshSecretStore;
+    await expect(
+      resolveSshCredentials(
+        {
+          username: 'deploy',
+          method: 'privateKey',
+          useSavedPrivateKey: true,
+          savedPrivateKeyIdentityId: identityId,
+          fingerprint: '',
+        },
+        null,
+        secrets,
+      ),
+    ).rejects.toMatchObject({ code: 'vault-secret-missing' });
+    expect(secrets.getPrivateKey).not.toHaveBeenCalled();
+  });
+});

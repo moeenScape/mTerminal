@@ -68,6 +68,39 @@ const api: DesktopApi = {
     );
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
+  getSshKeyStatus: async (identityId) => {
+    const result: VaultResponse<{ available: boolean; saved: boolean }> = await ipcRenderer.invoke(
+      vaultChannels.keyStatus,
+      identityId,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
+  importSshKey: async (identityId, passphrase) => {
+    const result: VaultResponse<string> = await ipcRenderer.invoke(
+      vaultChannels.keyImport,
+      identityId,
+      passphrase,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
+  generateSshKey: async (identityId, passphrase) => {
+    const result: VaultResponse<string> = await ipcRenderer.invoke(
+      vaultChannels.keyGenerate,
+      identityId,
+      passphrase,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+    return result.value;
+  },
+  deleteSshKey: async (identityId) => {
+    const result: VaultResponse<undefined> = await ipcRenderer.invoke(
+      vaultChannels.keyDelete,
+      identityId,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
+  },
   readClipboardText: async () => {
     const result: ClipboardReadResult = await ipcRenderer.invoke(clipboardChannels.read);
     if (!result.ok) throw new Error(failureMessages[result.code]);

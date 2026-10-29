@@ -24,9 +24,9 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M1 — Local terminal and SSH |
-| Active feature | F26 implemented; Phase 3 active at F27; Phase 2 desktop/platform acceptance remains blocked |
-| Next feature | F27 — SSH keys; Phase 2 desktop/platform acceptance remains outstanding |
-| Implementation status | F01–F26 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities and opt-in OS-encrypted SSH passwords; desktop verification pending |
+| Active feature | F27 implemented; Phase 3 active at F28; Phase 2 desktop/platform acceptance remains blocked |
+| Next feature | F28 — Public-key installation; Phase 2 desktop/platform acceptance remains outstanding |
+| Implementation status | F01–F27 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, and encrypted password/private-key vault storage; desktop verification pending |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
@@ -117,7 +117,7 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 
 - [x] **F25 — Reusable identities (implementation):** Reusable local SSH identity profiles hold a display name, username and preferred authentication method. Hosts can override group identity defaults; nested groups inherit the nearest assignment. Deleting an identity clears references safely. Profiles contain no secret material. Tests written; Phase 3 gate deferred.
 - [x] **F26 — Secret storage (implementation):** Opt-in SSH passwords are encrypted through Electron safeStorage and stored as separate, permission-restricted ciphertext files. Passwords are decrypted only in the main process for authentication. Linux `basic_text` and unavailable keychain backends are refused. Tests written; Phase 3 gate deferred.
-- [ ] **F27 — SSH keys:** Import/generate supported keys and manage passphrases.
+- [x] **F27 — SSH keys (implementation):** Import supported OpenSSH/RFC4716/PPK private keys, generate Ed25519 keys or passphrase-protected RSA 2048 keys, store key/passphrase ciphertext through OS secure storage, and use a managed key only with its assigned identity. The identity manager exposes the public key for copying. Tests written; Phase 3 gate deferred.
 - [ ] **F28 — Public-key installation:** Explicit key and destination confirmation.
 - [ ] **F29 — Lock and unlock:** Vault access, inactivity behavior, and restart behavior.
 - [ ] **F30 — Backup and export:** Versioned import/export with explicit secret handling.
@@ -753,3 +753,12 @@ application data directory and uses Electron's asynchronous safeStorage API.
 Linux storage using the `basic_text` fallback is rejected; session-only SSH
 connections remain available when secure storage is unavailable. Tests are
 written but deferred until the Phase 3 gate; next: F27 SSH keys.
+
+### F27 implementation
+
+The identity manager can import a private key through a main-process file picker or generate
+an Ed25519 key (no key passphrase) / RSA 2048 key (optional passphrase). Private key text and
+its passphrase are encrypted together with Electron safeStorage in a permission-restricted
+file outside SQLite. The renderer receives only the public key for copying; the private key
+is decrypted in the main process and accepted only for the identity assigned to the host.
+Tests are written and deferred until the Phase 3 gate; next: F28 public-key installation.

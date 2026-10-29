@@ -136,10 +136,8 @@ Create identities from **Hosts → SSH identities** with a display name, SSH
 username and preferred authentication method. Select an identity on a host or
 as a group default; nested groups inherit the nearest identity and a host can
 override it. The connection prompt uses the identity username and method as
-defaults. Passwords, private key contents and passphrases are not part of an
-identity and are requested for every connection until secure secret storage is
-implemented. Deleting an identity clears references; hosts then use a parent
-group identity or their existing connection fields.
+defaults. Deleting an identity clears references; hosts then use a parent group
+identity or their existing connection fields.
 
 When connecting with password authentication, **Save password securely for this
 identity on this device** stores it through Electron `safeStorage` in an encrypted
@@ -148,4 +146,12 @@ renderer receives only a saved/not-saved status, and the main process retrieves
 the password for SSH authentication. Use **Forget saved password** to remove it.
 On Linux, a recognized OS key store is required; the `basic_text` fallback is
 refused. When secure storage is unavailable, enter a session-only password.
-Private-key contents and passphrases are not stored by this feature.
+
+The identity manager can import an OpenSSH, RFC4716, or PPK private key, or
+generate an Ed25519 key. Enter a passphrase when importing an encrypted key;
+when generating, a non-empty passphrase creates an RSA 2048 key, while an empty
+passphrase creates Ed25519. The private key and passphrase are encrypted together
+through `safeStorage` outside SQLite. Linux must have a supported OS keychain;
+otherwise managed key storage is disabled. The prompt can use the managed key for
+the assigned identity, keeping private material in the main process. The manager
+shows the public key for copying to the server; public-key installation is F28.

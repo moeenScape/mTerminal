@@ -10,6 +10,8 @@ export interface SshCredentials {
   fingerprint: string;
   useSavedPassword?: boolean;
   savedPasswordIdentityId?: string;
+  useSavedPrivateKey?: boolean;
+  savedPrivateKeyIdentityId?: string;
 }
 export function validateSshCredentials(value: unknown): SshCredentials {
   if (!value || typeof value !== 'object') throw new Error('Invalid SSH credentials.');
@@ -28,7 +30,9 @@ export function validateSshCredentials(value: unknown): SshCredentials {
   const method = c.method ?? 'password';
   if (
     (c.useSavedPassword !== undefined && typeof c.useSavedPassword !== 'boolean') ||
-    (c.savedPasswordIdentityId !== undefined && typeof c.savedPasswordIdentityId !== 'string')
+    (c.savedPasswordIdentityId !== undefined && typeof c.savedPasswordIdentityId !== 'string') ||
+    (c.useSavedPrivateKey !== undefined && typeof c.useSavedPrivateKey !== 'boolean') ||
+    (c.savedPrivateKeyIdentityId !== undefined && typeof c.savedPrivateKeyIdentityId !== 'string')
   )
     throw new Error('Invalid saved credential reference.');
   if (
@@ -43,6 +47,8 @@ export function validateSshCredentials(value: unknown): SshCredentials {
     keyboardInteractive: c.keyboardInteractive === true,
   };
   if (method === 'password') {
+    if (c.useSavedPrivateKey || c.savedPrivateKeyIdentityId !== undefined)
+      throw new Error('Invalid saved key reference.');
     if (c.useSavedPassword === true) {
       if (
         c.password !== undefined ||
@@ -64,7 +70,28 @@ export function validateSshCredentials(value: unknown): SshCredentials {
   }
   if (c.useSavedPassword || c.savedPasswordIdentityId !== undefined)
     throw new Error('Invalid saved credential reference.');
+  if (
+    method !== 'privateKey' &&
+    (c.useSavedPrivateKey || c.savedPrivateKeyIdentityId !== undefined)
+  )
+    throw new Error('Invalid saved key reference.');
   if (method === 'privateKey') {
+    if (c.useSavedPrivateKey === true) {
+      if (
+        c.privateKey !== undefined ||
+        c.passphrase !== undefined ||
+        typeof c.savedPrivateKeyIdentityId !== 'string' ||
+        !validHostId(c.savedPrivateKeyIdentityId)
+      )
+        throw new Error('Invalid saved key reference.');
+      return {
+        ...base,
+        useSavedPrivateKey: true,
+        savedPrivateKeyIdentityId: c.savedPrivateKeyIdentityId,
+      };
+    }
+    if (c.useSavedPrivateKey || c.savedPrivateKeyIdentityId !== undefined)
+      throw new Error('Invalid saved key reference.');
     if (
       typeof c.privateKey !== 'string' ||
       !c.privateKey.trim() ||

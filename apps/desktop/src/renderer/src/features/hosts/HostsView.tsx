@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   validateHost,
   validateGroup,
@@ -285,6 +285,95 @@ export function HostsView({ query, onQueryChange, onOpenWorkspace, onConnect }: 
           />
         )}
       </div>
+    </div>
+  );
+}
+
+function IdentityKeyControls({ identityId }: { identityId: string }) {
+  const [saved, setSaved] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const [error, setError] = useState('');
+  const [publicKey, setPublicKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(
+    () =>
+      window.mterminal
+        .getSshKeyStatus(identityId)
+        .then((status) => {
+          setSaved(status.saved);
+          setAvailable(status.available);
+        })
+        .catch(() => {
+          setSaved(false);
+          setAvailable(false);
+        }),
+    [identityId],
+  );
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  async function run(operation: 'import' | 'generate' | 'delete') {
+    if (busy) return;
+    const passphrase =
+      operation === 'delete'
+        ? ''
+        : window.prompt(
+            operation === 'import'
+              ? 'Enter the private key passphrase, if it has one (leave blank otherwise).'
+              : 'Choose an optional passphrase. Without one, an Ed25519 key is generated; with one, an RSA 2048 key is generated.',
+            '',
+          );
+    if (passphrase === null) return;
+    if (
+      operation === 'delete' &&
+      !window.confirm('Remove the saved SSH private key for this identity?')
+    )
+      return;
+    setBusy(true);
+    setError('');
+    try {
+      if (operation === 'import')
+        setPublicKey(await window.mterminal.importSshKey(identityId, passphrase));
+      else if (operation === 'generate')
+        setPublicKey(await window.mterminal.generateSshKey(identityId, passphrase));
+      else await window.mterminal.deleteSshKey(identityId);
+      if (operation === 'delete') setPublicKey('');
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to manage SSH key.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="host-details">
+      <span>
+        {saved
+          ? 'Managed key saved'
+          : available
+            ? 'No managed key'
+            : 'Secure key storage unavailable'}
+      </span>
+      <button type="button" disabled={busy || !available} onClick={() => void run('import')}>
+        Import key
+      </button>
+      <button type="button" disabled={busy || !available} onClick={() => void run('generate')}>
+        Generate key
+      </button>
+      {saved && (
+        <button type="button" disabled={busy} onClick={() => void run('delete')}>
+          Remove key
+        </button>
+      )}
+      {publicKey && (
+        <>
+          <textarea aria-label="SSH public key" readOnly value={publicKey} />
+          <button type="button" onClick={() => void window.mterminal.writeClipboardText(publicKey)}>
+            Copy public key
+          </button>
+        </>
+      )}
+      {error && <span role="alert">{error}</span>}
     </div>
   );
 }
@@ -650,8 +739,8 @@ function IdentityDialog({
       {!editing ? (
         <>
           <p>
-            Reusable username and authentication preferences. Passwords and keys are never stored
-            here.
+            Reusable username and authentication preferences. Passwords and private keys are kept in
+            the encrypted local vault.
           </p>
           <ul className="host-list">
             {identities.map((identity) => (
@@ -662,6 +751,7 @@ function IdentityDialog({
                     {identity.username} · {identity.method}
                   </span>
                 </div>
+                <IdentityKeyControls identityId={identity.id} />
                 <button type="button" disabled={busy} onClick={() => setEditing(identity)}>
                   Edit
                 </button>
@@ -713,7 +803,9 @@ function IdentityDialog({
             Preferred authentication method
             <select name="method" defaultValue={editing === 'new' ? 'password' : editing.method}>
               <option value="password">Password (ask at connection)</option>
-              <option value="privateKey">Private key (select at connection)</option>
+              <option value="privateKey">
+                Private key (use managed key or select at connection)
+              </option>
               <option value="keyboard-interactive">Keyboard-interactive</option>
             </select>
           </label>

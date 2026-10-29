@@ -26,6 +26,8 @@ export function SshPrompt({
   const [identityId, setIdentityId] = useState<string | null>(null);
   const [vaultAvailable, setVaultAvailable] = useState(false);
   const [savedPassword, setSavedPassword] = useState(false);
+  const [savedKey, setSavedKey] = useState(false);
+  const [useSavedKey, setUseSavedKey] = useState(false);
   const [useSavedPassword, setUseSavedPassword] = useState(false);
   const [rememberPassword, setRememberPassword] = useState(false);
   const selectedFile = useRef<File | null>(null);
@@ -47,6 +49,19 @@ export function SshPrompt({
           setUsername((current) => current || identity?.username || resolved.username);
           setMethod(identity?.method ?? 'password');
           if (identity) {
+            void window.mterminal
+              .getSshKeyStatus(identity.id)
+              .then((status) => {
+                if (!cancelled) {
+                  setSavedKey(status.available && status.saved);
+                  setUseSavedKey(
+                    status.available && status.saved && identity.method === 'privateKey',
+                  );
+                }
+              })
+              .catch(() => {
+                if (!cancelled) setSavedKey(false);
+              });
             void window.mterminal
               .getSshPasswordStatus(identity.id)
               .then((status) => {
@@ -82,8 +97,9 @@ export function SshPrompt({
               ...(method === 'password' && useSavedPassword
                 ? { useSavedPassword: true, savedPasswordIdentityId: identityId }
                 : { password: data.get('password') }),
-              privateKey,
-              passphrase: data.get('passphrase') ?? '',
+              ...(method === 'privateKey' && useSavedKey
+                ? { useSavedPrivateKey: true, savedPrivateKeyIdentityId: identityId }
+                : { privateKey, passphrase: data.get('passphrase') ?? '' }),
               keyboardInteractive: data.get('keyboardInteractive') === 'on',
               fingerprint: data.get('fingerprint'),
             });
@@ -131,6 +147,7 @@ export function SshPrompt({
               selectedFile.current = null;
               setPrivateKey('');
               setUseSavedPassword(false);
+              setUseSavedKey(false);
               setRememberPassword(false);
               setKeyLoading(false);
               setError('');
@@ -203,53 +220,67 @@ export function SshPrompt({
         )}
         {method === 'privateKey' && (
           <>
-            <label>
-              Private key file
-              <input
-                type="file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  selectedFile.current = file ?? null;
-                  setPrivateKey('');
-                  setError('');
-                  if (!file) {
-                    setKeyLoading(false);
-                    return;
-                  }
-                  if (file.size > 256 * 1024) {
-                    setKeyLoading(false);
-                    setError('Private key files must be at most 256 KiB.');
-                    return;
-                  }
-                  setKeyLoading(true);
-                  void file
-                    .text()
-                    .then((text) => {
-                      if (selectedFile.current === file) {
-                        setPrivateKey(text);
+            {identityId && savedKey && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useSavedKey}
+                  onChange={(event) => setUseSavedKey(event.target.checked)}
+                />
+                Use the managed private key for this identity
+              </label>
+            )}
+            {!useSavedKey && (
+              <>
+                <label>
+                  Private key file
+                  <input
+                    type="file"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      selectedFile.current = file ?? null;
+                      setPrivateKey('');
+                      setError('');
+                      if (!file) {
                         setKeyLoading(false);
+                        return;
                       }
-                    })
-                    .catch(() => {
-                      if (selectedFile.current === file) {
-                        setError('Unable to read private key file.');
+                      if (file.size > 256 * 1024) {
                         setKeyLoading(false);
+                        setError('Private key files must be at most 256 KiB.');
+                        return;
                       }
-                    });
-                }}
-              />
-            </label>
-            <label>
-              Key passphrase (if encrypted)
-              <input
-                key="passphrase"
-                name="passphrase"
-                type="password"
-                maxLength={4096}
-                autoComplete="off"
-              />
-            </label>
-            {keyLoading && <p role="status">Reading key…</p>}
+                      setKeyLoading(true);
+                      void file
+                        .text()
+                        .then((text) => {
+                          if (selectedFile.current === file) {
+                            setPrivateKey(text);
+                            setKeyLoading(false);
+                          }
+                        })
+                        .catch(() => {
+                          if (selectedFile.current === file) {
+                            setError('Unable to read private key file.');
+                            setKeyLoading(false);
+                          }
+                        });
+                    }}
+                  />
+                </label>
+                <label>
+                  Key passphrase (if encrypted)
+                  <input
+                    key="passphrase"
+                    name="passphrase"
+                    type="password"
+                    maxLength={4096}
+                    autoComplete="off"
+                  />
+                </label>
+                {keyLoading && <p role="status">Reading key…</p>}
+              </>
+            )}
           </>
         )}
         {method !== 'keyboard-interactive' && (
@@ -278,7 +309,10 @@ export function SshPrompt({
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" disabled={keyLoading || (method === 'privateKey' && !privateKey)}>
+          <button
+            type="submit"
+            disabled={keyLoading || (method === 'privateKey' && !useSavedKey && !privateKey)}
+          >
             {reconnect ? 'Reconnect' : 'Connect'}
           </button>
         </div>

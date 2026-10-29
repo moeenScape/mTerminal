@@ -9,6 +9,20 @@ export async function resolveSshCredentials(
   secrets: SshSecretStore,
 ): Promise<SshCredentials> {
   const credentials = validateSshCredentials(value);
+  if (credentials.useSavedPrivateKey) {
+    const identityId = credentials.savedPrivateKeyIdentityId;
+    if (!identityId || assignedIdentityId !== identityId)
+      throw new AppFailure('vault-secret-missing');
+    const key = await secrets.getPrivateKey(identityId);
+    if (!key) throw new AppFailure('vault-secret-missing');
+    return {
+      username: credentials.username,
+      method: 'privateKey',
+      keyboardInteractive: credentials.keyboardInteractive === true,
+      fingerprint: credentials.fingerprint,
+      ...key,
+    };
+  }
   if (!credentials.useSavedPassword) return credentials;
   const identityId = credentials.savedPasswordIdentityId;
   if (!identityId || assignedIdentityId !== identityId)

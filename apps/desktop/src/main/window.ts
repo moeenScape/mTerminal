@@ -15,6 +15,8 @@ import { APP_INFO_CHANNEL, type AppInfo } from '../shared/app-info.js';
 import { allowRendererReload, getRendererUrl, validateAppInfoRequest } from './security.js';
 import { vaultChannels, type VaultResponse } from '../shared/vault.js';
 import { SshSecretStore } from './storage/secret-store.js';
+import { readFile } from 'node:fs/promises';
+import { utils } from 'ssh2';
 
 const outputDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -85,6 +87,11 @@ export async function createMainWindow(
             database.listSshIdentities().some((item) => item.id === args[0])
           )
             await secrets.deletePassword(args[0]);
+          if (
+            validHostId(args[0]) &&
+            database.listSshIdentities().some((item) => item.id === args[0])
+          )
+            await secrets.deletePrivateKey(args[0]);
           return database.deleteSshIdentity(args[0]);
         }
         if (channel === hostChannels.list && args.length === 0) return database.listHosts();
@@ -132,6 +139,41 @@ export async function createMainWindow(
         if (channel === vaultChannels.delete && args.length === 1) {
           await secrets.deletePassword(identityId);
           return { ok: true, value: undefined };
+        }
+        if (channel === vaultChannels.keyStatus && args.length === 1)
+          return { ok: true, value: await secrets.privateKeyStatus(identityId) };
+        if (channel === vaultChannels.keyDelete && args.length === 1) {
+          await secrets.deletePrivateKey(identityId);
+          return { ok: true, value: undefined };
+        }
+        if (
+          (channel === vaultChannels.keyImport || channel === vaultChannels.keyGenerate) &&
+          args.length === 2 &&
+          typeof value === 'string' &&
+          value.length <= 4096
+        ) {
+          let privateKey: string | undefined;
+          if (channel === vaultChannels.keyImport) {
+            const selection = await dialog.showOpenDialog(window, {
+              title: 'Import SSH private key',
+              properties: ['openFile'],
+            });
+            if (selection.canceled || !selection.filePaths[0]) return { ok: true, value: '' };
+            const info = await readFile(selection.filePaths[0]);
+            if (info.length > 256 * 1024) throw new Error('Private key is too large.');
+            privateKey = info.toString('utf8');
+            const parsed = utils.parseKey(privateKey, value);
+            if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey())
+              throw new AppFailure('ssh-key-invalid');
+          }
+          if (channel === vaultChannels.keyImport)
+            await secrets.savePrivateKey(identityId, privateKey!, value);
+          else if (channel === vaultChannels.keyGenerate)
+            return { ok: true, value: await secrets.generatePrivateKey(identityId, value) };
+          const parsed = utils.parseKey(privateKey!, value);
+          if (parsed instanceof Error || Array.isArray(parsed))
+            throw new Error('Invalid private key.');
+          return { ok: true, value: parsed.getPublicSSH().toString() };
         }
         throw new Error('Invalid vault request.');
       } catch (error) {

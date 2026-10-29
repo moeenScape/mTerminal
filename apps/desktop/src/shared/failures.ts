@@ -1,10 +1,12 @@
 export const failureMessages = {
   'vault-unavailable':
-    'Secure password storage is unavailable. Check that your operating system keychain is unlocked and supported; no password was saved.',
+    'Secure credential storage is unavailable. Check that your operating system keychain is unlocked and supported; secrets were not saved.',
   'vault-corrupt':
-    'The saved password could not be read. Preserve the mTerminal data directory and enter the password again only after checking secure storage.',
+    'A saved credential could not be read. Preserve the mTerminal data directory and check secure storage before replacing it.',
   'vault-secret-missing':
-    'The saved password is missing. Enter it again and save it securely, or disable Use saved password.',
+    'The saved credential is missing. Enter the password again or import the private key for this identity.',
+  'ssh-key-invalid':
+    'The private key could not be imported. Check its format and passphrase, then try again.',
   'ssh-cancelled': 'SSH connection cancelled.',
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',

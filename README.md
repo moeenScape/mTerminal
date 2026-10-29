@@ -2,7 +2,7 @@
 
 A desktop terminal and SSH/SFTP client in development for Linux, Windows, and macOS.
 
-F01–F26 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities and opt-in OS-encrypted password storage. Passwords are saved separately from SQLite, only for an assigned identity, and are not returned to the renderer when used. If secure OS storage is unavailable, passwords remain session-only. Private-key storage is not implemented yet. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
+F01–F27 are implemented: the application window, restricted preload bridge, Termius-style layout, local and SSH terminals, saved host/group profiles, reusable SSH identities, and OS-encrypted password and private-key storage. Secrets are saved separately from SQLite and are returned only to the main process for authentication. If secure OS storage is unavailable, secrets remain session-only. Preferences are stored in `preferences.json` under Electron’s user data directory; malformed files are preserved and prevent startup until repaired or moved aside. See the roadmap for phase verification status.
 
 ## Selected stack
 
@@ -204,12 +204,13 @@ Save an SSH profile in Hosts, then choose Connect. Supply a username and session
 authentication details. Unknown server keys require confirmation after comparing
 the fingerprint through a trusted channel. Approved keys are saved by address
 and port; changed keys refuse the current connection. An optional expected
-fingerprint adds an explicit pin. Credentials are not saved.
+fingerprint adds an explicit pin. Passwords and private keys can be saved securely
+to an assigned identity on this device.
 See [SSH session setup](docs/SSH_SESSIONS.md) for details and current limitations. Group port/username defaults apply to new connections.
 
 SSH authentication supports passwords, private-key files with optional passphrases,
 and keyboard-interactive challenges (including optional MFA continuation after
-password/key authentication). Credentials remain session-only.
+password/key authentication). Unsaved credentials remain session-only.
 
 SSH tabs display Connecting, Verifying key, Authenticating, Opening shell and
 Connected progress. Completed connections retain output and show Disconnected

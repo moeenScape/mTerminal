@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { SshSecretStore, type SafeStorageProvider } from '../../src/main/storage/secret-store.js';
+import { utils } from 'ssh2';
 
 const identityId = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
 function fakeStorage(backend = 'gnome_libsecret'): SafeStorageProvider {
@@ -81,6 +82,54 @@ describe('OS-encrypted SSH password storage', () => {
       await expect(store.getPassword(identityId)).rejects.toMatchObject({
         code: 'vault-unavailable',
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('OS-encrypted SSH key storage', () => {
+  it('stores a private key and passphrase only as ciphertext and removes it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
+    try {
+      const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      const pair = utils.generateKeyPairSync('ed25519');
+      await store.savePrivateKey(identityId, pair.private);
+      const path = join(directory, 'vault', `${identityId}.key.enc`);
+      const encrypted = await readFile(path);
+      expect(encrypted.toString()).not.toContain(pair.private);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect(await store.getPrivateKey(identityId)).toEqual({
+        privateKey: pair.private,
+        passphrase: '',
+      });
+      expect(await store.privateKeyStatus(identityId)).toEqual({ available: true, saved: true });
+      await store.deletePrivateKey(identityId);
+      expect(await store.privateKeyStatus(identityId)).toEqual({ available: true, saved: false });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an invalid key or passphrase and preserves the prior stored key', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
+    try {
+      const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      const pair = utils.generateKeyPairSync('ed25519');
+      await store.savePrivateKey(identityId, pair.private);
+      await expect(store.savePrivateKey(identityId, 'not a private key')).rejects.toThrow();
+      expect((await store.getPrivateKey(identityId))?.privateKey).toBe(pair.private);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('generates an encrypted RSA key when a passphrase is supplied', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));
+    try {
+      const store = new SshSecretStore(join(directory, 'vault'), fakeStorage(), 'linux');
+      await store.generatePrivateKey(identityId, 'key-passphrase');
+      expect(await store.getPrivateKey(identityId)).toMatchObject({ passphrase: 'key-passphrase' });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
