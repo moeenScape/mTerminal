@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F32 implemented — Read-only local/SFTP file browser; Phase 4 tests deferred |
-| Next feature | F33 — File operations; earlier desktop/platform acceptance remains outstanding |
+| Active feature | F33 implemented — Local/SFTP file operations; Phase 4 tests deferred |
+| Next feature | F34 — Transfers; earlier desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -161,7 +161,7 @@ interactive Electron validation remains pending.
 Dependencies: Phase 3 and the SSH connection layer.
 
 - [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
-- [ ] **F33 — File operations:** Directories, rename, deletion, and permitted attribute changes.
+- [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
 - [ ] **F34 — Transfers:** Queue, upload/download progress, cancellation, and failure reporting.
 - [ ] **F35 — Overwrites:** Replace/skip decisions and validated destination paths.
 - [ ] **F36 — Remote editing:** Temporary download, editor integration, change detection, and deliberate upload.
@@ -862,3 +862,25 @@ SFTP EOF, bounds, cancellation/timeout cleanup, a real loopback SSH/SFTP fixture
 browser workflow. Test execution is deferred until the Phase 4 gate, per the development workflow.
 Interactive visual checks, live-server acceptance and Windows/macOS verification remain pending.
 Usage and limits: `docs/FILE_BROWSER.md`. Next: F33; commit without pushing.
+
+### F33 implementation
+
+Added folder creation and row action menus for same-folder rename, confirmed permanent deletion
+of a file/link/empty folder, and permitted octal mode changes in both browser panes. Dialogs show
+the pane/account scope and exact path. Special files, recursive deletion, symlink mode changes,
+and elevation are refused. Local Windows mode changes are disabled. Local permission edits use
+a no-follow descriptor and require read access; filesystem/platform rename limits are documented.
+
+Validated `files:mutate` requests are serialized against other file operations in the window.
+Local file/link rename uses exclusive hard-link creation before unlinking the source; partial
+results preserve both names. Directory rename reserves an empty destination. Remote operations
+reuse the verified SSH session and standard non-overwriting SFTP rename. A disconnect/timeout
+during a mutation is reported as an uncertain result, never automatically retried. Refresh runs
+after each attempt; remote notices remain visible after disconnection. Confirmations from an
+older SSH session cannot be submitted after reconnecting.
+
+Typecheck, lint, formatting, production build and diff checks passed on Linux. Regression tests
+are written for payload validation, session ownership, mutation serialization, collision and
+nonempty-folder preservation, modes/symlinks, partial local rename, remote disconnect outcomes,
+and desktop confirmation/cancel/refresh flows. Tests are deferred until the Phase 4 gate.
+Live-server, interactive visual and Windows/macOS verification remain pending. Next: F34.

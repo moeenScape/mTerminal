@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { Client, FileEntryWithStats, SFTPWrapper } from 'ssh2';
+import type { Client, FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
 import { RemoteFileBrowser } from '../../src/main/files/remote.js';
 import { FILE_LIST_LIMIT } from '../../src/shared/files.js';
@@ -20,6 +20,14 @@ function fixture(batches: FileEntryWithStats[][]) {
       },
     ),
     close: vi.fn((_handle: Buffer, done: () => void) => done()),
+    lstat: vi.fn((_path: string, done: (error: Error | undefined, stats?: Stats) => void) =>
+      done(undefined, entry('item').attrs),
+    ),
+    mkdir: vi.fn((_path: string, done: () => void) => done()),
+    rename: vi.fn((_from: string, _to: string, done: () => void) => done()),
+    unlink: vi.fn((_path: string, done: () => void) => done()),
+    rmdir: vi.fn((_path: string, done: () => void) => done()),
+    chmod: vi.fn((_path: string, _mode: number, done: () => void) => done()),
     destroy: vi.fn(),
   });
   const client = {
@@ -37,6 +45,58 @@ const entry = (filename: string, mode = 0o100644) =>
   }) as FileEntryWithStats;
 
 describe('SFTP directory lifecycle', () => {
+  it('creates folders and changes ordinary modes on the existing SFTP channel', async () => {
+    const { channel, browser } = fixture([]);
+    await browser.mutate('/home/user', { action: 'mkdir', name: 'new folder' });
+    expect(channel.mkdir).toHaveBeenCalledWith('/home/user/new folder', expect.any(Function));
+    await browser.mutate('/home/user', { action: 'chmod', name: 'file', mode: '0640' });
+    expect(channel.chmod).toHaveBeenCalledWith('/home/user/file', 0o640, expect.any(Function));
+    expect(channel.destroy).toHaveBeenCalledTimes(2);
+  });
+  it('refuses existing rename destinations and uses standard rename for a free name', async () => {
+    const { channel, browser } = fixture([]);
+    await expect(
+      browser.mutate('/home/user', { action: 'rename', name: 'before', newName: 'existing' }),
+    ).rejects.toMatchObject({ code: 'exists' });
+    expect(channel.rename).not.toHaveBeenCalled();
+    channel.lstat.mockImplementation((path, done) => {
+      if (path.endsWith('/after')) done(Object.assign(new Error('Missing'), { code: 2 }));
+      else done(undefined, entry('before').attrs);
+    });
+    await browser.mutate('/home/user', { action: 'rename', name: 'before', newName: 'after' });
+    expect(channel.rename).toHaveBeenCalledWith(
+      '/home/user/before',
+      '/home/user/after',
+      expect.any(Function),
+    );
+  });
+  it('unlinks symlinks without changing their targets and uses rmdir only for folders', async () => {
+    const { channel, browser } = fixture([]);
+    channel.lstat.mockImplementation((_path, done) =>
+      done(undefined, entry('link', 0o120777).attrs),
+    );
+    await expect(
+      browser.mutate('/home/user', { action: 'chmod', name: 'link', mode: '0777' }),
+    ).rejects.toMatchObject({ code: 'unsupported' });
+    expect(channel.chmod).not.toHaveBeenCalled();
+    await browser.mutate('/home/user', { action: 'delete', name: 'link' });
+    expect(channel.unlink).toHaveBeenCalledWith('/home/user/link', expect.any(Function));
+    expect(channel.rmdir).not.toHaveBeenCalled();
+    channel.lstat.mockImplementation((_path, done) =>
+      done(undefined, entry('folder', 0o040755).attrs),
+    );
+    await browser.mutate('/home/user', { action: 'delete', name: 'folder' });
+    expect(channel.rmdir).toHaveBeenCalledWith('/home/user/folder', expect.any(Function));
+  });
+  it('reports an uncertain outcome if a mutation is interrupted rather than claiming failure', async () => {
+    const { channel, browser } = fixture([]);
+    channel.mkdir.mockImplementation(() => {});
+    const pending = browser.mutate('/home/user', { action: 'mkdir', name: 'new folder' });
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'uncertain' });
+    await vi.waitFor(() => expect(channel.mkdir).toHaveBeenCalled());
+    browser.dispose();
+    await rejected;
+  });
   it('continues after an empty batch and treats status 1 as EOF, preserving links and metadata', async () => {
     const { channel, browser } = fixture([
       [],

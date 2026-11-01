@@ -62,6 +62,15 @@ export class TerminalRegistry {
     if (!session) throw new FileBrowserError('disconnected');
     return session.listDirectory(path);
   }
+  async mutateDirectory(
+    id: string,
+    path: string,
+    operation: import('../../shared/files.js').FileOperation,
+  ) {
+    const session = this.sessions.get(id);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.mutateDirectory(path, operation);
+  }
   resize(id: string, size: TerminalSize): void {
     this.sessions.get(id)?.resize(id, size);
   }

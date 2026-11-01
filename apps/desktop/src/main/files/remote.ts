@@ -1,7 +1,13 @@
 import { posix } from 'node:path';
 import type { Client, SFTPWrapper } from 'ssh2';
-import { FILE_LIST_LIMIT, type DirectoryListing, type FileEntry } from '../../shared/files.js';
+import {
+  FILE_LIST_LIMIT,
+  type DirectoryListing,
+  type FileEntry,
+  type FileOperation,
+} from '../../shared/files.js';
 import { directoryListing, fileKind, FileBrowserError } from './listing.js';
+import { childPath } from './operations.js';
 
 function request<T>(
   signal: AbortSignal,
@@ -27,7 +33,7 @@ function request<T>(
   });
 }
 
-/** Each listing owns a short-lived SFTP channel on the already verified SSH connection. */
+/** Each operation owns a short-lived SFTP channel on the verified SSH connection. */
 export class RemoteFileBrowser {
   private pending: AbortController | undefined;
   private closed = false;
@@ -36,7 +42,10 @@ export class RemoteFileBrowser {
     this.closed = true;
     this.pending?.abort();
   }
-  async list(path: string): Promise<DirectoryListing> {
+  private async withChannel<T>(
+    operation: (channel: SFTPWrapper, signal: AbortSignal) => Promise<T>,
+    mutating = false,
+  ): Promise<T> {
     if (this.closed) throw new FileBrowserError('disconnected');
     if (this.pending) throw new FileBrowserError('busy');
     const controller = new AbortController();
@@ -65,28 +74,42 @@ export class RemoteFileBrowser {
       );
       sftp.on('error', close);
       sftp.on('close', close);
-      const channel = sftp;
-      const canonical = await request<string>(controller.signal, (done) =>
+      return await operation(sftp, controller.signal);
+    } catch (error) {
+      if (mutating && (controller.signal.aborted || timedOut))
+        throw new FileBrowserError('uncertain');
+      if (timedOut) throw new FileBrowserError('unavailable');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      sftp?.removeListener('close', close);
+      sftp?.removeListener('error', close);
+      controller.signal.removeEventListener('abort', stop);
+      // Keep an error listener until the channel finishes shutting down.
+      sftp?.on('error', () => {});
+      sftp?.destroy();
+      this.pending = undefined;
+    }
+  }
+  list(path: string): Promise<DirectoryListing> {
+    return this.withChannel(async (channel, signal) => {
+      const canonical = await request<string>(signal, (done) =>
         channel.realpath(path || '.', done),
       );
       if (!posix.isAbsolute(canonical) || canonical.includes('\0') || canonical.length > 4096)
         throw new FileBrowserError('unavailable');
-      const handle = await request<Buffer>(controller.signal, (done) =>
-        channel.opendir(canonical, done),
-      );
+      const handle = await request<Buffer>(signal, (done) => channel.opendir(canonical, done));
       const entries: FileEntry[] = [];
       let truncated = false;
       try {
         while (true) {
-          const batch = await request<import('ssh2').FileEntryWithStats[] | null>(
-            controller.signal,
-            (done) =>
-              channel.readdir(handle, (error, entries) => {
-                // Handle-based READDIR reports SFTP EOF as status 1, not an empty array.
-                if ((error as (Error & { code?: number }) | undefined)?.code === 1)
-                  done(undefined, null);
-                else done(error, entries);
-              }),
+          const batch = await request<import('ssh2').FileEntryWithStats[] | null>(signal, (done) =>
+            channel.readdir(handle, (error, entries) => {
+              // Handle-based READDIR reports SFTP EOF as status 1, not an empty array.
+              if ((error as (Error & { code?: number }) | undefined)?.code === 1)
+                done(undefined, null);
+              else done(error, entries);
+            }),
           );
           if (batch === null) break;
           for (const entry of batch) {
@@ -109,24 +132,48 @@ export class RemoteFileBrowser {
           if (truncated) break;
         }
       } finally {
-        if (!controller.signal.aborted)
-          await request<void>(controller.signal, (done) =>
+        if (!signal.aborted)
+          await request<void>(signal, (done) =>
             channel.close(handle, (error) => done(error ?? undefined, undefined)),
           );
       }
       return directoryListing(canonical, entries, truncated, true);
-    } catch (error) {
-      if (timedOut) throw new FileBrowserError('unavailable');
-      throw error;
-    } finally {
-      clearTimeout(timer);
-      sftp?.removeListener('close', close);
-      sftp?.removeListener('error', close);
-      controller.signal.removeEventListener('abort', stop);
-      // Keep an error listener until the channel finishes shutting down.
-      sftp?.on('error', () => {});
-      sftp?.destroy();
-      this.pending = undefined;
-    }
+    });
+  }
+  mutate(parent: string, operation: FileOperation): Promise<void> {
+    return this.withChannel(async (channel, signal) => {
+      const canonical = await request<string>(signal, (done) => channel.realpath(parent, done));
+      const path = childPath(canonical, operation.name, true);
+      const call = (invoke: (done: (error: Error | null | undefined) => void) => void) =>
+        request<void>(signal, (done) => invoke((error) => done(error ?? undefined, undefined)));
+      if (operation.action === 'mkdir') {
+        await call((done) => channel.mkdir(path, done));
+        return;
+      }
+      const stats = await request<import('ssh2').Stats>(signal, (done) =>
+        channel.lstat(path, done),
+      );
+      const kind = fileKind(stats.mode);
+      if (kind === 'other') throw new FileBrowserError('unsupported');
+      if (operation.action === 'delete') {
+        if (kind === 'directory') await call((done) => channel.rmdir(path, done));
+        else await call((done) => channel.unlink(path, done));
+      } else if (operation.action === 'chmod') {
+        if (kind === 'symlink') throw new FileBrowserError('unsupported');
+        await call((done) => channel.chmod(path, Number.parseInt(operation.mode, 8), done));
+      } else {
+        const destination = childPath(canonical, operation.newName, true);
+        const exists = await request<boolean>(signal, (done) =>
+          channel.lstat(destination, (error) => {
+            if (!error) done(undefined, true);
+            else if ((error as Error & { code?: number }).code === 2) done(undefined, false);
+            else done(error, false);
+          }),
+        );
+        if (exists) throw new FileBrowserError('exists');
+        // Standard SFTP rename refuses an existing target; do not use the overwrite extension.
+        await call((done) => channel.rename(path, destination, done));
+      }
+    }, true);
   }
 }

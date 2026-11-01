@@ -21,6 +21,8 @@ export function fileErrorCode(error: unknown): FileErrorCode {
   if (code === 'EACCES' || code === 'EPERM' || code === 3) return 'permission';
   if (code === 'ENOENT' || code === 2) return 'missing';
   if (code === 'ENOTDIR') return 'directory';
+  if (code === 'EEXIST' || code === 11) return 'exists';
+  if (code === 'ENOTEMPTY') return 'not-empty';
   return 'unavailable';
 }
 export function validFileRequest(value: unknown): value is FileListRequest {
@@ -63,7 +65,14 @@ export function directoryListing(
     current = paths.join(current, name);
     breadcrumbs.push({ name, path: current });
   }
-  return { path, parent: paths.dirname(path), breadcrumbs, entries, truncated };
+  return {
+    path,
+    parent: paths.dirname(path),
+    breadcrumbs,
+    entries,
+    truncated,
+    canChmod: remote || process.platform !== 'win32',
+  };
 }
 export async function listLocalDirectory(requested: string): Promise<DirectoryListing> {
   const path = await realpath(requested || homedir());

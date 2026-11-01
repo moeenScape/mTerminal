@@ -1,7 +1,15 @@
 import { useEffect, useId, useState } from 'react';
 import { Icon } from '../../components/Icon';
-import type { DirectoryListing, FileListRequest } from '../../../../shared/files';
+import type {
+  DirectoryListing,
+  FileEntry,
+  FileListRequest,
+  FileMutationRequest,
+  FileOperation,
+} from '../../../../shared/files';
 import { fileSize, visibleFiles, type FileSort } from './file-browser';
+import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
+import { FileOperationDialog, type FileAction } from './FileOperationDialog';
 
 export function FileBrowser({
   sessionId,
@@ -28,17 +36,13 @@ export function FileBrowser({
       </header>
       <div className="file-browser-panes">
         <DirectoryPane side="local" title="Local computer" sessionId={null} />
-        {remote && sessionId ? (
-          <DirectoryPane key={sessionId} side="remote" title={remoteTitle} sessionId={sessionId} />
+        {remote ? (
+          <DirectoryPane side="remote" title={remoteTitle} sessionId={sessionId} />
         ) : (
           <section className="file-pane file-pane-empty" aria-label="Remote files">
             <Icon name="hosts" />
-            <h2>{remote ? 'SSH disconnected' : 'Browse a remote host'}</h2>
-            <p>
-              {remote
-                ? 'Reconnect this SSH terminal, then retry Files.'
-                : 'Connect to a saved host from Hosts, then open Files in its SSH tab.'}
-            </p>
+            <h2>Browse a remote host</h2>
+            <p>Connect to a saved host from Hosts, then open Files in its SSH tab.</p>
           </section>
         )}
       </div>
@@ -64,7 +68,14 @@ function DirectoryPane({
   const [hidden, setHidden] = useState(false);
   const [sort, setSort] = useState<FileSort>('name');
   const [descending, setDescending] = useState(false);
+  const [action, setAction] = useState<FileAction | null>(null);
+  const [menu, setMenu] = useState<{ entry: FileEntry; position: MenuPosition } | null>(null);
+  const [mutating, setMutating] = useState(false);
+  const [notice, setNotice] = useState('');
+  const disconnected = side === 'remote' && !sessionId;
+  const blocked = busy || mutating || disconnected;
   useEffect(() => {
+    if (side === 'remote' && !sessionId) return;
     let cancelled = false;
     const request: FileListRequest =
       side === 'local'
@@ -95,11 +106,45 @@ function DirectoryPane({
     setLocation((current) => ({ path, revision: current.revision + 1 }));
   };
   const entries = visibleFiles(listing?.entries ?? [], hidden, sort, descending);
+  const beginAction = (type: FileOperation['action'], entry?: FileEntry) => {
+    if (!listing || blocked) return;
+    setAction({ action: type, path: listing.path, entry, sessionId });
+    setMenu(null);
+  };
+  const perform = async (operation: FileOperation) => {
+    if (!action || !listing || blocked)
+      throw new Error('Wait for the folder or reconnect before making changes.');
+    if (side === 'remote' && action.sessionId !== sessionId)
+      throw new Error('The SSH connection changed. Close this dialog and reopen the action.');
+    setMutating(true);
+    setNotice('');
+    const request: FileMutationRequest =
+      side === 'local'
+        ? { side, path: action.path, operation }
+        : { side, path: action.path, sessionId: sessionId!, operation };
+    try {
+      await window.mterminal.mutateDirectory(request);
+      setNotice(
+        `${operation.action === 'mkdir' ? 'Created folder' : operation.action === 'rename' ? 'Renamed item' : operation.action === 'delete' ? 'Deleted item' : 'Changed permissions'}: ${operation.name}${operation.action === 'rename' ? ` → ${operation.newName}` : ''}`,
+      );
+    } catch (error) {
+      setNotice(
+        `${operation.action}: ${action.entry?.path ?? `${action.path} / ${operation.name}`}${operation.action === 'rename' ? ` → ${operation.newName}` : ''}. ` +
+          (error instanceof Error
+            ? error.message
+            : 'The file operation failed. Refresh before retrying.'),
+      );
+    } finally {
+      setAction(null);
+      setMutating(false);
+      navigate(action.path);
+    }
+  };
   return (
     <section
       className="file-pane"
       aria-label={`${side === 'local' ? 'Local' : 'Remote'} files`}
-      aria-busy={busy}
+      aria-busy={busy || mutating}
     >
       <header className="file-pane-heading">
         <Icon name={side === 'local' ? 'terminal' : 'hosts'} />
@@ -111,7 +156,7 @@ function DirectoryPane({
           <button
             key={crumb.path}
             type="button"
-            disabled={busy || crumb.path === listing.path}
+            disabled={blocked || crumb.path === listing.path}
             onClick={() => navigate(crumb.path)}
             title={crumb.path}
           >
@@ -135,31 +180,34 @@ function DirectoryPane({
           maxLength={4096}
           autoComplete="off"
           spellCheck={false}
-          disabled={busy}
+          disabled={blocked}
           placeholder={side === 'local' ? 'Home folder' : 'Remote home folder'}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={blocked}>
           Go
         </button>
       </form>
       <div className="file-pane-controls">
         <button
           type="button"
-          disabled={busy || !listing || listing.path === listing.parent}
+          disabled={blocked || !listing || listing.path === listing.parent}
           onClick={() => listing && navigate(listing.parent)}
         >
           Up
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={blocked}
           onClick={() => navigate(message ? location.path : (listing?.path ?? ''))}
         >
           {message ? 'Retry' : 'Refresh'}
         </button>
-        <button type="button" disabled={busy} onClick={() => navigate('')}>
+        <button type="button" disabled={blocked} onClick={() => navigate('')}>
           Home
+        </button>
+        <button type="button" disabled={blocked || !listing} onClick={() => beginAction('mkdir')}>
+          New folder
         </button>
         <label>
           <input
@@ -195,6 +243,16 @@ function DirectoryPane({
           {message}
         </p>
       )}
+      {disconnected && (
+        <p className="file-error" role="alert">
+          SSH disconnected. Reconnect the terminal to browse or change remote files.
+        </p>
+      )}
+      {notice && (
+        <p className="file-operation-notice" role="status">
+          {notice}
+        </p>
+      )}
       <div className="file-table-scroll">
         <table className="file-table">
           <caption className="sr-only">{side} directory entries</caption>
@@ -204,6 +262,9 @@ function DirectoryPane({
               <th scope="col">Size</th>
               <th scope="col">Permissions</th>
               <th scope="col">Modified</th>
+              <th scope="col">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -214,7 +275,7 @@ function DirectoryPane({
                     <button
                       type="button"
                       className="file-name"
-                      disabled={busy}
+                      disabled={blocked}
                       title={
                         entry.kind === 'symlink'
                           ? `${entry.name} — symbolic link; open to browse its directory target`
@@ -239,6 +300,20 @@ function DirectoryPane({
                   <code>{entry.permissions}</code>
                 </td>
                 <td>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Actions for ${entry.name}`}
+                    aria-haspopup="menu"
+                    disabled={blocked || entry.kind === 'other'}
+                    onClick={(event) =>
+                      setMenu({ entry, position: menuPositionFor(event.currentTarget) })
+                    }
+                  >
+                    <Icon name="more" />
+                  </button>
+                </td>
+                <td>
                   {Number.isFinite(entry.modified)
                     ? new Date(entry.modified).toLocaleString()
                     : '—'}
@@ -247,7 +322,7 @@ function DirectoryPane({
             ))}
           </tbody>
         </table>
-        {!entries.length && !busy && !message && (
+        {!entries.length && !blocked && !message && (
           <p className="file-empty">
             {listing?.entries.length
               ? 'No visible files. Enable Hidden files to see more.'
@@ -256,11 +331,53 @@ function DirectoryPane({
         )}
       </div>
       <footer className="file-pane-footer" role="status">
-        {busy
-          ? 'Loading folder…'
-          : `${entries.length} items${message && listing ? ' · Previous folder shown' : ''}`}
+        {disconnected
+          ? 'Disconnected'
+          : mutating
+            ? 'Applying change…'
+            : busy
+              ? 'Loading folder…'
+              : `${entries.length} items${message && listing ? ' · Previous folder shown' : ''}`}
         {listing?.truncated && ' · Showing a partial listing (5,000-entry limit).'}
       </footer>
+      {menu && listing && !blocked && (
+        <ContextMenu
+          label={`File actions for ${menu.entry.name}`}
+          position={menu.position}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: 'Rename…',
+              onSelect: () => {
+                beginAction('rename', menu.entry);
+              },
+            },
+            {
+              label: 'Permissions…',
+              disabled: !listing.canChmod || menu.entry.kind === 'symlink',
+              onSelect: () => {
+                beginAction('chmod', menu.entry);
+              },
+            },
+            {
+              label: 'Delete…',
+              danger: true,
+              separator: true,
+              onSelect: () => {
+                beginAction('delete', menu.entry);
+              },
+            },
+          ]}
+        />
+      )}
+      {action && (
+        <FileOperationDialog
+          action={action}
+          scope={`${side === 'local' ? 'Local computer' : `Remote: ${title}`} · ${action.path}`}
+          onCancel={() => setAction(null)}
+          onConfirm={perform}
+        />
+      )}
     </section>
   );
 }

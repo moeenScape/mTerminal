@@ -123,6 +123,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listHosts',
       'listSshIdentities',
       'lockVault',
+      'mutateDirectory',
       'onHistoryChanged',
       'onSshChallenge',
       'onTerminalEvent',
@@ -174,6 +175,51 @@ test('browses local files, toggles hidden entries and reports folder errors', as
   await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to terminal', exact: true }).click();
   await expect(page.getByRole('region', { name: 'File browser', exact: true })).toBeHidden();
+});
+
+test('creates, renames and confirms deletion of a local folder without overwriting collisions', async () => {
+  const folder = join(userData, 'file-operation-fixture');
+  await mkdir(folder);
+  await writeFile(join(folder, 'existing'), 'keep');
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const local = page.getByRole('region', { name: 'Local files', exact: true });
+  await expect(local.getByLabel('local folder path')).toBeEnabled();
+  await local.getByLabel('local folder path').fill(folder);
+  await local.getByRole('button', { name: 'Go', exact: true }).click();
+  await expect(local.getByText('existing', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'New folder', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Folder name', { exact: true }).fill('new-folder');
+  await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect(local.getByRole('button', { name: 'Actions for new-folder' })).toBeEnabled();
+  await local.getByRole('button', { name: 'Actions for new-folder' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('New name', { exact: true }).fill('existing');
+  await dialog.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(local.getByRole('status').filter({ hasText: 'already exists' })).toBeVisible();
+  expect(await readFile(join(folder, 'existing'), 'utf8')).toBe('keep');
+  await expect(local.getByRole('button', { name: 'Actions for new-folder' })).toBeEnabled();
+  await local.getByRole('button', { name: 'Actions for new-folder' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('New name', { exact: true }).fill('renamed-folder');
+  await page.getByRole('dialog').getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(local.getByRole('button', { name: 'Actions for renamed-folder' })).toBeEnabled();
+  await local.getByRole('button', { name: 'Actions for renamed-folder' }).click();
+  await page.getByRole('menuitem', { name: 'Delete…', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('renamed-folder');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(local.getByRole('button', { name: 'Actions for renamed-folder' })).toBeEnabled();
+  await local.getByRole('button', { name: 'Actions for renamed-folder' }).click();
+  await page.getByRole('menuitem', { name: 'Delete…', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete permanently', exact: true })
+    .click();
+  await expect(local.getByRole('button', { name: 'Actions for renamed-folder' })).toBeHidden();
+  expect(await readFile(join(folder, 'existing'), 'utf8')).toBe('keep');
 });
 
 test('blocks popups and renderer-initiated navigation', async () => {

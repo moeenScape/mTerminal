@@ -152,6 +152,10 @@ export class TerminalSession {
     if (!this.session?.pty.listDirectory) throw new FileBrowserError('disconnected');
     return this.session.pty.listDirectory(path);
   }
+  async mutateDirectory(path: string, operation: import('../../shared/files.js').FileOperation) {
+    if (!this.session?.pty.mutateDirectory) throw new FileBrowserError('disconnected');
+    return this.session.pty.mutateDirectory(path, operation);
+  }
   resize(id: string, size: TerminalSize): void {
     if (!validTerminalSize(size)) throw new Error('Invalid terminal size.');
     if (this.opening?.id === id) this.opening.size = { ...size };
