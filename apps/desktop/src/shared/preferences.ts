@@ -15,7 +15,7 @@ export const defaultPreferences: Preferences = {
   defaultShell: '',
   navigationShortcuts: true,
   rememberWindow: true,
-  recordHistory: true,
+  recordHistory: false,
   autocomplete: true,
 };
 const required = ['appearance', 'defaultShell', 'navigationShortcuts', 'rememberWindow'];

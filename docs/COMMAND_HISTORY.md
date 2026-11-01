@@ -19,8 +19,9 @@ cursor. The typed part is highlighted. **Up/Down** chooses a row, **Right Arrow*
 inserts it, **Enter** runs the chosen command, and **Escape** hides the list. With no row chosen,
 **Enter** runs what you typed; **Tab** always keeps its normal shell meaning.
 
-Both settings are on by default and saved with your preferences. They can also be changed in
-**Settings**.
+Autocomplete is on by default. Saving new commands is off until enabled explicitly. Both settings
+are saved with your preferences and can also be changed in **Settings**. An existing explicit
+recording preference is preserved.
 
 ## Where commands come from
 
@@ -32,6 +33,12 @@ Both settings are on by default and saved with your preferences. They can also b
    suggestions are useful immediately. Only the last 1 MiB is read, duplicates are removed, and
    the file is re-read only when it changes. mTerminal never writes to this file; its entries can
    be copied or inserted but not deleted from the app.
+
+Timestamp-delimited multiline Bash entries remain a single history item and are excluded from
+autocomplete and insertion; they can be copied. Text before the first timestamp is omitted because
+it may be an incomplete entry from the bounded read. Untimestamped files are assumed to use Bash's
+usual one-command-per-line format; multiline boundaries cannot be recovered reliably there.
+An unreadable Bash history file does not prevent access to saved vault history.
 
 Commands that start with a space, contain control characters, or look like they carry a password,
 token, secret or API key are never saved or suggested. That check cannot catch every secret.

@@ -24,6 +24,11 @@ describe('preferences', () => {
       ),
     );
     expect(validatePreferences(older)).toEqual(defaultPreferences);
+    expect(validatePreferences(older).recordHistory).toBe(false);
+    expect(defaultPreferences.recordHistory).toBe(false);
+    expect(validatePreferences({ ...defaultPreferences, recordHistory: true }).recordHistory).toBe(
+      true,
+    );
     expect(() => validatePreferences({ ...defaultPreferences, autocomplete: 'yes' })).toThrow();
   });
   it('persists settings and preserves malformed files', async () => {

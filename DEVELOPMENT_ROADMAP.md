@@ -150,6 +150,14 @@ cover capture/storage and persistence-success/error notifications; interactive U
 remains outstanding. The sidebar/dropdown redesign follows the supplied reference images;
 six focused tests pass for matching, popup bounds, capture/storage, and save notifications.
 
+CH02–CH04 review fixes: recording defaults to off for new and older settings without an
+explicit recording preference; existing explicit choices are preserved. Native Bash history
+preserves timestamp-delimited multiline commands as single items (copy only), drops ambiguous
+text before the first timestamp, and treats file-open failures as an unavailable native source
+without blocking saved history. Untimestamped files still assume one command per line.
+All 13 focused history, autocomplete, IPC, and preference tests passed. Static checks passed;
+interactive Electron validation remains pending.
+
 Dependencies: Phase 3 and the SSH connection layer.
 
 - [ ] **F32 — File browser:** Local/remote panes, navigation, hidden files, sorting, and metadata.

@@ -18,18 +18,25 @@ export function bashHistoryPath(env: NodeJS.ProcessEnv = process.env) {
 }
 
 /**
- * Unique commands from Bash's history file, newest first. Timestamp comment lines
- * (`#1700000000`, written when HISTTIMEFORMAT is set) and filtered commands are skipped.
+ * Unique commands, newest first. Timestamp-delimited multiline entries stay intact;
+ * any text before the first timestamp is omitted because its boundary is unknown.
  */
 export function parseBashHistory(content: string): string[] {
   const seen = new Set<string>();
   const commands: string[] = [];
-  const lines = content.split(/\r?\n/);
-  for (let index = lines.length - 1; index >= 0 && commands.length < MAX_COMMANDS; index--) {
-    const line = lines[index]!.trimEnd();
-    if (/^#\d+$/.test(line) || !isRecordableCommand(line) || seen.has(line)) continue;
-    seen.add(line);
-    commands.push(line);
+  const text = content.replace(/\r\n/g, '\n');
+  // shortcut: untimestamped files have no reliable multiline boundaries; Bash's usual one-line format is assumed.
+  const entries = /^#\d+$/m.test(text)
+    ? text
+        .split(/^#\d+(?:\n|$)/m)
+        .slice(1)
+        .map((entry) => entry.replace(/\n$/, ''))
+    : text.split('\n');
+  for (let index = entries.length - 1; index >= 0 && commands.length < MAX_COMMANDS; index--) {
+    const command = entries[index]!;
+    if (!isRecordableCommand(command) || seen.has(command)) continue;
+    seen.add(command);
+    commands.push(command);
   }
   return commands;
 }
@@ -69,29 +76,26 @@ export class BashHistoryFile {
   constructor(private readonly path: string) {}
 
   async commands(): Promise<string[]> {
-    let info;
     try {
-      info = await stat(this.path);
+      const info = await stat(this.path);
+      if (!info.isFile()) return [];
+      const key = `${info.size}:${info.mtimeMs}`;
+      if (this.cached?.key === key) return this.cached.commands;
+      const handle = await open(this.path, 'r');
+      try {
+        const length = Math.min(info.size, MAX_BYTES);
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, info.size - length);
+        let text = buffer.toString('utf8');
+        // A partial first line is dropped when the read starts mid-file.
+        if (length < info.size) text = text.slice(text.indexOf('\n') + 1);
+        this.cached = { key, commands: parseBashHistory(text) };
+        return this.cached.commands;
+      } finally {
+        await handle.close();
+      }
     } catch {
       return [];
-    }
-    if (!info.isFile()) return [];
-    const key = `${info.size}:${info.mtimeMs}`;
-    if (this.cached?.key === key) return this.cached.commands;
-    const handle = await open(this.path, 'r');
-    try {
-      const length = Math.min(info.size, MAX_BYTES);
-      const buffer = Buffer.alloc(length);
-      await handle.read(buffer, 0, length, info.size - length);
-      let text = buffer.toString('utf8');
-      // A partial first line is dropped when the read starts mid-file.
-      if (length < info.size) text = text.slice(text.indexOf('\n') + 1);
-      this.cached = { key, commands: parseBashHistory(text) };
-      return this.cached.commands;
-    } catch {
-      return [];
-    } finally {
-      await handle.close();
     }
   }
 }
