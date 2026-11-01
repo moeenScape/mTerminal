@@ -5,6 +5,7 @@ import type { HostDraft } from '../../shared/hosts.js';
 import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../../shared/ssh.js';
 import type { TerminalSize, SshConnectionState } from '../../shared/terminal.js';
 import { AppFailure } from '../failures.js';
+import { RemoteFileBrowser } from '../files/remote.js';
 
 export function keyFingerprint(key: Buffer): string {
   return 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
@@ -24,6 +25,7 @@ export function openSsh(
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const client = new Client();
+    const files = new RemoteFileBrowser(client);
     let stream: ClientChannel | undefined;
     let settled = false;
     let ended = false;
@@ -52,6 +54,7 @@ export function openSsh(
     const finish = () => {
       if (ended) return;
       ended = true;
+      files.dispose();
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
       // A remote close can arrive while backpressure has paused readable output.
@@ -159,6 +162,7 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
+            listDirectory: (path) => files.list(path),
             write: (data) => {
               if (!ended) channel.write(data);
             },

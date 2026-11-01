@@ -118,6 +118,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'importSshKey',
       'importWorkspace',
       'installSshPublicKey',
+      'listDirectory',
       'listHostGroups',
       'listHosts',
       'listSshIdentities',
@@ -145,6 +146,34 @@ test('exposes only the intended bridge and no Node globals', async () => {
     nodeProcess: 'undefined',
     nodeRequire: 'undefined',
   });
+});
+
+test('browses local files, toggles hidden entries and reports folder errors', async () => {
+  const folder = join(userData, 'file-browser-fixture');
+  await mkdir(join(folder, 'child'), { recursive: true });
+  await writeFile(join(folder, '.hidden'), 'hidden');
+  await writeFile(join(folder, 'visible.txt'), 'content');
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const local = page.getByRole('region', { name: 'Local files', exact: true });
+  await expect(local.getByLabel('local folder path')).toBeEnabled();
+  await local.getByLabel('local folder path').fill(folder);
+  await local.getByRole('button', { name: 'Go', exact: true }).click();
+  await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  await expect(local.getByText('.hidden', { exact: true })).toBeHidden();
+  await local.getByLabel('Hidden files').check();
+  await expect(local.getByText('.hidden', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'child', exact: true }).click();
+  await expect(local.getByText('This folder is empty.')).toBeVisible();
+  await local.getByRole('button', { name: 'Up', exact: true }).click();
+  await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  await local.getByLabel('local folder path').fill(join(folder, 'absent'));
+  await local.getByRole('button', { name: 'Go', exact: true }).click();
+  await expect(local.getByRole('alert')).toContainText('no longer exists');
+  await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to terminal', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'File browser', exact: true })).toBeHidden();
 });
 
 test('blocks popups and renderer-initiated navigation', async () => {

@@ -23,14 +23,14 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M1 — Local terminal and SSH |
-| Active feature | CH01–CH04 implemented — Local Bash command history and suggestions, inserted before F32 at user request |
-| Next feature | F32 — File browser; Phase 2 desktop/platform acceptance remains outstanding |
+| Current milestone | M2 — Secure credentials and SFTP |
+| Active feature | F32 implemented — Read-only local/SFTP file browser; Phase 4 tests deferred |
+| Next feature | F33 — File operations; earlier desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-10-29 |
+| Last roadmap update | 2026-11-01 |
 
 ## Selected technology stack
 
@@ -160,7 +160,7 @@ interactive Electron validation remains pending.
 
 Dependencies: Phase 3 and the SSH connection layer.
 
-- [ ] **F32 — File browser:** Local/remote panes, navigation, hidden files, sorting, and metadata.
+- [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [ ] **F33 — File operations:** Directories, rename, deletion, and permitted attribute changes.
 - [ ] **F34 — Transfers:** Queue, upload/download progress, cancellation, and failure reporting.
 - [ ] **F35 — Overwrites:** Replace/skip decisions and validated destination paths.
@@ -841,3 +841,24 @@ On Linux/Node 24.12.0, all 133 unit tests passed. The `npm test` E2E stage attem
 36 Playwright cases, but each Electron process failed to launch (`Process failed to launch!`),
 consistent with the documented Chromium sandbox restriction. Build, typecheck, lint, formatting,
 and `git diff --check` passed. Windows/macOS and interactive keychain recovery remain unverified.
+
+### F32 implementation
+
+Added a Files workspace inside each terminal tab, with local and remote panes, canonical folder
+paths and breadcrumbs, home/up/refresh/retry navigation, hidden entries, directory-first sorting,
+sizes, numeric permissions, modification dates, and explicit symlink markers. Narrow windows stack
+the panes. A failed navigation retains the previous successful folder with an error message.
+
+Remote browsing opens a bounded, short-lived SFTP channel on the existing fingerprint-verified
+SSH transport, preserving the current authentication and vault workflow. Tab/session shutdown
+aborts pending requests; normal browser reads close their handle/channel without ending the shell.
+The window-owned preload request validates paths and session IDs, limits concurrent requests,
+caps listings at 5,000 entries, and reports permissions, missing paths, disconnects and timeouts.
+File contents and filesystem mutations are outside F32.
+
+Typecheck, lint, formatting, production build and diff checks passed on Linux. Tests are written
+for local browsing/metadata/filtering/sorting, sender and path validation, session ownership,
+SFTP EOF, bounds, cancellation/timeout cleanup, a real loopback SSH/SFTP fixture, and the desktop
+browser workflow. Test execution is deferred until the Phase 4 gate, per the development workflow.
+Interactive visual checks, live-server acceptance and Windows/macOS verification remain pending.
+Usage and limits: `docs/FILE_BROWSER.md`. Next: F33; commit without pushing.

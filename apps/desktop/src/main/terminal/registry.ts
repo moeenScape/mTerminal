@@ -8,6 +8,7 @@ import {
 import type { TerminalInput } from '../../shared/terminal-input.js';
 import { AppFailure } from '../failures.js';
 import { TerminalSession } from './session.js';
+import { FileBrowserError } from '../files/listing.js';
 
 export class TerminalRegistry {
   private readonly sessions = new Map<string, TerminalSession>();
@@ -55,6 +56,11 @@ export class TerminalRegistry {
   }
   write(id: string, input: TerminalInput): void {
     this.sessions.get(id)?.write(id, input);
+  }
+  async listDirectory(id: string, path: string) {
+    const session = this.sessions.get(id);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.listDirectory(path);
   }
   resize(id: string, size: TerminalSize): void {
     this.sessions.get(id)?.resize(id, size);

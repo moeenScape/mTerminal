@@ -9,6 +9,7 @@ const paths = {
   plus: 'M12 5v14 M5 12h14',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  file: 'M6 3h8l4 4v14H6z M14 3v5h4',
   edit: 'M4 20h4L19 9l-4-4L4 16z M14 6l4 4',
   chevron: 'm9 6 6 6-6 6',
   history: 'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',

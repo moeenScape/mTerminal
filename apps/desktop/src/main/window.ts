@@ -3,6 +3,7 @@ import type { LocalDatabase } from './storage/database.js';
 import { attachClipboard } from './clipboard.js';
 import { validateShellOverride } from './terminal/shells.js';
 import { attachTerminal } from './terminal/ipc.js';
+import { attachFiles } from './files/ipc.js';
 import { AppFailure, failureCode } from './failures.js';
 import type { DiagnosticLog } from './diagnostics.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
@@ -298,6 +299,7 @@ export async function createMainWindow(
     secrets,
     () => store.preferences.recordHistory,
   );
+  attachFiles(window, rendererUrl, terminals);
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');
     dialog.showErrorBox('Interface stopped', failureMessages['renderer-crashed']);

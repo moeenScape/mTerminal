@@ -6,6 +6,10 @@ F01–F31 are implemented: the application window, restricted preload bridge, Te
 
 ## Selected stack
 
+F32 adds a read-only local/SFTP file browser. Connect to a saved host and open **Files** from
+its terminal tab to browse both computers using the verified SSH connection. See
+[File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.
+
 - Electron and TypeScript for desktop lifecycle, process management, and application logic.
 - React for the interface and xterm.js for terminal display/input.
 - node-pty for local shells and ssh2 for remote SSH/SFTP.

@@ -36,6 +36,8 @@
     "src/main/terminal/bash-history.ts",
     "src/main/terminal/native-history.ts",
     "src/main/terminal/ipc.ts",
+    "src/main/files/**/*.ts",
+    "src/renderer/src/features/files/file-browser.ts",
     "src/main/terminal/ssh-challenges.ts",
     "src/main/terminal/known-hosts.ts",
     "src/main/terminal/credentials.ts",

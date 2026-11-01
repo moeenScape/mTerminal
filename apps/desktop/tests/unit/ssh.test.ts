@@ -59,6 +59,33 @@ async function fixture(
     connection.on('ready', () =>
       connection.on('session', (accept) => {
         const session = accept();
+        session.on('sftp', (acceptSftp) => {
+          const sftp = acceptSftp();
+          const attrs = {
+            mode: 0o100644,
+            uid: 1000,
+            gid: 1000,
+            size: 7,
+            atime: 1700000000,
+            mtime: 1700000000,
+          };
+          let listed = false;
+          sftp.on('REALPATH', (id) =>
+            sftp.name(id, [{ filename: '/fixture', longname: '/fixture', attrs }]),
+          );
+          sftp.on('OPENDIR', (id, path) => {
+            if (path === '/fixture') sftp.handle(id, Buffer.from('directory'));
+            else sftp.status(id, utils.sftp.STATUS_CODE.NO_SUCH_FILE);
+          });
+          sftp.on('READDIR', (id) => {
+            if (listed) sftp.status(id, utils.sftp.STATUS_CODE.EOF);
+            else {
+              listed = true;
+              sftp.name(id, [{ filename: 'readme.txt', longname: 'readme.txt', attrs }]);
+            }
+          });
+          sftp.on('CLOSE', (id) => sftp.status(id, utils.sftp.STATUS_CODE.OK));
+        });
         session.on('pty', (accept, _reject, info) => {
           windows.push([info.cols, info.rows]);
           accept?.();
@@ -101,6 +128,34 @@ async function fixture(
 }
 
 describe('SSH terminal transport', () => {
+  it('browses SFTP on the verified connection and keeps its terminal usable', async () => {
+    await fixture(async (port, fingerprint, _auth, _windows, connectionCount) => {
+      const transport = await openSsh(
+        { ...host, port },
+        { username: 'user', password: 'test-password', fingerprint },
+        size,
+        new AbortController().signal,
+      );
+      try {
+        const listing = await transport.listDirectory!('');
+        expect(listing.path).toBe('/fixture');
+        expect(listing.entries).toMatchObject([
+          { name: 'readme.txt', size: 7, permissions: '0644' },
+        ]);
+        expect(connectionCount()).toBe(1);
+        const output: string[] = [];
+        const listener = transport.onData((data) => output.push(data));
+        try {
+          transport.write('still connected');
+          await expect.poll(() => output.join('')).toContain('still connected');
+        } finally {
+          listener.dispose();
+        }
+      } finally {
+        transport.kill();
+      }
+    });
+  });
   it('validates credentials and verifies exact SHA256 fingerprints', () => {
     expect(fingerprintMatches(Buffer.from('key'), 'SHA256:wrong')).toBe(false);
     expect(() =>

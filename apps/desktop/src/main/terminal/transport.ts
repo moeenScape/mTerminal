@@ -2,7 +2,10 @@ import type { IDisposable, IPty } from 'node-pty';
 export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
-> & { onExit: (listener: (event: TerminalExit) => void) => IDisposable };
+> & {
+  onExit: (listener: (event: TerminalExit) => void) => IDisposable;
+  listDirectory?: (path: string) => Promise<import('../../shared/files.js').DirectoryListing>;
+};
 export interface TerminalExit {
   exitCode: number;
   connectionState?: 'disconnected' | 'failed';

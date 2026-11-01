@@ -22,6 +22,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
 import { historyChannels, historyEvents, type CommandHistoryEntry } from '../shared/history.js';
+import { FILES_LIST, fileErrorMessages, type FileListResult } from '../shared/files.js';
 
 async function historyRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: VaultResponse<T> = await ipcRenderer.invoke(channel, ...args);
@@ -30,6 +31,11 @@ async function historyRequest<T>(channel: string, ...args: unknown[]): Promise<T
 }
 
 const api: DesktopApi = {
+  listDirectory: async (request) => {
+    const result: FileListResult = await ipcRenderer.invoke(FILES_LIST, request);
+    if (!result.ok) throw new Error(fileErrorMessages[result.code]);
+    return result.value;
+  },
   onHistoryChanged: (listener) => {
     const receive = () => listener();
     ipcRenderer.on(historyEvents.changed, receive);

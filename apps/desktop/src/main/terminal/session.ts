@@ -2,6 +2,7 @@ import type { TerminalInput } from '../../shared/terminal-input.js';
 import type { IDisposable } from 'node-pty';
 import type { TerminalTransport } from './transport.js';
 import { validTerminalSize, type TerminalEvent, type TerminalSize } from '../../shared/terminal.js';
+import { FileBrowserError } from '../files/listing.js';
 
 export const HIGH_WATER = 256 * 1024;
 export const OUTPUT_BATCH = 64 * 1024;
@@ -146,6 +147,10 @@ export class TerminalSession {
       this.session.pty.write(
         input.kind === 'binary' ? Buffer.from(input.data, 'latin1') : input.data,
       );
+  }
+  async listDirectory(path: string) {
+    if (!this.session?.pty.listDirectory) throw new FileBrowserError('disconnected');
+    return this.session.pty.listDirectory(path);
   }
   resize(id: string, size: TerminalSize): void {
     if (!validTerminalSize(size)) throw new Error('Invalid terminal size.');

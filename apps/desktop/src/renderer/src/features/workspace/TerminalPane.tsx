@@ -37,6 +37,7 @@ import '@xterm/xterm/css/xterm.css';
 import { failureMessages } from '../../../../shared/failures';
 import { mirrorTerminalStyles } from './xterm-styles';
 import { useCommandHistory } from './useCommandHistory';
+import { FileBrowser } from '../files/FileBrowser';
 
 export function TerminalPane({
   id,
@@ -69,10 +70,12 @@ export function TerminalPane({
   const searchFrame = useRef<number | undefined>(undefined);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [results, setResults] = useState<SearchSummary>({ index: -1, count: 0 });
   const openSearch = useCallback(() => {
+    setFilesOpen(false);
     setSearchOpen(true);
     if (searchFrame.current !== undefined) cancelAnimationFrame(searchFrame.current);
     searchFrame.current = requestAnimationFrame(() => {
@@ -88,7 +91,7 @@ export function TerminalPane({
   const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const options = terminalOptions(terminalAppearance, appearance);
   const history = useCommandHistory(
-    active,
+    active && !filesOpen,
     !hostId,
     session,
     inputReady,
@@ -488,9 +491,25 @@ export function TerminalPane({
     {
       label: 'Command history',
       separator: true,
-      onSelect: () => setTools('history'),
+      onSelect: () => {
+        setFilesOpen(false);
+        setTools('history');
+      },
     },
-    { label: 'Terminal appearance…', onSelect: () => setTools('themes') },
+    {
+      label: 'Terminal appearance…',
+      onSelect: () => {
+        setFilesOpen(false);
+        setTools('themes');
+      },
+    },
+    {
+      label: 'Browse files',
+      onSelect: () => {
+        setTools(null);
+        setFilesOpen(true);
+      },
+    },
     {
       label: running || starting ? 'Close session' : 'Close tab',
       danger: true,
@@ -572,9 +591,26 @@ export function TerminalPane({
           aria-expanded={tools !== null}
           aria-controls={`terminal-tools-${id}`}
           title="Autocomplete, history and themes"
-          onClick={() => setTools((value) => (value ? null : 'history'))}
+          onClick={() => {
+            setFilesOpen(false);
+            setTools((value) => (value ? null : 'history'));
+          }}
         >
           <Icon name="panel" />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Files"
+          title="Browse local and SFTP files"
+          aria-expanded={filesOpen}
+          aria-controls={`files-${id}`}
+          onClick={() => {
+            setFilesOpen((value) => !value);
+            setTools(null);
+          }}
+        >
+          <Icon name="folder" />
         </button>
         <button
           type="button"
@@ -663,6 +699,7 @@ export function TerminalPane({
       <div className="terminal-stage">
         <div
           className="terminal-container"
+          inert={filesOpen}
           ref={container}
           style={{ background: options.theme.background }}
           aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
@@ -672,6 +709,19 @@ export function TerminalPane({
           }}
         />
         {history.overlay}
+        {filesOpen && (
+          <div className="files-overlay" id={`files-${id}`}>
+            <FileBrowser
+              remote={!!hostId}
+              sessionId={hostId && running ? session.current : null}
+              remoteTitle={title}
+              onClose={() => {
+                setFilesOpen(false);
+                terminal.current?.focus();
+              }}
+            />
+          </div>
+        )}
         {hostId && connection && !sshPrompt && (
           <ConnectionProgress
             hostId={hostId}
