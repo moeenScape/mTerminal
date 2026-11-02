@@ -138,6 +138,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'readClipboardText',
       'resetVault',
       'resizeTerminal',
+      'resolveTransferConflict',
       'saveHost',
       'saveHostGroup',
       'savePreferences',
@@ -271,6 +272,97 @@ test('renders transfer progress and cancels and clears jobs through preload', as
   await expect(queue.getByRole('status')).toHaveText('cancelled');
   await queue.getByRole('button', { name: 'Clear finished' }).click();
   await expect(queue.getByRole('progressbar')).toBeHidden();
+});
+
+test('previews transfer conflicts with Skip as default and explicit Replace and Cancel', async () => {
+  await application.evaluate(({ ipcMain, BrowserWindow }, directory) => {
+    const token = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    let jobs = ['skip.txt', 'replace.txt', 'cancel.txt'].map((name, index) => ({
+      id: `14e9f162-d3cd-4c8f-a70a-2323a1751a9${index}`,
+      sessionId: token,
+      title: 'Conflict fixture',
+      direction: 'upload',
+      name,
+      localDirectory: directory,
+      remoteDirectory: '/fixture',
+      state: 'conflict',
+      transferred: 0,
+      total: null,
+      error: 'exists',
+      partialPath: null,
+      backupPath: null as string | null,
+      conflict: {
+        token,
+        replaceable: true,
+        source: {
+          path: `${directory}/${name}`,
+          kind: 'file',
+          size: 10,
+          modified: 1700000000000,
+          permissions: '0600',
+          version: 'source',
+        },
+        destination: {
+          path: `/fixture/${name}`,
+          kind: 'file',
+          size: 20,
+          modified: 1700000000000,
+          permissions: '0644',
+          version: 'destination',
+        },
+      },
+    }));
+    const changed = () => BrowserWindow.getAllWindows()[0]!.webContents.send('transfers:changed');
+    ipcMain.removeHandler('transfers:list');
+    ipcMain.handle('transfers:list', () => ({ ok: true, value: jobs }));
+    ipcMain.removeHandler('transfers:resolve');
+    ipcMain.handle('transfers:resolve', (_event, id: string, received: string, choice: string) => {
+      if (received !== token) return { ok: false, code: 'destination-changed' };
+      jobs = jobs.map((job) =>
+        job.id === id
+          ? {
+              ...job,
+              state: choice === 'skip' ? 'skipped' : 'completed',
+              backupPath: choice === 'replace' ? '/fixture/recovery.bak' : null,
+            }
+          : job,
+      );
+      changed();
+      return { ok: true, value: undefined };
+    });
+    ipcMain.removeHandler('transfers:cancel');
+    ipcMain.handle('transfers:cancel', (_event, id: string) => {
+      jobs = jobs.map((job) => (job.id === id ? { ...job, state: 'cancelled' } : job));
+      changed();
+      return { ok: true, value: undefined };
+    });
+  }, userData);
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const queue = page.getByRole('region', { name: 'Transfer queue', exact: true });
+  await queue.getByRole('button', { name: 'Resolve conflict for skip.txt' }).click();
+  let dialog = page.getByRole('dialog', { name: 'Destination already exists' });
+  await expect(dialog.getByRole('region', { name: 'Existing destination' })).toContainText(
+    '/fixture/skip.txt',
+  );
+  await expect(dialog.getByRole('button', { name: 'Skip', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(
+    queue.getByRole('listitem').filter({ hasText: 'skip.txt' }).getByRole('status'),
+  ).toHaveText('skipped');
+  await queue.getByRole('button', { name: 'Resolve conflict for replace.txt' }).click();
+  dialog = page.getByRole('dialog', { name: 'Destination already exists' });
+  await dialog.getByRole('button', { name: 'Replace', exact: true }).click();
+  await expect(queue).toContainText('/fixture/recovery.bak');
+  await queue.getByRole('button', { name: 'Resolve conflict for cancel.txt' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Cancel transfer', exact: true })
+    .click();
+  await expect(
+    queue.getByRole('listitem').filter({ hasText: 'cancel.txt' }).getByRole('status'),
+  ).toHaveText('cancelled');
 });
 
 test('blocks popups and renderer-initiated navigation', async () => {

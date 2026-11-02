@@ -45,6 +45,15 @@ export function attachFiles(
             return { ok: true, value: transfers.list() };
           if (channel === transferChannels.clear && !args.length) transfers.clearFinished();
           else if (
+            channel === transferChannels.resolve &&
+            args.length === 3 &&
+            validTerminalId(args[0]) &&
+            validTerminalId(args[1]) &&
+            (args[2] === 'replace' || args[2] === 'skip')
+          ) {
+            if (mutating) throw new FileBrowserError('busy');
+            transfers.resolve(args[0], args[1], args[2]);
+          } else if (
             channel === transferChannels.enqueue &&
             args.length === 1 &&
             validTransferRequest(args[0])

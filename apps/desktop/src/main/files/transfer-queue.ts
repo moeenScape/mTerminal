@@ -7,10 +7,12 @@ import {
   transferActive,
   type TransferJob,
   type TransferRequest,
+  type TransferConflictPreview,
 } from '../../shared/transfers.js';
 import type { TerminalRegistry } from '../terminal/registry.js';
 import { FileBrowserError, fileErrorCode } from './listing.js';
 import { TransferFailure } from './transfer-file.js';
+import { TransferConflict } from './transfer-conflict.js';
 
 export function validTransferRequest(value: unknown): value is TransferRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -43,6 +45,7 @@ export class TransferQueue {
   private jobs: TransferJob[] = [];
   private active: { job: TransferJob; controller: AbortController } | undefined;
   private disposed = false;
+  private readonly approvals = new Map<string, TransferConflictPreview>();
   private readonly unsubscribe: () => void;
   get running(): boolean {
     return !!this.active;
@@ -57,7 +60,7 @@ export class TransferQueue {
     });
   }
   list(): TransferJob[] {
-    return this.jobs.map((job) => ({ ...job }));
+    return structuredClone(this.jobs);
   }
   enqueue(request: TransferRequest): void {
     if (this.disposed || !this.terminals.canTransfer(request.sessionId))
@@ -71,6 +74,8 @@ export class TransferQueue {
       total: null,
       error: null,
       partialPath: null,
+      backupPath: null,
+      conflict: null,
     });
     this.changed();
     void this.run();
@@ -78,18 +83,41 @@ export class TransferQueue {
   cancel(id: string, reason: 'cancelled' | 'disconnected' = 'cancelled'): void {
     const job = this.jobs.find((entry) => entry.id === id);
     if (!job || !transferActive(job.state)) return;
-    if (job.state === 'queued') {
+    if (job.state === 'queued' || job.state === 'conflict') {
       job.state = 'cancelled';
       job.error = reason;
     } else {
       job.state = 'cancelling';
       this.active?.controller.abort(new FileBrowserError(reason));
     }
+    this.approvals.delete(id);
     this.changed();
   }
   clearFinished(): void {
     this.jobs = this.jobs.filter((job) => transferActive(job.state));
     this.changed();
+  }
+  resolve(id: string, token: string, choice: 'replace' | 'skip'): void {
+    const job = this.jobs.find((entry) => entry.id === id);
+    if (!job || job.state !== 'conflict' || job.conflict?.token !== token)
+      throw new FileBrowserError('destination-changed');
+    if (choice === 'skip') {
+      job.state = 'skipped';
+      job.error = null;
+      job.conflict = null;
+    } else {
+      if (!job.conflict.replaceable || job.partialPath || job.backupPath)
+        throw new FileBrowserError('unsupported');
+      if (!this.terminals.canTransfer(job.sessionId)) throw new FileBrowserError('disconnected');
+      this.approvals.set(id, structuredClone(job.conflict));
+      job.state = 'queued';
+      job.error = null;
+      job.conflict = null;
+      job.transferred = 0;
+      job.total = null;
+    }
+    this.changed();
+    void this.run();
   }
   private async run(): Promise<void> {
     if (this.disposed || this.active) return;
@@ -100,6 +128,8 @@ export class TransferQueue {
     job.state = 'running';
     this.changed();
     let lastUpdate = 0;
+    const approval = this.approvals.get(job.id);
+    this.approvals.delete(job.id);
     try {
       const outcome = await this.terminals.transferFile(
         job.sessionId,
@@ -113,18 +143,26 @@ export class TransferQueue {
             this.changed();
           }
         },
+        approval,
       );
       job.partialPath = outcome.partialPath;
+      job.backupPath = outcome.backupPath ?? null;
       job.state = 'completed';
     } catch (error) {
       job.error = fileErrorCode(error);
-      if (error instanceof TransferFailure) job.partialPath = error.partialPath;
+      if (error instanceof TransferFailure || error instanceof TransferConflict) {
+        job.partialPath = error.partialPath;
+        job.backupPath = error.backupPath;
+      }
+      if (error instanceof TransferConflict) job.conflict = error.preview;
       job.state =
-        job.error === 'uncertain'
-          ? 'uncertain'
-          : job.error === 'cancelled'
-            ? 'cancelled'
-            : 'failed';
+        error instanceof TransferConflict
+          ? 'conflict'
+          : job.error === 'uncertain'
+            ? 'uncertain'
+            : job.error === 'cancelled'
+              ? 'cancelled'
+              : 'failed';
     } finally {
       this.active = undefined;
       this.changed();

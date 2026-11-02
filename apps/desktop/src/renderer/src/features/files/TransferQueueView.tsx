@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fileErrorMessages } from '../../../../shared/files';
 import { transferActive, type TransferJob } from '../../../../shared/transfers';
 import { fileSize } from './file-browser';
+import { TransferConflictDialog } from './TransferConflictDialog';
 
 export function useTransfers() {
   const [jobs, setJobs] = useState<TransferJob[]>([]);
@@ -19,7 +20,9 @@ export function useTransfers() {
         .then((items) => {
           if (!mounted || request !== version) return;
           const settled = new Set(
-            items.filter((job) => !transferActive(job.state)).map((job) => job.id),
+            items
+              .filter((job) => job.state === 'conflict' || !transferActive(job.state))
+              .map((job) => `${job.id}:${job.conflict?.token ?? job.state}`),
           );
           if ((finished || eventSeen) && [...settled].some((id) => !finished?.has(id)))
             setRevision((current) => current + 1);
@@ -47,6 +50,10 @@ export function useTransfers() {
 
 export function TransferQueueView({ jobs, error }: { jobs: TransferJob[]; error: string }) {
   const [notice, setNotice] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const conflict = jobs.find(
+    (job) => job.id === selected && job.state === 'conflict' && job.conflict,
+  );
   const perform = (action: Promise<void>) => {
     setNotice('');
     void action.catch((cause: unknown) =>
@@ -80,6 +87,15 @@ export function TransferQueueView({ jobs, error }: { jobs: TransferJob[]; error:
                 {job.direction === 'upload' ? 'Upload' : 'Download'} · {job.name}
               </strong>
               <span role="status">{job.state}</span>
+              {job.state === 'conflict' && (
+                <button
+                  type="button"
+                  onClick={() => setSelected(job.id)}
+                  aria-label={`Resolve conflict for ${job.name}`}
+                >
+                  Resolve…
+                </button>
+              )}
               {transferActive(job.state) && (
                 <button
                   type="button"
@@ -105,16 +121,29 @@ export function TransferQueueView({ jobs, error }: { jobs: TransferJob[]; error:
                 {fileSize(job.transferred)} / {job.total === null ? 'Waiting' : fileSize(job.total)}
               </span>
             </div>
-            {job.error && <p className="file-error">{fileErrorMessages[job.error]}</p>}
+            {job.state === 'conflict' ? (
+              <p>Waiting for a destination decision. Choose Resolve to Replace, Skip or Cancel.</p>
+            ) : (
+              job.error && <p className="file-error">{fileErrorMessages[job.error]}</p>
+            )}
             {job.partialPath && (
               <p className="file-error">
                 A temporary file may remain: <code>{job.partialPath}</code>. Inspect it before
                 removing it.
               </p>
             )}
+            {job.backupPath && (
+              <p>
+                {job.state === 'completed'
+                  ? 'Previous destination kept at:'
+                  : 'Backup/recovery path (inspect before retrying):'}{' '}
+                <code>{job.backupPath}</code>. Inspect it before deleting it.
+              </p>
+            )}
           </li>
         ))}
       </ol>
+      {conflict && <TransferConflictDialog job={conflict} onClose={() => setSelected(null)} />}
     </section>
   );
 }

@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F34 implemented — Single-file SFTP transfer queue; Phase 4 tests deferred |
-| Next feature | F35 — Overwrite decisions; earlier desktop/platform acceptance remains outstanding |
+| Active feature | F35 implemented — Transfer conflict decisions and retained backups; Phase 4 tests deferred |
+| Next feature | F36 — Remote editing; earlier desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -163,7 +163,7 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
-- [ ] **F35 — Overwrites:** Replace/skip decisions and validated destination paths.
+- [x] **F35 — Overwrites (implementation):** Source/destination metadata preview, token-bound Replace/Skip/Cancel decisions with Skip as default, canonical path/version checks, staged replacement with retained original backups, guarded restore, and uncertain-outcome reporting. Non-file destinations are refused. Tests written; Phase 4 execution and desktop/platform acceptance remain pending. See `docs/FILE_BROWSER.md`.
 - [ ] **F36 — Remote editing:** Temporary download, editor integration, change detection, and deliberate upload.
 - [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support.
 
@@ -913,3 +913,28 @@ changes, cancellation/cleanup, uncertain rename acknowledgments, deadlines, queu
 session lifecycle notifications, IPC boundaries and desktop progress/cancel/clear interactions.
 Tests remain unrun until the Phase 4 gate. Live-server, interactive visual and Windows/macOS
 acceptance remain pending. Usage and limits: `docs/FILE_BROWSER.md`. Next: F35; do not push.
+
+### F35 implementation
+
+Existing destinations now pause jobs in a conflict state while other queued jobs continue.
+Resolve opens a metadata preview with canonical source/destination paths, kinds, sizes, modified
+times and modes. Skip is focused by default; Replace and Cancel are explicit. Only regular files
+with usable metadata can be replaced. A token-bound decision resolves only the current preview;
+the renderer never supplies overwrite paths, versions or filesystem flags.
+
+The main process retains approvals and rechecks source/destination metadata before copying and
+the destination before publication. Changed items require a fresh decision. Replacement copies
+to staging, captures the actual old destination at an exclusive `.bak` path, validates it, and
+publishes without overwriting newly created items. Completed replacements retain the previous
+file and show its backup path. A failed attempt after acknowledged capture tries to restore only
+into an absent destination; unresolved recovery paths and lost-reply outcomes remain visible.
+Local hard-link support is checked before moving the original. File modes remain transfer-default
+0600 where supported; directory/symlink replacements, automatic backup deletion and replace-all
+policies are absent. This sequence is not an atomic exchange; recovery indexing is not persisted.
+
+Typecheck, lint, formatting, production build and diff checks passed on Linux. Tests are written
+for local/remote retained backups, stale source and destination previews, directory refusal,
+cancel/restore, concurrent destination preservation, uncertain backup capture, main-owned approval
+snapshots, token/IPC validation, Skip without recopying, and keyboard/default/conflict UI flows.
+Tests remain unrun until the Phase 4 gate. Live-server, visual and Windows/macOS verification
+remain pending. Usage and limits: `docs/FILE_BROWSER.md`. Next: F36; do not push.

@@ -48,6 +48,8 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  resolveTransferConflict: (id, token, choice) =>
+    transferRequest<void>(transferChannels.resolve, id, token, choice),
   listTransfers: () => transferRequest<TransferJob[]>(transferChannels.list),
   enqueueTransfer: (request) => transferRequest<void>(transferChannels.enqueue, request),
   cancelTransfer: (id) => transferRequest<void>(transferChannels.cancel, id),

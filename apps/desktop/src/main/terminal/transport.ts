@@ -9,6 +9,7 @@ export type TerminalTransport = Pick<
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
+    approval?: import('../../shared/transfers.js').TransferConflictPreview,
   ) => Promise<import('../files/transfer-file.js').TransferOutcome>;
   mutateDirectory?: (
     path: string,

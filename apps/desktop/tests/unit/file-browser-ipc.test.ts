@@ -40,6 +40,17 @@ describe('file browser IPC', () => {
       ok: false,
       code: 'unavailable',
     });
+    const resolve = fixture.handlers.get(transferChannels.resolve)!;
+    await expect(
+      resolve({ ...event, sender: {} }, request.sessionId, request.sessionId, 'replace'),
+    ).rejects.toThrow('Unauthorized');
+    await expect(resolve(event, request.sessionId, request.sessionId, 'replace')).resolves.toEqual({
+      ok: false,
+      code: 'destination-changed',
+    });
+    await expect(
+      resolve(event, request.sessionId, request.sessionId, 'replace-all'),
+    ).resolves.toEqual({ ok: false, code: 'unavailable' });
   });
   it('validates mutations and serializes them against reads and other changes', async () => {
     const frame = { url: 'file:///renderer/index.html' };

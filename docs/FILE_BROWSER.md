@@ -69,9 +69,9 @@ privileges. Remote editing follows in F36.
    a queued job or interrupts an active copy; **cancelling** remains visible during cleanup.
 
 One transfer runs at a time per window, with up to 32 jobs including finished jobs. **Clear
-finished** removes only queue records; it never deletes files. Existing destination items are
-refused. Directory, symbolic-link and special-file transfers are unavailable. There is no
-automatic retry, reconnect, resume, recursive transfer or overwrite option in F34.
+finished** removes only queue records; it never deletes files. Existing destinations wait for an
+explicit conflict decision. Directory, symbolic-link and special-file transfers are unavailable.
+There is no automatic retry, reconnect, resume or recursive transfer.
 
 Transfers continue while you return to the terminal or switch views. Closing the SSH tab,
 disconnecting its session, reloading the renderer or closing the window cancels associated work.
@@ -91,16 +91,55 @@ This detects common source changes but is not a checksum or an immutable source 
 SFTP v3 modification times have second precision. Files that are being modified should be copied
 after their writer stops. Source permissions and timestamps are not copied automatically.
 
-Upload publishes with standard non-overwriting SFTP rename. Download syncs/closes the staged
+New-file upload publishes with standard non-overwriting SFTP rename. Download syncs/closes the staged
 file and publishes through exclusive hard-link creation, which requires a destination filesystem
 with hard-link support. Originals are never removed. A destination created during copying is
-also refused at publication.
+also detected at publication and requires a conflict decision.
 
 After settlement, the visible folders refresh. If a remote rename response is lost, the queue
 shows **uncertain** because the complete final file may already exist. Failed cleanup reports
 the possible temporary path, including an unacknowledged remote staging-file creation. Inspect
 that path before manually removing it. Crashes or forced shutdown can also leave temporary files;
 automatic recovery and verified resume are deferred to F37.
+
+## Existing destinations: Replace, Skip, or Cancel
+
+An existing destination changes the job to **conflict**. Other queued jobs can continue; a waiting
+conflict does not hold an SFTP channel open. Choose **Resolve…** to review the SSH tab/direction,
+exact canonical source/destination paths, file types, byte sizes, modification times, and modes.
+
+- **Skip** is focused by default; Enter skips this job without changing the destination.
+- **Replace** is available only for regular-file destinations with usable metadata. It copies
+  the entire source to a staging file before touching the old destination.
+- **Cancel transfer**, including Escape in the conflict dialog, cancels this job.
+
+Decisions contain only the job ID, preview token, and choice. The main process retains the
+approved paths and metadata. A stale token is refused. Source and destination snapshots are
+rechecked at the start, and the destination again just before publication. A changed existing
+item produces a new preview; a vanished destination invalidates replacement approval. Directory,
+symbolic-link and special-file destinations cannot be replaced.
+
+Replacement moves the old destination to an exclusive `.mterminal-<uuid>.bak` path in the same
+folder. The captured item's metadata is checked again before the new file is published without
+overwriting any newly created destination. Local replacement verifies hard-link support before
+moving the old file. The old backup is retained after success; its path appears in the queue.
+The replacement uses mode `0600` where supported and does not inherit the previous item's
+permissions, ownership, or ACLs. Use the Permissions action afterward where needed.
+
+This portable sequence is not an atomic exchange: the destination name can briefly be absent.
+On failure after acknowledged backup capture, mTerminal attempts to restore the old item only if
+the destination remains absent. It never overwrites a concurrently created item to restore it.
+Failed restoration or a lost backup/publication reply leaves the recovery path visible, with an
+uncertain outcome where appropriate. Inspect both the destination and backup before retrying.
+If local backup capture itself fails, a candidate backup can contain staged replacement bytes;
+the queue labels failed-job paths as recovery paths, not successful original backups.
+
+There is no automatic deletion of backups. Enable Hidden files to inspect them. Record the
+original name and backup path before clearing queue records or restarting: recovery indexing is
+not persisted yet. A conflict with leftover temporary/recovery files allows Skip or Cancel;
+inspect those files and start a fresh transfer before attempting another replacement.
+Metadata checks are not file locks or hashes; SFTP v3 cannot identify every same-size change
+within its timestamp precision. The actual captured destination is retained for recovery.
 
 ## Boundaries and verification
 
@@ -124,5 +163,8 @@ mode changes, partial renames, serialized IPC, remote mutation disconnects, and 
 F34 adds tests for queue validation, ownership, ordering and limits; byte-for-byte multi-chunk and
 empty-file copying; existing/concurrent destination preservation; changing sources; cancellation
 and cleanup; uncertain publication; and the desktop queue's progress/cancel/clear bridge.
+F35 adds tests for preview tokens, Skip, stored approvals, retained local/remote backups, stale
+source/destination metadata, blocked directory replacements, cancellation/restore, concurrent
+destination creation, uncertain backup capture, and the dialog's default Skip/Replace/Cancel flow.
 Run them with the Phase 4 test gate. Static checks and a production build are the step-level
 validation; interactive visual checks and Windows/macOS acceptance remain pending.

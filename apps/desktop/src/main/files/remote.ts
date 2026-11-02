@@ -10,7 +10,7 @@ import { directoryListing, fileKind, FileBrowserError } from './listing.js';
 import { childPath } from './operations.js';
 import { sftpRequest as request } from './sftp-request.js';
 import { transferFile, type TransferOutcome } from './transfer-file.js';
-import type { TransferRequest } from '../../shared/transfers.js';
+import type { TransferRequest, TransferConflictPreview } from '../../shared/transfers.js';
 
 /** Each operation owns a short-lived SFTP channel on the verified SSH connection. */
 export class RemoteFileBrowser {
@@ -27,6 +27,7 @@ export class RemoteFileBrowser {
     request: TransferRequest,
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
+    approval?: TransferConflictPreview,
   ): Promise<TransferOutcome> {
     if (this.closed) return Promise.reject(new FileBrowserError('disconnected'));
     return transferFile(
@@ -34,6 +35,7 @@ export class RemoteFileBrowser {
       request,
       AbortSignal.any([signal, this.lifetime.signal]),
       progress,
+      approval,
     );
   }
   private async withChannel<T>(

@@ -51,6 +51,8 @@ export const fileErrorMessages = {
   'queue-full': 'The transfer queue is full. Clear finished transfers before adding more.',
   'source-changed':
     'The source file changed or ended early. It was not published at the destination.',
+  'destination-changed':
+    'The destination changed after preview. Inspect the folder and any reported backup, then start a new transfer.',
   'transfer-timeout':
     'The transfer stopped responding. Inspect the destination before trying again.',
   'transfer-failed':

@@ -1,9 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, lstat, open, realpath, unlink, type FileHandle } from 'node:fs/promises';
+import { link, lstat, open, realpath, rename, unlink, type FileHandle } from 'node:fs/promises';
 import type { Client, SFTPWrapper, Stats } from 'ssh2';
 import type { FileErrorCode } from '../../shared/files.js';
-import type { TransferRequest } from '../../shared/transfers.js';
+import type {
+  TransferRequest,
+  TransferConflictPreview,
+  TransferFileInfo,
+} from '../../shared/transfers.js';
+import {
+  localFileInfo,
+  remoteFileInfo,
+  sameFileInfo,
+  conflictPreview,
+  TransferConflict,
+} from './transfer-conflict.js';
 import { childPath } from './operations.js';
 import { FileBrowserError, fileErrorCode, fileKind } from './listing.js';
 import { sftpRequest } from './sftp-request.js';
@@ -12,12 +23,14 @@ export class TransferFailure extends FileBrowserError {
   constructor(
     code: FileErrorCode,
     readonly partialPath: string | null,
+    readonly backupPath: string | null = null,
   ) {
     super(code);
   }
 }
 export interface TransferOutcome {
   partialPath: string | null;
+  backupPath?: string;
 }
 
 /** Bounded copying into an exclusive staging file; publish only after successful close. */
@@ -26,6 +39,7 @@ export async function transferFile(
   job: TransferRequest,
   signal: AbortSignal,
   progress: (transferred: number, total: number) => void,
+  approval?: TransferConflictPreview,
 ): Promise<TransferOutcome> {
   let channel: SFTPWrapper | undefined;
   let local: FileHandle | undefined;
@@ -37,6 +51,9 @@ export async function transferFile(
   let published = false;
   let failure: unknown;
   let partialPath: string | null = null;
+  let backupPath: string | null = null;
+  let rollback: (() => Promise<void>) | undefined;
+  let restored = false;
   const lost = new AbortController();
   const combined = AbortSignal.any([signal, lost.signal]);
   const disconnected = () => lost.abort(new FileBrowserError('disconnected'));
@@ -44,6 +61,8 @@ export async function transferFile(
     sftpRequest(combined, invoke, 30000);
   const call = (invoke: (done: (error: Error | null | undefined) => void) => void) =>
     rpc<void>((done) => invoke((error) => done(error ?? undefined, undefined)));
+  const cleanup = <T>(invoke: (done: (error: Error | undefined, value: T) => void) => void) =>
+    sftpRequest(new AbortController().signal, invoke, 5000);
   try {
     channel = await rpc<SFTPWrapper>((done) =>
       client.sftp((error, sftp) => {
@@ -64,21 +83,32 @@ export async function transferFile(
     const localPath = childPath(localParent, job.name, false);
     const remotePath = childPath(remoteParent, job.name, true);
     const upload = job.direction === 'upload';
-    if (upload) {
-      await rpc<void>((done) =>
-        sftp.lstat(remotePath, (error) => {
-          if (!error) done(new FileBrowserError('exists'), undefined);
-          else if ((error as Error & { code?: number }).code === 2) done(undefined, undefined);
-          else done(error, undefined);
-        }),
-      );
-    } else {
-      const existing = await lstat(localPath).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'ENOENT') throw error;
-        return undefined;
-      });
-      if (existing) throw new FileBrowserError('exists');
-    }
+    const source = upload
+      ? localFileInfo(localPath, await lstat(localPath))
+      : remoteFileInfo(remotePath, await rpc<Stats>((done) => sftp.lstat(remotePath, done)));
+    if (source.kind !== 'file') throw new FileBrowserError('unsupported');
+    const readDestination = async (): Promise<TransferFileInfo | null> => {
+      try {
+        return upload
+          ? remoteFileInfo(remotePath, await rpc<Stats>((done) => sftp.lstat(remotePath, done)))
+          : localFileInfo(localPath, await lstat(localPath));
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (code === 2 || code === 'ENOENT') return null;
+        throw error;
+      }
+    };
+    const destination = await readDestination();
+    const replacing = !!(
+      approval &&
+      destination &&
+      approval.replaceable &&
+      destination.kind === 'file' &&
+      sameFileInfo(approval.destination, destination) &&
+      sameFileInfo(approval.source, source)
+    );
+    if (destination && !replacing) throw new TransferConflict(conflictPreview(source, destination));
+    if (approval && !destination) throw new FileBrowserError('destination-changed');
     let size: number;
     let modified: number;
     if (upload) {
@@ -89,7 +119,12 @@ export async function transferFile(
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
       const stats = await local.stat();
-      if (!stats.isFile() || stats.dev !== expected.dev || stats.ino !== expected.ino)
+      if (
+        !stats.isFile() ||
+        stats.dev !== expected.dev ||
+        stats.ino !== expected.ino ||
+        !sameFileInfo(source, localFileInfo(localPath, stats))
+      )
         throw new FileBrowserError('source-changed');
       size = stats.size;
       modified = stats.mtimeMs;
@@ -104,7 +139,8 @@ export async function transferFile(
       if (
         fileKind(stats.mode) !== 'file' ||
         stats.size !== expected.size ||
-        stats.mtime !== expected.mtime
+        stats.mtime !== expected.mtime ||
+        !sameFileInfo(source, remoteFileInfo(remotePath, stats))
       )
         throw new FileBrowserError('source-changed');
       size = stats.size;
@@ -165,7 +201,56 @@ export async function transferFile(
     await call((done) => sftp.close(remoteHandle!, done));
     remoteHandle = undefined;
     if (combined.aborted) throw combined.reason;
+    const current = await readDestination();
+    if (current && (!replacing || !approval || !sameFileInfo(current, approval.destination)))
+      throw new TransferConflict(conflictPreview(source, current));
+    if (replacing && !current) throw new FileBrowserError('destination-changed');
     publishing = true;
+    if (replacing && approval) {
+      const backup = childPath(
+        upload ? remoteParent : localParent,
+        `.mterminal-${randomUUID()}.bak`,
+        upload,
+      );
+      if (upload) {
+        backupPath = backup;
+        await call((done) => sftp.rename(remotePath, backup, done));
+        rollback = async () => {
+          await cleanup<void>((done) =>
+            sftp.rename(backup, remotePath, (error) => done(error ?? undefined, undefined)),
+          );
+          backupPath = null;
+        };
+        const moved = remoteFileInfo(
+          remotePath,
+          await rpc<Stats>((done) => sftp.lstat(backup, done)),
+        );
+        if (!sameFileInfo(moved, approval.destination))
+          throw new FileBrowserError('destination-changed');
+      } else {
+        // Reserve exclusively and verify hard-link support before moving the old destination.
+        await link(stage!, backup);
+        backupPath = backup;
+        const identity = await lstat(backup);
+        try {
+          await rename(localPath, backup);
+        } catch (error) {
+          const remaining = await lstat(backup).catch(() => undefined);
+          if (remaining?.dev === identity.dev && remaining.ino === identity.ino) {
+            await unlink(backup);
+            backupPath = null;
+          }
+          throw error;
+        }
+        rollback = async () => {
+          await link(backup, localPath);
+        };
+        const moved = localFileInfo(localPath, await lstat(backup));
+        if (!sameFileInfo(moved, approval.destination))
+          throw new FileBrowserError('destination-changed');
+      }
+    }
+    if (combined.aborted) throw combined.reason;
     if (upload) {
       await call((done) => sftp.rename(stage!, remotePath, done));
       stageCreated = false;
@@ -182,9 +267,15 @@ export async function transferFile(
       partialPath = stage;
   } finally {
     finished = true;
+    if (failure && rollback && !published) {
+      try {
+        await rollback();
+        restored = true;
+      } catch {
+        /* The backup remains for explicit recovery. */
+      }
+    }
     // Cleanup gets its own short deadline so cancelling a copy can still remove its staging file.
-    const cleanup = <T>(invoke: (done: (error: Error | undefined, value: T) => void) => void) =>
-      sftpRequest(new AbortController().signal, invoke, 5000);
     if (local) await local.close().catch(() => {});
     if (channel && remoteHandle)
       await cleanup<void>((done) =>
@@ -208,16 +299,22 @@ export async function transferFile(
     channel?.destroy();
   }
   if (failure) {
+    if (failure instanceof TransferConflict)
+      throw new TransferConflict(failure.preview, partialPath, backupPath);
     const code = fileErrorCode(failure);
     throw new TransferFailure(
-      publishing && job.direction === 'upload' && (combined.aborted || code === 'transfer-timeout')
+      publishing &&
+        !restored &&
+        job.direction === 'upload' &&
+        (combined.aborted || code === 'transfer-timeout')
         ? 'uncertain'
         : code === 'unavailable'
           ? 'transfer-failed'
           : code,
       partialPath,
+      backupPath,
     );
   }
   if (!published) throw new TransferFailure('transfer-failed', partialPath);
-  return { partialPath };
+  return { partialPath, ...(backupPath ? { backupPath } : {}) };
 }

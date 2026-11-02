@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TerminalRegistry } from '../../src/main/terminal/registry.js';
 import { TransferQueue, validTransferRequest } from '../../src/main/files/transfer-queue.js';
 import { FileBrowserError } from '../../src/main/files/listing.js';
+import { TransferConflict } from '../../src/main/files/transfer-conflict.js';
+import type { TransferConflictPreview } from '../../src/shared/transfers.js';
 import { TRANSFER_LIMIT, type TransferRequest } from '../../src/shared/transfers.js';
 import { tmpdir } from 'node:os';
 const request: TransferRequest = {
@@ -14,6 +16,104 @@ const request: TransferRequest = {
 };
 
 describe('window-owned transfer queue', () => {
+  it('keeps conflicts pending, rejects stale decisions, and skips without copying again', async () => {
+    const preview: TransferConflictPreview = {
+      token: request.sessionId,
+      replaceable: true,
+      source: {
+        path: '/source',
+        kind: 'file',
+        size: 1,
+        modified: 1,
+        permissions: '0600',
+        version: 'source',
+      },
+      destination: {
+        path: '/destination',
+        kind: 'file',
+        size: 2,
+        modified: 2,
+        permissions: '0600',
+        version: 'destination',
+      },
+    };
+    const transferFile = vi.fn(async () => {
+      throw new TransferConflict(preview);
+    });
+    const queue = new TransferQueue(
+      {
+        onSessionClosed: () => () => {},
+        canTransfer: () => true,
+        transferFile,
+      } as unknown as TerminalRegistry,
+      () => {},
+    );
+    try {
+      queue.enqueue(request);
+      await vi.waitFor(() => expect(queue.list()[0]?.state).toBe('conflict'));
+      const job = queue.list()[0]!;
+      expect(() => queue.resolve(job.id, 'stale-token', 'replace')).toThrow('destination-changed');
+      queue.resolve(job.id, preview.token, 'skip');
+      expect(queue.list()[0]?.state).toBe('skipped');
+      expect(transferFile).toHaveBeenCalledTimes(1);
+    } finally {
+      queue.dispose();
+    }
+  });
+  it('passes only the stored conflict approval when replacement is chosen', async () => {
+    const preview: TransferConflictPreview = {
+      token: request.sessionId,
+      replaceable: true,
+      source: {
+        path: '/source',
+        kind: 'file',
+        size: 1,
+        modified: 1,
+        permissions: '0600',
+        version: 'source',
+      },
+      destination: {
+        path: '/destination',
+        kind: 'file',
+        size: 2,
+        modified: 2,
+        permissions: '0600',
+        version: 'destination',
+      },
+    };
+    const transferFile = vi.fn(
+      async (
+        _id: string,
+        _request: TransferRequest,
+        _signal: AbortSignal,
+        _progress: (count: number, total: number) => void,
+        approval?: TransferConflictPreview,
+      ) => {
+        if (!approval) throw new TransferConflict(preview);
+        return { partialPath: null, backupPath: '/backup' };
+      },
+    );
+    const queue = new TransferQueue(
+      {
+        onSessionClosed: () => () => {},
+        canTransfer: () => true,
+        transferFile,
+      } as unknown as TerminalRegistry,
+      () => {},
+    );
+    try {
+      queue.enqueue(request);
+      await vi.waitFor(() => expect(queue.list()[0]?.state).toBe('conflict'));
+      const displayed = queue.list()[0]!;
+      displayed.conflict!.destination.path = '/tampered';
+      queue.resolve(displayed.id, preview.token, 'replace');
+      await vi.waitFor(() => expect(queue.list()[0]?.state).toBe('completed'));
+      expect(transferFile.mock.calls[1]?.[4]?.destination.path).toBe('/destination');
+      expect(queue.list()[0]?.backupPath).toBe('/backup');
+    } finally {
+      queue.dispose();
+    }
+  });
   it('validates paths, filenames, directions and session ownership', () => {
     expect(validTransferRequest(request)).toBe(true);
     for (const value of [

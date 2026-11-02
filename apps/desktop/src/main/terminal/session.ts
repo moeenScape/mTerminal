@@ -159,9 +159,10 @@ export class TerminalSession {
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
+    approval?: import('../../shared/transfers.js').TransferConflictPreview,
   ) {
     if (!this.session?.pty.transferFile) throw new FileBrowserError('disconnected');
-    return this.session.pty.transferFile(request, signal, progress);
+    return this.session.pty.transferFile(request, signal, progress, approval);
   }
   async mutateDirectory(path: string, operation: import('../../shared/files.js').FileOperation) {
     if (!this.session?.pty.mutateDirectory) throw new FileBrowserError('disconnected');

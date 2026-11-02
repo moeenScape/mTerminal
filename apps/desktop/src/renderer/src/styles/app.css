@@ -2343,6 +2343,28 @@ button.file-name svg {
   height: 6px;
   accent-color: var(--accent);
 }
+.transfer-conflict-dialog {
+  width: min(680px, calc(100vw - 40px));
+}
+.transfer-conflict-details {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.transfer-conflict-details dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.transfer-conflict-details dt {
+  color: var(--muted);
+}
+.transfer-conflict-details dd {
+  margin: 3px 0 0;
+}
 .file-empty {
   color: var(--muted);
 }

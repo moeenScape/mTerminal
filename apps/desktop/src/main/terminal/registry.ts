@@ -32,10 +32,11 @@ export class TerminalRegistry {
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
+    approval?: import('../../shared/transfers.js').TransferConflictPreview,
   ) {
     const session = this.sessions.get(id);
     if (!session) throw new FileBrowserError('disconnected');
-    return session.transferFile(request, signal, progress);
+    return session.transferFile(request, signal, progress, approval);
   }
   get count(): number {
     return this.sessions.size;

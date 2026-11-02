@@ -1,13 +1,14 @@
 import { EventEmitter } from 'node:events';
 import { writeFileSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Client, SFTPWrapper, Stats } from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
 import { transferFile } from '../../src/main/files/transfer-file.js';
 import { FileBrowserError } from '../../src/main/files/listing.js';
-import type { TransferRequest } from '../../src/shared/transfers.js';
+import type { TransferRequest, TransferConflictPreview } from '../../src/shared/transfers.js';
+import { TransferConflict } from '../../src/main/files/transfer-conflict.js';
 
 function remoteFixture(initial: Record<string, Buffer> = {}) {
   const files = new Map(Object.entries(initial));
@@ -111,6 +112,181 @@ const request = (
   localDirectory,
   remoteDirectory: '/remote',
   name: 'sample.bin',
+});
+
+async function getPreview(client: Client, job: TransferRequest): Promise<TransferConflictPreview> {
+  try {
+    await transferFile(client, job, new AbortController().signal, () => {});
+  } catch (error) {
+    if (error instanceof TransferConflict) return error.preview;
+    throw error;
+  }
+  throw new Error('Expected a conflict');
+}
+
+describe('destination replacement', () => {
+  it('requires a preview and keeps the previous remote destination in a backup after replacing it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-upload-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('old remote') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'new local');
+      const approval = await getPreview(remote.client, request(directory));
+      expect(approval.destination).toMatchObject({
+        path: '/remote/sample.bin',
+        kind: 'file',
+        size: 10,
+      });
+      expect(remote.channel.write).not.toHaveBeenCalled();
+      const result = await transferFile(
+        remote.client,
+        request(directory),
+        new AbortController().signal,
+        () => {},
+        approval,
+      );
+      expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('new local');
+      expect(remote.files.get(result.backupPath!)?.toString()).toBe('old remote');
+      expect([...remote.files.keys()].some((path) => path.endsWith('.part'))).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('replaces local files only after copying and retains the old local bytes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-download-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('new remote') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'old local');
+      const approval = await getPreview(remote.client, request(directory, 'download'));
+      const result = await transferFile(
+        remote.client,
+        request(directory, 'download'),
+        new AbortController().signal,
+        () => {},
+        approval,
+      );
+      expect(await readFile(join(directory, 'sample.bin'), 'utf8')).toBe('new remote');
+      expect(await readFile(result.backupPath!, 'utf8')).toBe('old local');
+      expect((await readdir(directory)).some((path) => path.endsWith('.part'))).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('rejects stale destination approvals and blocks replacement of directories', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-stale-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('old') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'source');
+      const approval = await getPreview(remote.client, request(directory));
+      remote.files.set('/remote/sample.bin', Buffer.from('changed destination'));
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory),
+          new AbortController().signal,
+          () => {},
+          approval,
+        ),
+      ).rejects.toBeInstanceOf(TransferConflict);
+      expect(remote.channel.write).not.toHaveBeenCalled();
+      expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('changed destination');
+      const fresh = await getPreview(remote.client, request(directory));
+      await writeFile(join(directory, 'sample.bin'), 'changed source contents');
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory),
+          new AbortController().signal,
+          () => {},
+          fresh,
+        ),
+      ).rejects.toBeInstanceOf(TransferConflict);
+      expect(remote.channel.write).not.toHaveBeenCalled();
+      await rm(join(directory, 'sample.bin'));
+      await mkdir(join(directory, 'sample.bin'));
+      const blocked = await getPreview(remote.client, request(directory, 'download'));
+      expect(blocked.replaceable).toBe(false);
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory, 'download'),
+          new AbortController().signal,
+          () => {},
+          { ...blocked, replaceable: true },
+        ),
+      ).rejects.toBeInstanceOf(TransferConflict);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('restores the remote original after cancellation following acknowledged backup capture', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-cancel-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('original') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'replacement');
+      const approval = await getPreview(remote.client, request(directory));
+      const originalRename = remote.channel.rename.getMockImplementation()!;
+      const controller = new AbortController();
+      remote.channel.rename.mockImplementation((from, to, done) => {
+        originalRename(from, to, done);
+        if (to.endsWith('.bak')) controller.abort(new FileBrowserError('cancelled'));
+      });
+      await expect(
+        transferFile(remote.client, request(directory), controller.signal, () => {}, approval),
+      ).rejects.toMatchObject({ code: 'cancelled' });
+      expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('original');
+      expect([...remote.files.keys()]).toEqual(['/remote/sample.bin']);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('keeps captured originals if a third party creates a destination before publication', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-concurrent-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('original') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'replacement');
+      const approval = await getPreview(remote.client, request(directory));
+      const originalRename = remote.channel.rename.getMockImplementation()!;
+      remote.channel.rename.mockImplementation((from, to, done) => {
+        originalRename(from, to, done);
+        if (to.endsWith('.bak')) remote.files.set('/remote/sample.bin', Buffer.from('third party'));
+      });
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory),
+          new AbortController().signal,
+          () => {},
+          approval,
+        ),
+      ).rejects.toMatchObject({ code: 'exists', backupPath: expect.stringMatching(/\.bak$/) });
+      expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('third party');
+      const backup = [...remote.files.keys()].find((path) => path.endsWith('.bak'))!;
+      expect(remote.files.get(backup)?.toString()).toBe('original');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('reports an uncertain backup capture with its recovery path after a lost reply', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-replace-lost-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('original') });
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'replacement');
+      const approval = await getPreview(remote.client, request(directory));
+      const controller = new AbortController();
+      remote.channel.rename.mockImplementation((from, to) => {
+        remote.files.set(to, remote.files.get(from)!);
+        remote.files.delete(from);
+        controller.abort(new FileBrowserError('disconnected'));
+      });
+      await expect(
+        transferFile(remote.client, request(directory), controller.signal, () => {}, approval),
+      ).rejects.toMatchObject({ code: 'uncertain', backupPath: expect.stringMatching(/\.bak$/) });
+      const backup = [...remote.files.keys()].find((path) => path.endsWith('.bak'))!;
+      expect(remote.files.get(backup)?.toString()).toBe('original');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('staged SFTP transfers', () => {

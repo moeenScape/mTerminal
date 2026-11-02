@@ -163,7 +163,8 @@ export function openSsh(
           settled = true;
           resolve({
             listDirectory: (path) => files.list(path),
-            transferFile: (request, signal, progress) => files.transfer(request, signal, progress),
+            transferFile: (request, signal, progress, approval) =>
+              files.transfer(request, signal, progress, approval),
             mutateDirectory: (path, operation) => files.mutate(path, operation),
             write: (data) => {
               if (!ended) channel.write(data);

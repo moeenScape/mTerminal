@@ -459,8 +459,8 @@ function DirectoryPane({
             Remote folder: <code>{transfer.remoteDirectory}</code>
           </p>
           <p>
-            The name stays the same. Existing destination items are refused. Only regular files are
-            supported.
+            The name stays the same. Existing destinations wait for a Replace, Skip or Cancel
+            decision in the queue. Only regular files are supported.
           </p>
         </ConfirmDialog>
       )}
