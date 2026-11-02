@@ -6,9 +6,11 @@ F01–F31 are implemented: the application window, restricted preload bridge, Te
 
 ## Selected stack
 
-F32–F35 add local/SFTP browsing, folder creation, rename, confirmed file/empty-folder deletion,
+F32–F36 add local/SFTP browsing, folder creation, rename, confirmed file/empty-folder deletion,
 permitted mode changes, queued single-file transfers, and explicit Replace/Skip/Cancel conflict
 decisions with retained destination backups.
+Remote text editing opens a private `.txt` working copy and uploads saved changes only on explicit
+request. See [Remote editing](docs/REMOTE_EDITING.md) for limits, editor setup and copy retention.
 Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
 [File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.

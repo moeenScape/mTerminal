@@ -27,6 +27,15 @@ export class TerminalRegistry {
   canTransfer(id: string): boolean {
     return !this.disposed && !!this.sessions.get(id)?.canTransfer;
   }
+  async prepareRemoteEdit(
+    request: import('../../shared/remote-edit.js').RemoteEditRequest,
+    directory: string,
+    signal: AbortSignal,
+  ) {
+    const session = this.sessions.get(request.sessionId);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.prepareRemoteEdit(request, directory, signal);
+  }
   async transferFile(
     id: string,
     request: import('../../shared/transfers.js').TransferRequest,

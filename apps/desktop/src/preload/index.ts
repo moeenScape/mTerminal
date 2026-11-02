@@ -29,6 +29,11 @@ import {
   type TransferJob,
 } from '../shared/transfers.js';
 import {
+  remoteEditChannels,
+  REMOTE_EDIT_CHANGED,
+  type RemoteEditState,
+} from '../shared/remote-edit.js';
+import {
   FILES_LIST,
   FILES_MUTATE,
   fileErrorMessages,
@@ -48,6 +53,16 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  getRemoteEdit: () => transferRequest<RemoteEditState | null>(remoteEditChannels.state),
+  startRemoteEdit: (request) => transferRequest<void>(remoteEditChannels.start, request),
+  reopenRemoteEdit: () => transferRequest<void>(remoteEditChannels.reopen),
+  uploadRemoteEdit: () => transferRequest<void>(remoteEditChannels.upload),
+  finishRemoteEdit: (choice) => transferRequest<string | null>(remoteEditChannels.finish, choice),
+  onRemoteEditChanged: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on(REMOTE_EDIT_CHANGED, receive);
+    return () => ipcRenderer.removeListener(REMOTE_EDIT_CHANGED, receive);
+  },
   resolveTransferConflict: (id, token, choice) =>
     transferRequest<void>(transferChannels.resolve, id, token, choice),
   listTransfers: () => transferRequest<TransferJob[]>(transferChannels.list),

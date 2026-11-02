@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { writeFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Client, SFTPWrapper, Stats } from 'ssh2';
@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { transferFile } from '../../src/main/files/transfer-file.js';
 import { FileBrowserError } from '../../src/main/files/listing.js';
 import type { TransferRequest, TransferConflictPreview } from '../../src/shared/transfers.js';
-import { TransferConflict } from '../../src/main/files/transfer-conflict.js';
+import { localFileInfo, TransferConflict } from '../../src/main/files/transfer-conflict.js';
 
 function remoteFixture(initial: Record<string, Buffer> = {}) {
   const files = new Map(Object.entries(initial));
@@ -290,6 +290,43 @@ describe('destination replacement', () => {
 });
 
 describe('staged SFTP transfers', () => {
+  it('rejects oversized editor downloads before creating local files and returns published metadata', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-editor-download-'));
+    const remote = remoteFixture({ '/remote/sample.bin': Buffer.alloc(1025) });
+    try {
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory, 'download'),
+          new AbortController().signal,
+          () => {},
+          undefined,
+          { maxBytes: 1024 },
+        ),
+      ).rejects.toMatchObject({ code: 'editor-text-only' });
+      expect(await readdir(directory)).toEqual([]);
+      const outcome = await transferFile(
+        remote.client,
+        request(directory, 'download'),
+        new AbortController().signal,
+        () => {},
+        undefined,
+        { maxBytes: 2048 },
+      );
+      expect(outcome.source).toMatchObject({
+        path: '/remote/sample.bin',
+        size: 1025,
+        kind: 'file',
+      });
+      expect(outcome.destination).toMatchObject({ size: 1025, kind: 'file' });
+      const actual = await lstat(join(directory, 'sample.bin'));
+      expect(outcome.destination?.version).toBe(
+        localFileInfo(outcome.destination!.path, actual).version,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('preserves destinations created while copying instead of overwriting them at publication', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-transfer-race-'));
     const remote = remoteFixture();
@@ -349,7 +386,7 @@ describe('staged SFTP transfers', () => {
       const progress = vi.fn();
       await expect(
         transferFile(remote.client, request(directory), new AbortController().signal, progress),
-      ).resolves.toEqual({ partialPath: null });
+      ).resolves.toMatchObject({ partialPath: null });
       expect(remote.files.get('/remote/sample.bin')).toEqual(bytes);
       expect(remote.channel.write.mock.calls.length).toBeGreaterThan(1);
       expect(progress).toHaveBeenLastCalledWith(bytes.length, bytes.length);

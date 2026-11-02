@@ -299,7 +299,7 @@ export async function createMainWindow(
     secrets,
     () => store.preferences.recordHistory,
   );
-  attachFiles(window, rendererUrl, terminals);
+  attachFiles(window, rendererUrl, terminals, join(app.getPath('userData'), 'remote-edits'));
   window.webContents.on('render-process-gone', () => {
     diagnostics.record('renderer-crashed', 'renderer-crashed');
     dialog.showErrorBox('Interface stopped', failureMessages['renderer-crashed']);

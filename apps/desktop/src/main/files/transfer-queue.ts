@@ -62,11 +62,11 @@ export class TransferQueue {
   list(): TransferJob[] {
     return structuredClone(this.jobs);
   }
-  enqueue(request: TransferRequest): void {
+  enqueue(request: TransferRequest, approval?: TransferConflictPreview): string {
     if (this.disposed || !this.terminals.canTransfer(request.sessionId))
       throw new FileBrowserError('disconnected');
     if (this.jobs.length >= TRANSFER_LIMIT) throw new FileBrowserError('queue-full');
-    this.jobs.push({
+    const job: TransferJob = {
       ...request,
       id: randomUUID(),
       state: 'queued',
@@ -76,9 +76,14 @@ export class TransferQueue {
       partialPath: null,
       backupPath: null,
       conflict: null,
-    });
+      source: null,
+      destination: null,
+    };
+    this.jobs.push(job);
+    if (approval) this.approvals.set(job.id, structuredClone(approval));
     this.changed();
     void this.run();
+    return job.id;
   }
   cancel(id: string, reason: 'cancelled' | 'disconnected' = 'cancelled'): void {
     const job = this.jobs.find((entry) => entry.id === id);
@@ -147,6 +152,8 @@ export class TransferQueue {
       );
       job.partialPath = outcome.partialPath;
       job.backupPath = outcome.backupPath ?? null;
+      job.source = outcome.source ?? null;
+      job.destination = outcome.destination ?? null;
       job.state = 'completed';
     } catch (error) {
       job.error = fileErrorCode(error);

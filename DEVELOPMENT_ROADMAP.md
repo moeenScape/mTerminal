@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F35 implemented — Transfer conflict decisions and retained backups; Phase 4 tests deferred |
-| Next feature | F36 — Remote editing; earlier desktop/platform acceptance remains outstanding |
+| Active feature | F36 implemented — Local-editor remote text workflow; Phase 4 tests deferred |
+| Next feature | F37 — Recovery; earlier desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -164,7 +164,7 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F35 — Overwrites (implementation):** Source/destination metadata preview, token-bound Replace/Skip/Cancel decisions with Skip as default, canonical path/version checks, staged replacement with retained original backups, guarded restore, and uncertain-outcome reporting. Non-file destinations are refused. Tests written; Phase 4 execution and desktop/platform acceptance remain pending. See `docs/FILE_BROWSER.md`.
-- [ ] **F36 — Remote editing:** Temporary download, editor integration, change detection, and deliberate upload.
+- [x] **F36 — Remote editing (implementation):** One regular UTF-8 file up to 1 MiB per window; private `.txt` working copy in the OS default text editor, saved-byte change detection, explicit immutable-snapshot uploads through existing version/conflict/backup checks, and confirmed scoped discard or retained copies. No auto-upload or connection rebinding. Tests written; execution and native/visual/platform acceptance deferred. See `docs/REMOTE_EDITING.md`.
 - [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support.
 
 Completion criteria: Test permissions, interruptions, large files, symlinks, unusual filenames, overwrites, and partial transfers. Preserve originals during replacement where supported. SFTP does not automatically provide elevated permissions.
@@ -938,3 +938,33 @@ cancel/restore, concurrent destination preservation, uncertain backup capture, m
 snapshots, token/IPC validation, Skip without recopying, and keyboard/default/conflict UI flows.
 Tests remain unrun until the Phase 4 gate. Live-server, visual and Windows/macOS verification
 remain pending. Usage and limits: `docs/FILE_BROWSER.md`. Next: F36; do not push.
+
+### F36 implementation
+
+Added one-file remote UTF-8 editing through the remote Actions menu. After an explicit plaintext
+copy notice, the main process prepares a private app-data working folder and opens only a
+generated `editing.txt` file using the system default text application. Downloads enforce the
+1 MiB bound before copying; readers reject invalid UTF-8/binary controls, symlinks, oversized or
+changing local copies. Origin metadata is saved separately without credentials or document text.
+
+The Remote editor panel shows saved-change detection, connection state, copy/recovery paths,
+reopen, Upload changes, Keep copy and finish, and confirmed local-only discard. Saved bytes are
+hashed once per second; saving alone never uploads. Explicit upload captures an immutable local
+snapshot and uses the existing queue with main-owned original remote metadata approval. Changed
+remote files require the F35 conflict decision. Acknowledged published metadata becomes the next
+baseline, while saves made during the upload remain pending. Uncertain/recovery uploads retain
+their snapshot and block blind retry. Disconnection never rebinds the editor to a different SSH
+session, and copies remain available locally after disconnect or window shutdown.
+
+Validated, window-owned editor actions accept no local path, executable command or deletion
+target from the renderer. Private folder paths are canonicalized; POSIX modes are restrictive.
+Kept copies are plaintext and are not automatically indexed after restart. External editor
+buffers/termination cannot be detected; discard explicitly warns to close the editor first.
+
+Typecheck, lint, formatting, production build and diff checks passed on Linux. Tests are written
+for bounded text/request validation, forced text launch, saved-change detection without auto-upload,
+snapshot isolation/later saves, updated publication metadata, conflicts and uncertainty, disconnect
+retention, launch failure, keep/scoped discard, symlink refusal, IPC boundaries and the editor panel.
+Execution remains deferred to the Phase 4 gate. Actual default-editor launch, live SSH/SFTP,
+interactive visual and Windows/macOS verification remain pending. See `docs/REMOTE_EDITING.md`.
+Next: F37; commit without pushing.

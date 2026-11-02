@@ -11,6 +11,7 @@ import { childPath } from './operations.js';
 import { sftpRequest as request } from './sftp-request.js';
 import { transferFile, type TransferOutcome } from './transfer-file.js';
 import type { TransferRequest, TransferConflictPreview } from '../../shared/transfers.js';
+import { REMOTE_EDIT_MAX_BYTES, type RemoteEditRequest } from '../../shared/remote-edit.js';
 
 /** Each operation owns a short-lived SFTP channel on the verified SSH connection. */
 export class RemoteFileBrowser {
@@ -36,6 +37,21 @@ export class RemoteFileBrowser {
       AbortSignal.any([signal, this.lifetime.signal]),
       progress,
       approval,
+    );
+  }
+  prepareEdit(
+    request: RemoteEditRequest,
+    directory: string,
+    signal: AbortSignal,
+  ): Promise<TransferOutcome> {
+    if (this.closed) return Promise.reject(new FileBrowserError('disconnected'));
+    return transferFile(
+      this.client,
+      { ...request, localDirectory: directory, direction: 'download' },
+      AbortSignal.any([signal, this.lifetime.signal]),
+      () => {},
+      undefined,
+      { maxBytes: REMOTE_EDIT_MAX_BYTES },
     );
   }
   private async withChannel<T>(

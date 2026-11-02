@@ -48,6 +48,14 @@ export const fileErrorMessages = {
   'not-empty': 'This folder is not empty. Only empty folders can be deleted.',
   unsupported: 'This operation is unavailable for this item or platform.',
   cancelled: 'Transfer cancelled.',
+  'editor-busy': 'Finish the current remote editing session before starting another.',
+  'editor-text-only':
+    'Remote editing supports regular UTF-8 text files up to 1 MiB, without binary control characters.',
+  'editor-launch-failed':
+    'The text editor could not be opened. Set a default application for .txt files, then choose Open editor again.',
+  'editor-copy-unavailable':
+    'The working copy is missing, changing, or unreadable. Save it in the editor and retry.',
+  'editor-unchanged': 'There are no saved changes to upload.',
   'queue-full': 'The transfer queue is full. Clear finished transfers before adding more.',
   'source-changed':
     'The source file changed or ended early. It was not published at the destination.',

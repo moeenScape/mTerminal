@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import type { RemoteEditState } from '../../src/shared/remote-edit.js';
 
 const desktopDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const electronExecutable = createRequire(import.meta.url)('electron') as string;
@@ -111,9 +112,11 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteSshPassword',
       'enqueueTransfer',
       'exportWorkspace',
+      'finishRemoteEdit',
       'generateSshKey',
       'getAppInfo',
       'getPreferences',
+      'getRemoteEdit',
       'getShells',
       'getSshKeyStatus',
       'getSshPasswordStatus',
@@ -129,6 +132,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'lockVault',
       'mutateDirectory',
       'onHistoryChanged',
+      'onRemoteEditChanged',
       'onSshChallenge',
       'onTerminalEvent',
       'onTransfersChanged',
@@ -136,6 +140,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'openSshTerminal',
       'openTerminal',
       'readClipboardText',
+      'reopenRemoteEdit',
       'resetVault',
       'resizeTerminal',
       'resolveTransferConflict',
@@ -146,7 +151,9 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveSshPassword',
       'searchHistory',
       'setupVault',
+      'startRemoteEdit',
       'unlockVault',
+      'uploadRemoteEdit',
       'writeClipboardText',
       'writeTerminal',
     ],
@@ -363,6 +370,69 @@ test('previews transfer conflicts with Skip as default and explicit Replace and 
   await expect(
     queue.getByRole('listitem').filter({ hasText: 'cancel.txt' }).getByRole('status'),
   ).toHaveText('cancelled');
+});
+
+test('shows pending remote edits, uploads explicitly, and confirms local-only discard', async () => {
+  await application.evaluate(({ ipcMain, BrowserWindow }, directory) => {
+    let state: RemoteEditState | null = {
+      id: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+      sessionId: '14e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+      title: 'Remote editor fixture',
+      remoteDirectory: '/remote',
+      name: 'config.sh',
+      localPath: `${directory}/private-edit/editing.txt`,
+      workingDirectory: `${directory}/private-edit`,
+      phase: 'ready',
+      connected: true,
+      hasCopy: true,
+      changed: true,
+      size: 20,
+      error: null,
+      transferId: null,
+      backupPath: null,
+      partialPath: null,
+    };
+    const changed = () => BrowserWindow.getAllWindows()[0]!.webContents.send('remote-edit:changed');
+    ipcMain.removeHandler('remote-edit:state');
+    ipcMain.handle('remote-edit:state', () => ({ ok: true, value: state }));
+    ipcMain.removeHandler('remote-edit:reopen');
+    ipcMain.handle('remote-edit:reopen', () => ({ ok: true, value: undefined }));
+    ipcMain.removeHandler('remote-edit:upload');
+    ipcMain.handle('remote-edit:upload', () => {
+      state = state && { ...state, changed: false, backupPath: '/remote/editor-original.bak' };
+      changed();
+      return { ok: true, value: undefined };
+    });
+    ipcMain.removeHandler('remote-edit:finish');
+    ipcMain.handle('remote-edit:finish', (_event, choice: string) => {
+      const kept = choice === 'keep' ? (state?.workingDirectory ?? null) : null;
+      state = null;
+      changed();
+      return { ok: true, value: kept };
+    });
+  }, userData);
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const editor = page.getByRole('region', { name: 'Remote editor', exact: true });
+  await expect(editor.getByRole('status')).toContainText('Saved changes pending');
+  await editor.getByRole('button', { name: 'Open editor', exact: true }).click();
+  await editor.getByRole('button', { name: 'Upload changes', exact: true }).click();
+  await expect(editor.getByRole('button', { name: 'Upload changes', exact: true })).toBeDisabled();
+  await expect(editor).toContainText('/remote/editor-original.bak');
+  await editor.getByRole('button', { name: 'Discard local copy…', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Discard remote editing copy?' });
+  await expect(dialog).toContainText(`${userData}/private-edit`);
+  await expect(dialog).toContainText('Remote files and backups are kept.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editor.getByRole('button', { name: 'Open editor', exact: true })).toBeEnabled();
+  await editor.getByRole('button', { name: 'Discard local copy…', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Discard remote editing copy?' });
+  await dialog.getByRole('button', { name: 'Discard local copy', exact: true }).click();
+  await expect(editor).toContainText(
+    'Local working folder discarded. Remote files and backups were kept.',
+  );
+  await expect(editor.getByRole('button', { name: 'Open editor', exact: true })).toBeHidden();
 });
 
 test('blocks popups and renderer-initiated navigation', async () => {

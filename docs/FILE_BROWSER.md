@@ -56,7 +56,8 @@ on case-insensitive filesystems is not supported.
 Local permission changes use a no-follow descriptor and require read access to the item. Remote
 permissions use SFTP path operations after checking the item with `lstat`; concurrent changes by
 other clients are governed by the server's filesystem semantics. The browser does not elevate
-privileges. Remote editing follows in F36.
+privileges. F36 provides [remote text editing](REMOTE_EDITING.md) through a private local working
+copy, the system's default text editor, saved-change detection and explicit snapshot uploads.
 
 ## Uploads, downloads, and the transfer queue
 

@@ -2285,7 +2285,7 @@ button.file-name svg {
 }
 .transfer-queue {
   flex: 0 0 auto;
-  max-height: 210px;
+  max-height: min(210px, 25vh);
   overflow: auto;
   border-top: 1px solid var(--border);
   background: var(--sidebar);
@@ -2345,6 +2345,30 @@ button.file-name svg {
 }
 .transfer-conflict-dialog {
   width: min(680px, calc(100vw - 40px));
+}
+.remote-editor {
+  flex: 0 0 auto;
+  max-height: min(190px, 25vh);
+  overflow: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar);
+  font-size: 12px;
+}
+.remote-editor header,
+.remote-editor-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.remote-editor p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.remote-editor header span,
+.remote-editor-help {
+  color: var(--muted);
 }
 .transfer-conflict-details {
   margin: 12px 0;

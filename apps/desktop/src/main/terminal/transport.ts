@@ -5,6 +5,11 @@ export type TerminalTransport = Pick<
 > & {
   onExit: (listener: (event: TerminalExit) => void) => IDisposable;
   listDirectory?: (path: string) => Promise<import('../../shared/files.js').DirectoryListing>;
+  prepareRemoteEdit?: (
+    request: import('../../shared/remote-edit.js').RemoteEditRequest,
+    directory: string,
+    signal: AbortSignal,
+  ) => Promise<import('../files/transfer-file.js').TransferOutcome>;
   transferFile?: (
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,

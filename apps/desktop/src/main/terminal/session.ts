@@ -155,6 +155,14 @@ export class TerminalSession {
   get canTransfer(): boolean {
     return !!this.session?.pty.transferFile;
   }
+  async prepareRemoteEdit(
+    request: import('../../shared/remote-edit.js').RemoteEditRequest,
+    directory: string,
+    signal: AbortSignal,
+  ) {
+    if (!this.session?.pty.prepareRemoteEdit) throw new FileBrowserError('disconnected');
+    return this.session.pty.prepareRemoteEdit(request, directory, signal);
+  }
   async transferFile(
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,

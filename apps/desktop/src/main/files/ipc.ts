@@ -1,4 +1,10 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { ipcMain, shell, type BrowserWindow } from 'electron';
+import {
+  remoteEditChannels,
+  REMOTE_EDIT_CHANGED,
+  type RemoteEditState,
+} from '../../shared/remote-edit.js';
+import { RemoteEditManager, validRemoteEditRequest } from './remote-edit.js';
 import {
   FILES_LIST,
   FILES_MUTATE,
@@ -27,13 +33,65 @@ export function attachFiles(
   window: BrowserWindow,
   rendererUrl: string,
   terminals: TerminalRegistry,
+  editRoot: string,
 ): void {
   let pending = 0;
   let mutating = false;
   let disposed = false;
   const transfers = new TransferQueue(terminals, () => {
     if (!disposed && !window.webContents.isDestroyed()) window.webContents.send(TRANSFERS_CHANGED);
+    editor.syncFromQueue();
   });
+  const editor = new RemoteEditManager(
+    editRoot,
+    terminals,
+    transfers,
+    async (path) => {
+      if (await shell.openPath(path)) throw new FileBrowserError('editor-launch-failed');
+    },
+    () => {
+      if (!disposed && !window.webContents.isDestroyed())
+        window.webContents.send(REMOTE_EDIT_CHANGED);
+    },
+  );
+  const edits = editor;
+  for (const channel of Object.values(remoteEditChannels)) {
+    ipcMain.handle(
+      channel,
+      async (
+        event,
+        ...args: unknown[]
+      ): Promise<TransferResponse<RemoteEditState | string | null | undefined>> => {
+        validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+        if (disposed) return { ok: false, code: 'disconnected' };
+        try {
+          if (channel === remoteEditChannels.state && !args.length)
+            return { ok: true, value: edits.state() };
+          if (
+            channel === remoteEditChannels.start &&
+            args.length === 1 &&
+            validRemoteEditRequest(args[0])
+          ) {
+            if (mutating) throw new FileBrowserError('busy');
+            await edits.start(args[0]);
+          } else if (channel === remoteEditChannels.reopen && !args.length) await edits.reopen();
+          else if (channel === remoteEditChannels.upload && !args.length) {
+            if (mutating) throw new FileBrowserError('busy');
+            await edits.upload();
+          } else if (
+            channel === remoteEditChannels.finish &&
+            args.length === 1 &&
+            (args[0] === 'keep' || args[0] === 'discard')
+          )
+            return { ok: true, value: await edits.finish(args[0]) };
+          else throw new Error('Invalid remote editor request.');
+          return { ok: true, value: undefined };
+        } catch (error) {
+          return { ok: false, code: fileErrorCode(error) };
+        }
+      },
+    );
+  }
   for (const channel of Object.values(transferChannels)) {
     ipcMain.handle(
       channel,
@@ -100,7 +158,7 @@ export function attachFiles(
     if (args.length !== 1 || !validMutationRequest(args[0]))
       throw new Error('Invalid file operation request.');
     if (disposed) return { ok: false, code: 'disconnected' };
-    if (pending || mutating || transfers.running) return { ok: false, code: 'busy' };
+    if (pending || mutating || transfers.running || edits.busy) return { ok: false, code: 'busy' };
     mutating = true;
     try {
       const request = args[0];
@@ -116,9 +174,11 @@ export function attachFiles(
   window.once('closed', () => {
     disposed = true;
     transfers.dispose();
+    edits.dispose();
     ipcMain.removeHandler(FILES_LIST);
     ipcMain.removeHandler(FILES_MUTATE);
     for (const channel of Object.values(transferChannels)) ipcMain.removeHandler(channel);
+    for (const channel of Object.values(remoteEditChannels)) ipcMain.removeHandler(channel);
   });
   // A reload starts a fresh UI; outstanding writes must not continue invisibly.
   const reset = () => {

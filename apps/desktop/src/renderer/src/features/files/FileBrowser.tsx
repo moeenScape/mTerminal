@@ -13,6 +13,8 @@ import { FileOperationDialog, type FileAction } from './FileOperationDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { TransferRequest } from '../../../../shared/transfers';
 import { TransferQueueView, useTransfers } from './TransferQueueView';
+import { RemoteEditorPanel, useRemoteEdit } from './RemoteEditorPanel';
+import { REMOTE_EDIT_MAX_BYTES, type RemoteEditRequest } from '../../../../shared/remote-edit';
 
 export function FileBrowser({
   sessionId,
@@ -35,6 +37,7 @@ export function FileBrowser({
     [sessionId],
   );
   const transfers = useTransfers();
+  const editor = useRemoteEdit();
   const transferContext =
     sessionId && localDirectory && remoteDirectory?.sessionId === sessionId
       ? { sessionId, title: remoteTitle, localDirectory, remoteDirectory: remoteDirectory.path }
@@ -59,6 +62,7 @@ export function FileBrowser({
           onDirectory={setLocalDirectory}
           transferContext={transferContext}
           transferRevision={transfers.revision}
+          canEdit={false}
         />
         {remote ? (
           <DirectoryPane
@@ -68,6 +72,7 @@ export function FileBrowser({
             onDirectory={onRemoteDirectory}
             transferContext={transferContext}
             transferRevision={transfers.revision}
+            canEdit={editor.ready && !editor.edit}
           />
         ) : (
           <section className="file-pane file-pane-empty" aria-label="Remote files">
@@ -78,6 +83,7 @@ export function FileBrowser({
         )}
       </div>
       <TransferQueueView jobs={transfers.jobs} error={transfers.error} />
+      <RemoteEditorPanel edit={editor.edit} error={editor.error} />
     </section>
   );
 }
@@ -89,6 +95,7 @@ function DirectoryPane({
   onDirectory,
   transferContext,
   transferRevision,
+  canEdit,
 }: {
   side: 'local' | 'remote';
   title: string;
@@ -96,6 +103,7 @@ function DirectoryPane({
   onDirectory: (path: string) => void;
   transferContext: Omit<TransferRequest, 'direction' | 'name'> | null;
   transferRevision: number;
+  canEdit: boolean;
 }) {
   const id = useId();
   const [location, setLocation] = useState({ path: '', revision: 0 });
@@ -111,6 +119,7 @@ function DirectoryPane({
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState('');
   const [transfer, setTransfer] = useState<TransferRequest | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<RemoteEditRequest | null>(null);
   const loading = useRef<Promise<void>>(Promise.resolve());
   const disconnected = side === 'remote' && !sessionId;
   const blocked = busy || mutating || disconnected;
@@ -387,6 +396,27 @@ function DirectoryPane({
           position={menu.position}
           onClose={() => setMenu(null)}
           items={[
+            ...(side === 'remote'
+              ? [
+                  {
+                    label: 'Edit in local editor…',
+                    disabled:
+                      !canEdit ||
+                      menu.entry.kind !== 'file' ||
+                      menu.entry.size > REMOTE_EDIT_MAX_BYTES,
+                    onSelect: () => {
+                      if (sessionId)
+                        setPendingEdit({
+                          sessionId,
+                          title,
+                          remoteDirectory: listing.path,
+                          name: menu.entry.name,
+                        });
+                      setMenu(null);
+                    },
+                  },
+                ]
+              : []),
             {
               label: side === 'local' ? 'Upload…' : 'Download…',
               disabled: !transferContext || menu.entry.kind !== 'file',
@@ -431,6 +461,31 @@ function DirectoryPane({
           onCancel={() => setAction(null)}
           onConfirm={perform}
         />
+      )}
+      {pendingEdit && (
+        <ConfirmDialog
+          title="Edit remote text file locally?"
+          confirmLabel="Download and open"
+          onCancel={() => setPendingEdit(null)}
+          onConfirm={async () => {
+            if (pendingEdit.sessionId !== sessionId)
+              throw new Error('The SSH connection changed. Select the file again.');
+            await window.mterminal.startRemoteEdit(pendingEdit);
+            setPendingEdit(null);
+            setNotice('Preparing remote text editing. See the Remote editor panel.');
+          }}
+        >
+          <p>{pendingEdit.title}</p>
+          <p className="file-operation-path">
+            {pendingEdit.remoteDirectory}/{pendingEdit.name}
+          </p>
+          <p>
+            Download one UTF-8 text file up to 1 MiB to a private app-data folder and open a
+            generated .txt copy in your system&apos;s default text editor. The copy is plaintext and
+            is not vault encrypted. Saving does not upload; choose Upload changes explicitly. Copies
+            are kept until you discard them.
+          </p>
+        </ConfirmDialog>
       )}
       {transfer && (
         <ConfirmDialog

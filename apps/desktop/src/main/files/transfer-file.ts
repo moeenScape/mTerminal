@@ -31,6 +31,8 @@ export class TransferFailure extends FileBrowserError {
 export interface TransferOutcome {
   partialPath: string | null;
   backupPath?: string;
+  source?: TransferFileInfo;
+  destination?: TransferFileInfo;
 }
 
 /** Bounded copying into an exclusive staging file; publish only after successful close. */
@@ -40,6 +42,7 @@ export async function transferFile(
   signal: AbortSignal,
   progress: (transferred: number, total: number) => void,
   approval?: TransferConflictPreview,
+  limits?: { maxBytes: number },
 ): Promise<TransferOutcome> {
   let channel: SFTPWrapper | undefined;
   let local: FileHandle | undefined;
@@ -54,6 +57,8 @@ export async function transferFile(
   let backupPath: string | null = null;
   let rollback: (() => Promise<void>) | undefined;
   let restored = false;
+  let sourceInfo: TransferFileInfo | undefined;
+  let destinationInfo: TransferFileInfo | undefined;
   const lost = new AbortController();
   const combined = AbortSignal.any([signal, lost.signal]);
   const disconnected = () => lost.abort(new FileBrowserError('disconnected'));
@@ -87,6 +92,12 @@ export async function transferFile(
       ? localFileInfo(localPath, await lstat(localPath))
       : remoteFileInfo(remotePath, await rpc<Stats>((done) => sftp.lstat(remotePath, done)));
     if (source.kind !== 'file') throw new FileBrowserError('unsupported');
+    if (
+      limits &&
+      (!Number.isSafeInteger(source.size) || source.size < 0 || source.size > limits.maxBytes)
+    )
+      throw new FileBrowserError('editor-text-only');
+    sourceInfo = source;
     const readDestination = async (): Promise<TransferFileInfo | null> => {
       try {
         return upload
@@ -190,11 +201,13 @@ export async function transferFile(
         throw new FileBrowserError('source-changed');
       const destination = await rpc<Stats>((done) => sftp.fstat(remoteHandle!, done));
       if (destination.size !== size) throw new FileBrowserError('transfer-failed');
+      destinationInfo = remoteFileInfo(remotePath, destination);
     } else {
       const after = await rpc<Stats>((done) => sftp.fstat(remoteHandle!, done));
       if (after.size !== size || after.mtime !== modified)
         throw new FileBrowserError('source-changed');
       await local.sync();
+      destinationInfo = localFileInfo(localPath, await local.stat());
     }
     await local.close();
     local = undefined;
@@ -316,5 +329,10 @@ export async function transferFile(
     );
   }
   if (!published) throw new TransferFailure('transfer-failed', partialPath);
-  return { partialPath, ...(backupPath ? { backupPath } : {}) };
+  return {
+    partialPath,
+    ...(backupPath ? { backupPath } : {}),
+    ...(sourceInfo ? { source: sourceInfo } : {}),
+    ...(destinationInfo ? { destination: destinationInfo } : {}),
+  };
 }

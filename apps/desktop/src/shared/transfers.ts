@@ -48,6 +48,8 @@ export interface TransferJob extends TransferRequest {
   partialPath: string | null;
   backupPath: string | null;
   conflict: TransferConflictPreview | null;
+  source: TransferFileInfo | null;
+  destination: TransferFileInfo | null;
 }
 export function transferActive(state: TransferState) {
   return (

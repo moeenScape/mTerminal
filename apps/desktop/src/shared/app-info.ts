@@ -5,6 +5,7 @@ import type { BackupApi } from './backup.js';
 import type { HistoryApi } from './history.js';
 import type { FilesApi } from './files.js';
 import type { TransfersApi } from './transfers.js';
+import type { RemoteEditApi } from './remote-edit.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -14,7 +15,15 @@ export interface AppInfo {
 }
 
 export interface DesktopApi
-  extends TerminalApi, HostsApi, VaultApi, BackupApi, HistoryApi, FilesApi, TransfersApi {
+  extends
+    TerminalApi,
+    HostsApi,
+    VaultApi,
+    BackupApi,
+    HistoryApi,
+    FilesApi,
+    TransfersApi,
+    RemoteEditApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
