@@ -23,6 +23,12 @@ import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-i
 import { backupChannels } from '../shared/backup.js';
 import { historyChannels, historyEvents, type CommandHistoryEntry } from '../shared/history.js';
 import {
+  transferChannels,
+  TRANSFERS_CHANGED,
+  type TransferResponse,
+  type TransferJob,
+} from '../shared/transfers.js';
+import {
   FILES_LIST,
   FILES_MUTATE,
   fileErrorMessages,
@@ -35,8 +41,22 @@ async function historyRequest<T>(channel: string, ...args: unknown[]): Promise<T
   if (!result.ok) throw new Error(failureMessages[result.code]);
   return result.value;
 }
+async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result: TransferResponse<T> = await ipcRenderer.invoke(channel, ...args);
+  if (!result.ok) throw new Error(fileErrorMessages[result.code]);
+  return result.value;
+}
 
 const api: DesktopApi = {
+  listTransfers: () => transferRequest<TransferJob[]>(transferChannels.list),
+  enqueueTransfer: (request) => transferRequest<void>(transferChannels.enqueue, request),
+  cancelTransfer: (id) => transferRequest<void>(transferChannels.cancel, id),
+  clearFinishedTransfers: () => transferRequest<void>(transferChannels.clear),
+  onTransfersChanged: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on(TRANSFERS_CHANGED, receive);
+    return () => ipcRenderer.removeListener(TRANSFERS_CHANGED, receive);
+  },
   mutateDirectory: async (request) => {
     const result: FileMutationResult = await ipcRenderer.invoke(FILES_MUTATE, request);
     if (!result.ok) throw new Error(fileErrorMessages[result.code]);

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import type {
   DirectoryListing,
@@ -10,6 +10,9 @@ import type {
 import { fileSize, visibleFiles, type FileSort } from './file-browser';
 import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
 import { FileOperationDialog, type FileAction } from './FileOperationDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import type { TransferRequest } from '../../../../shared/transfers';
+import { TransferQueueView, useTransfers } from './TransferQueueView';
 
 export function FileBrowser({
   sessionId,
@@ -22,6 +25,20 @@ export function FileBrowser({
   remote: boolean;
   onClose: () => void;
 }) {
+  const [localDirectory, setLocalDirectory] = useState<string | null>(null);
+  const [remoteDirectory, setRemoteDirectory] = useState<{
+    sessionId: string | null;
+    path: string;
+  } | null>(null);
+  const onRemoteDirectory = useCallback(
+    (path: string) => setRemoteDirectory({ sessionId, path }),
+    [sessionId],
+  );
+  const transfers = useTransfers();
+  const transferContext =
+    sessionId && localDirectory && remoteDirectory?.sessionId === sessionId
+      ? { sessionId, title: remoteTitle, localDirectory, remoteDirectory: remoteDirectory.path }
+      : null;
   return (
     <section className="file-browser" aria-label="File browser">
       <header className="file-browser-header">
@@ -35,9 +52,23 @@ export function FileBrowser({
         </button>
       </header>
       <div className="file-browser-panes">
-        <DirectoryPane side="local" title="Local computer" sessionId={null} />
+        <DirectoryPane
+          side="local"
+          title="Local computer"
+          sessionId={null}
+          onDirectory={setLocalDirectory}
+          transferContext={transferContext}
+          transferRevision={transfers.revision}
+        />
         {remote ? (
-          <DirectoryPane side="remote" title={remoteTitle} sessionId={sessionId} />
+          <DirectoryPane
+            side="remote"
+            title={remoteTitle}
+            sessionId={sessionId}
+            onDirectory={onRemoteDirectory}
+            transferContext={transferContext}
+            transferRevision={transfers.revision}
+          />
         ) : (
           <section className="file-pane file-pane-empty" aria-label="Remote files">
             <Icon name="hosts" />
@@ -46,6 +77,7 @@ export function FileBrowser({
           </section>
         )}
       </div>
+      <TransferQueueView jobs={transfers.jobs} error={transfers.error} />
     </section>
   );
 }
@@ -54,10 +86,16 @@ function DirectoryPane({
   side,
   title,
   sessionId,
+  onDirectory,
+  transferContext,
+  transferRevision,
 }: {
   side: 'local' | 'remote';
   title: string;
   sessionId: string | null;
+  onDirectory: (path: string) => void;
+  transferContext: Omit<TransferRequest, 'direction' | 'name'> | null;
+  transferRevision: number;
 }) {
   const id = useId();
   const [location, setLocation] = useState({ path: '', revision: 0 });
@@ -72,6 +110,8 @@ function DirectoryPane({
   const [menu, setMenu] = useState<{ entry: FileEntry; position: MenuPosition } | null>(null);
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState('');
+  const [transfer, setTransfer] = useState<TransferRequest | null>(null);
+  const loading = useRef<Promise<void>>(Promise.resolve());
   const disconnected = side === 'remote' && !sessionId;
   const blocked = busy || mutating || disconnected;
   useEffect(() => {
@@ -81,11 +121,12 @@ function DirectoryPane({
       side === 'local'
         ? { side, path: location.path }
         : { side, path: location.path, sessionId: sessionId! };
-    void window.mterminal
-      .listDirectory(request)
+    loading.current = loading.current
+      .then(() => (cancelled ? undefined : window.mterminal.listDirectory(request)))
       .then((value) => {
-        if (cancelled) return;
+        if (cancelled || !value) return;
         setListing(value);
+        onDirectory(value.path);
         setDraft(value.path);
         setMessage('');
       })
@@ -99,7 +140,7 @@ function DirectoryPane({
     return () => {
       cancelled = true;
     };
-  }, [side, sessionId, location]);
+  }, [side, sessionId, location, transferRevision, onDirectory]);
   const navigate = (path: string) => {
     setBusy(true);
     setMessage('');
@@ -300,6 +341,11 @@ function DirectoryPane({
                   <code>{entry.permissions}</code>
                 </td>
                 <td>
+                  {Number.isFinite(entry.modified)
+                    ? new Date(entry.modified).toLocaleString()
+                    : '—'}
+                </td>
+                <td>
                   <button
                     type="button"
                     className="icon-button"
@@ -312,11 +358,6 @@ function DirectoryPane({
                   >
                     <Icon name="more" />
                   </button>
-                </td>
-                <td>
-                  {Number.isFinite(entry.modified)
-                    ? new Date(entry.modified).toLocaleString()
-                    : '—'}
                 </td>
               </tr>
             ))}
@@ -346,6 +387,19 @@ function DirectoryPane({
           position={menu.position}
           onClose={() => setMenu(null)}
           items={[
+            {
+              label: side === 'local' ? 'Upload…' : 'Download…',
+              disabled: !transferContext || menu.entry.kind !== 'file',
+              onSelect: () => {
+                if (transferContext)
+                  setTransfer({
+                    ...transferContext,
+                    name: menu.entry.name,
+                    direction: side === 'local' ? 'upload' : 'download',
+                  });
+                setMenu(null);
+              },
+            },
             {
               label: 'Rename…',
               onSelect: () => {
@@ -377,6 +431,38 @@ function DirectoryPane({
           onCancel={() => setAction(null)}
           onConfirm={perform}
         />
+      )}
+      {transfer && (
+        <ConfirmDialog
+          title={`${transfer.direction === 'upload' ? 'Upload' : 'Download'} file?`}
+          confirmLabel="Add to queue"
+          onCancel={() => setTransfer(null)}
+          onConfirm={async () => {
+            if (!transferContext || transfer.sessionId !== transferContext.sessionId)
+              throw new Error(
+                'The SSH connection changed. Close this dialog and select the file again.',
+              );
+            await window.mterminal.enqueueTransfer(transfer);
+            setTransfer(null);
+            setNotice(`Queued ${transfer.direction}: ${transfer.name}`);
+          }}
+        >
+          <p>
+            {transfer.title} ·{' '}
+            {transfer.direction === 'upload' ? 'Local → Remote' : 'Remote → Local'}
+          </p>
+          <p className="file-operation-path">{transfer.name}</p>
+          <p>
+            Local folder: <code>{transfer.localDirectory}</code>
+          </p>
+          <p>
+            Remote folder: <code>{transfer.remoteDirectory}</code>
+          </p>
+          <p>
+            The name stays the same. Existing destination items are refused. Only regular files are
+            supported.
+          </p>
+        </ConfirmDialog>
       )}
     </section>
   );

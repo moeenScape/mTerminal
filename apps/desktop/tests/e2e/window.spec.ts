@@ -99,6 +99,8 @@ test('exposes only the intended bridge and no Node globals', async () => {
     methods: [
       'ackTerminal',
       'answerSshChallenge',
+      'cancelTransfer',
+      'clearFinishedTransfers',
       'clearHistory',
       'closeTerminal',
       'deleteHistory',
@@ -107,6 +109,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteSshIdentity',
       'deleteSshKey',
       'deleteSshPassword',
+      'enqueueTransfer',
       'exportWorkspace',
       'generateSshKey',
       'getAppInfo',
@@ -122,11 +125,13 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listHostGroups',
       'listHosts',
       'listSshIdentities',
+      'listTransfers',
       'lockVault',
       'mutateDirectory',
       'onHistoryChanged',
       'onSshChallenge',
       'onTerminalEvent',
+      'onTransfersChanged',
       'onVaultLocked',
       'openSshTerminal',
       'openTerminal',
@@ -220,6 +225,52 @@ test('creates, renames and confirms deletion of a local folder without overwriti
     .click();
   await expect(local.getByRole('button', { name: 'Actions for renamed-folder' })).toBeHidden();
   expect(await readFile(join(folder, 'existing'), 'utf8')).toBe('keep');
+});
+
+test('renders transfer progress and cancels and clears jobs through preload', async () => {
+  await application.evaluate(({ ipcMain, BrowserWindow }, directory) => {
+    let jobs = [
+      {
+        id: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        sessionId: '14e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        title: 'Transfer fixture',
+        direction: 'upload',
+        name: 'queued-file.txt',
+        localDirectory: directory,
+        remoteDirectory: '/fixture',
+        state: 'running',
+        transferred: 128,
+        total: 256,
+        error: null,
+        partialPath: null,
+      },
+    ];
+    const changed = () => BrowserWindow.getAllWindows()[0]!.webContents.send('transfers:changed');
+    ipcMain.removeHandler('transfers:list');
+    ipcMain.handle('transfers:list', () => ({ ok: true, value: jobs }));
+    ipcMain.removeHandler('transfers:cancel');
+    ipcMain.handle('transfers:cancel', (_event, id: string) => {
+      jobs = jobs.map((job) => (job.id === id ? { ...job, state: 'cancelled' } : job));
+      changed();
+      return { ok: true, value: undefined };
+    });
+    ipcMain.removeHandler('transfers:clear');
+    ipcMain.handle('transfers:clear', () => {
+      jobs = [];
+      changed();
+      return { ok: true, value: undefined };
+    });
+  }, userData);
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const queue = page.getByRole('region', { name: 'Transfer queue', exact: true });
+  await expect(queue.getByRole('progressbar')).toHaveAttribute('value', '128');
+  await expect(queue).toContainText('Transfer fixture');
+  await queue.getByRole('button', { name: 'Cancel upload queued-file.txt' }).click();
+  await expect(queue.getByRole('status')).toHaveText('cancelled');
+  await queue.getByRole('button', { name: 'Clear finished' }).click();
+  await expect(queue.getByRole('progressbar')).toBeHidden();
 });
 
 test('blocks popups and renderer-initiated navigation', async () => {

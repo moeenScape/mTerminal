@@ -14,6 +14,29 @@ export class TerminalRegistry {
   private readonly sessions = new Map<string, TerminalSession>();
   private disposed = false;
   private suspended = false;
+  private readonly closedListeners = new Set<(id: string) => void>();
+  onSessionClosed(listener: (id: string) => void): () => void {
+    this.closedListeners.add(listener);
+    return () => {
+      this.closedListeners.delete(listener);
+    };
+  }
+  private notifyClosed(id: string): void {
+    for (const listener of this.closedListeners) listener(id);
+  }
+  canTransfer(id: string): boolean {
+    return !this.disposed && !!this.sessions.get(id)?.canTransfer;
+  }
+  async transferFile(
+    id: string,
+    request: import('../../shared/transfers.js').TransferRequest,
+    signal: AbortSignal,
+    progress: (transferred: number, total: number) => void,
+  ) {
+    const session = this.sessions.get(id);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.transferFile(request, signal, progress);
+  }
   get count(): number {
     return this.sessions.size;
   }
@@ -37,6 +60,7 @@ export class TerminalRegistry {
       if (event.kind === 'exit' || event.kind === 'error') {
         this.sessions.delete(id);
         session.dispose();
+        this.notifyClosed(id);
       }
       this.send(event);
     });
@@ -81,11 +105,15 @@ export class TerminalRegistry {
     const session = this.sessions.get(id);
     this.sessions.delete(id);
     session?.dispose();
+    if (session) this.notifyClosed(id);
   }
   reset(): void {
-    const sessions = [...this.sessions.values()];
+    const sessions = [...this.sessions.entries()];
     this.sessions.clear();
-    for (const session of sessions) session.dispose();
+    for (const [id, session] of sessions) {
+      session.dispose();
+      this.notifyClosed(id);
+    }
   }
   dispose(): void {
     this.disposed = true;

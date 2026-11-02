@@ -26,6 +26,23 @@ function fakePty() {
 }
 const size = { cols: 80, rows: 24 };
 describe('owned terminal registry', () => {
+  it('notifies file-transfer owners when sessions close, exit or reset', async () => {
+    const registry = new TerminalRegistry(() => {});
+    const closed = vi.fn();
+    const off = registry.onSessionClosed(closed);
+    const one = fakePty();
+    const two = fakePty();
+    const three = fakePty();
+    await registry.open('one', size, async () => one.pty);
+    await registry.open('two', size, async () => two.pty);
+    await registry.open('three', size, async () => three.pty);
+    registry.close('one');
+    two.exit();
+    registry.reset();
+    expect(closed.mock.calls.map(([id]) => id)).toEqual(['one', 'two', 'three']);
+    off();
+    registry.dispose();
+  });
   it('isolates input, resizing, and closure across sessions', async () => {
     const one = fakePty();
     const two = fakePty();

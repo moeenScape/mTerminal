@@ -47,6 +47,14 @@ export const fileErrorMessages = {
   exists: 'The destination already exists. Choose another name; existing items are preserved.',
   'not-empty': 'This folder is not empty. Only empty folders can be deleted.',
   unsupported: 'This operation is unavailable for this item or platform.',
+  cancelled: 'Transfer cancelled.',
+  'queue-full': 'The transfer queue is full. Clear finished transfers before adding more.',
+  'source-changed':
+    'The source file changed or ended early. It was not published at the destination.',
+  'transfer-timeout':
+    'The transfer stopped responding. Inspect the destination before trying again.',
+  'transfer-failed':
+    'The transfer failed. Check the source, destination, connection and available disk space.',
   uncertain:
     'The operation may have completed before the connection failed. Refresh and inspect the paths before trying again.',
   partial:

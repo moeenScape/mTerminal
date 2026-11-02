@@ -9,6 +9,14 @@ import { mutateLocalDirectory, validMutationRequest } from './operations.js';
 import { validateAppInfoRequest } from '../security.js';
 import type { TerminalRegistry } from '../terminal/registry.js';
 import {
+  transferChannels,
+  TRANSFERS_CHANGED,
+  type TransferResponse,
+  type TransferJob,
+} from '../../shared/transfers.js';
+import { validTerminalId } from '../../shared/terminal.js';
+import { TransferQueue, validTransferRequest } from './transfer-queue.js';
+import {
   fileErrorCode,
   FileBrowserError,
   listLocalDirectory,
@@ -23,6 +31,40 @@ export function attachFiles(
   let pending = 0;
   let mutating = false;
   let disposed = false;
+  const transfers = new TransferQueue(terminals, () => {
+    if (!disposed && !window.webContents.isDestroyed()) window.webContents.send(TRANSFERS_CHANGED);
+  });
+  for (const channel of Object.values(transferChannels)) {
+    ipcMain.handle(
+      channel,
+      async (event, ...args: unknown[]): Promise<TransferResponse<TransferJob[] | undefined>> => {
+        validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+        if (disposed) return { ok: false, code: 'disconnected' };
+        try {
+          if (channel === transferChannels.list && !args.length)
+            return { ok: true, value: transfers.list() };
+          if (channel === transferChannels.clear && !args.length) transfers.clearFinished();
+          else if (
+            channel === transferChannels.enqueue &&
+            args.length === 1 &&
+            validTransferRequest(args[0])
+          ) {
+            if (mutating) throw new FileBrowserError('busy');
+            transfers.enqueue(args[0]);
+          } else if (
+            channel === transferChannels.cancel &&
+            args.length === 1 &&
+            validTerminalId(args[0])
+          )
+            transfers.cancel(args[0]);
+          else throw new Error('Invalid transfer request.');
+          return { ok: true, value: undefined };
+        } catch (error) {
+          return { ok: false, code: fileErrorCode(error) };
+        }
+      },
+    );
+  }
   ipcMain.handle(FILES_LIST, async (event, ...args: unknown[]): Promise<FileListResult> => {
     validateAppInfoRequest(event, window.webContents, rendererUrl, []);
     if (args.length !== 1 || !validFileRequest(args[0]))
@@ -49,7 +91,7 @@ export function attachFiles(
     if (args.length !== 1 || !validMutationRequest(args[0]))
       throw new Error('Invalid file operation request.');
     if (disposed) return { ok: false, code: 'disconnected' };
-    if (pending || mutating) return { ok: false, code: 'busy' };
+    if (pending || mutating || transfers.running) return { ok: false, code: 'busy' };
     mutating = true;
     try {
       const request = args[0];
@@ -64,7 +106,16 @@ export function attachFiles(
   });
   window.once('closed', () => {
     disposed = true;
+    transfers.dispose();
     ipcMain.removeHandler(FILES_LIST);
     ipcMain.removeHandler(FILES_MUTATE);
+    for (const channel of Object.values(transferChannels)) ipcMain.removeHandler(channel);
   });
+  // A reload starts a fresh UI; outstanding writes must not continue invisibly.
+  const reset = () => {
+    for (const job of transfers.list()) transfers.cancel(job.id);
+    transfers.clearFinished();
+  };
+  window.webContents.on('did-navigate', reset);
+  window.webContents.on('render-process-gone', reset);
 }

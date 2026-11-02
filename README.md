@@ -6,8 +6,9 @@ F01–F31 are implemented: the application window, restricted preload bridge, Te
 
 ## Selected stack
 
-F32–F33 add local/SFTP browsing, folder creation, rename, confirmed file/empty-folder deletion,
-and permitted mode changes. Connect to a saved host and open **Files** from its terminal tab
+F32–F34 add local/SFTP browsing, folder creation, rename, confirmed file/empty-folder deletion,
+permitted mode changes, and queued single-file uploads/downloads with progress and cancellation.
+Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
 [File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.
 

@@ -56,11 +56,55 @@ on case-insensitive filesystems is not supported.
 Local permission changes use a no-follow descriptor and require read access to the item. Remote
 permissions use SFTP path operations after checking the item with `lstat`; concurrent changes by
 other clients are governed by the server's filesystem semantics. The browser does not elevate
-privileges. Editing, uploading, and downloading follow in F34–F37.
+privileges. Remote editing follows in F36.
+
+## Uploads, downloads, and the transfer queue
+
+1. Connect to a saved SSH host and open **Files** in that terminal tab.
+2. Navigate both panes to the desired source/destination folders.
+3. Choose **Upload…** from a regular local file's Actions menu, or **Download…** from a regular
+   remote file's menu. These actions become available after both folders load.
+4. Confirm the file name, SSH tab, direction, and both folders, then choose **Add to queue**.
+5. The queue beneath the panes shows bytes transferred, progress and status. **Cancel** removes
+   a queued job or interrupts an active copy; **cancelling** remains visible during cleanup.
+
+One transfer runs at a time per window, with up to 32 jobs including finished jobs. **Clear
+finished** removes only queue records; it never deletes files. Existing destination items are
+refused. Directory, symbolic-link and special-file transfers are unavailable. There is no
+automatic retry, reconnect, resume, recursive transfer or overwrite option in F34.
+
+Transfers continue while you return to the terminal or switch views. Closing the SSH tab,
+disconnecting its session, reloading the renderer or closing the window cancels associated work.
+Queued jobs stay bound to their original SSH session; reconnecting does not replay them. Queue
+records live only in memory and disappear on restart. A job captures the folder paths at enqueue
+time; the filesystem and source contents are checked when it starts, not copied at enqueue time.
+
+Copies use one 64 KiB buffer and a separate SFTP channel on the existing verified connection, so
+folder listing remains available. File mutations through the browser are refused while a transfer
+is active. Progress notifications are throttled to about five per second. Each SFTP request has
+a 30-second deadline; cleanup requests have a separate five-second deadline. Cancellation of
+local filesystem I/O waits for the OS operation to return.
+
+Data is copied into an exclusive `.mterminal-<uuid>.part` file in the destination folder, with
+mode `0600` where supported. Byte counts and source size/mtime are checked before publication.
+This detects common source changes but is not a checksum or an immutable source snapshot;
+SFTP v3 modification times have second precision. Files that are being modified should be copied
+after their writer stops. Source permissions and timestamps are not copied automatically.
+
+Upload publishes with standard non-overwriting SFTP rename. Download syncs/closes the staged
+file and publishes through exclusive hard-link creation, which requires a destination filesystem
+with hard-link support. Originals are never removed. A destination created during copying is
+also refused at publication.
+
+After settlement, the visible folders refresh. If a remote rename response is lost, the queue
+shows **uncertain** because the complete final file may already exist. Failed cleanup reports
+the possible temporary path, including an unacknowledged remote staging-file creation. Inspect
+that path before manually removing it. Crashes or forced shutdown can also leave temporary files;
+automatic recovery and verified resume are deferred to F37.
 
 ## Boundaries and verification
 
-The renderer uses validated, window-owned `files:list` and `files:mutate` requests. Local
+The renderer uses validated, window-owned `files:list`, `files:mutate`, and `transfers:*` requests. Local
 filesystem and SFTP access stay in the main process. No remote shell commands are constructed
 for file operations. A remote operation owns a short-lived SFTP channel and directory
 handle on the existing SSH connection; cleanup closes those resources without closing the shell.
@@ -69,13 +113,16 @@ Rename uses standard SFTP v3 rename rather than the OpenSSH overwrite extension,
 
 Each listing is capped at 5,000 entries, with a visible partial-listing notice. Sorting and hidden
 file filtering apply to that returned subset. Remote reads have a 15-second timeout and allow
-one operation at a time per SSH session; each window permits at most four concurrent listings.
-Mutations are serialized and refused while another file operation in the window is outstanding.
+one browser operation at a time per SSH session; each window permits at most four concurrent listings.
+Mutations are serialized and refused while another browser operation or transfer in the window is outstanding.
 
 Tests are written for local navigation and metadata, hidden files, unusual names, symlinks,
 sorting, invalid requests and sender isolation, missing sessions, SFTP EOF handling, listing
 limits, timeout/disconnect cleanup, shared-connection browsing, and the local desktop workflow.
 F33 adds tests for input validation, destination preservation, nonempty deletion, symlink safety,
 mode changes, partial renames, serialized IPC, remote mutation disconnects, and confirmation flows.
+F34 adds tests for queue validation, ownership, ordering and limits; byte-for-byte multi-chunk and
+empty-file copying; existing/concurrent destination preservation; changing sources; cancellation
+and cleanup; uncertain publication; and the desktop queue's progress/cancel/clear bridge.
 Run them with the Phase 4 test gate. Static checks and a production build are the step-level
 validation; interactive visual checks and Windows/macOS acceptance remain pending.

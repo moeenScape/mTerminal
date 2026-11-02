@@ -360,7 +360,8 @@ export async function createMainWindow(
           cancelId: 0,
           noLink: true,
           message: `Close ${terminals.count} active terminal session${terminals.count === 1 ? '' : 's'}?`,
-          detail: 'Running commands may be interrupted and terminal output will be discarded.',
+          detail:
+            'Running commands and file transfers may be interrupted. Terminal output will be discarded.',
         })
         .then(({ response }) => {
           confirming = false;

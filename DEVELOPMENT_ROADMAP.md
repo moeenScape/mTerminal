@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F33 implemented — Local/SFTP file operations; Phase 4 tests deferred |
-| Next feature | F34 — Transfers; earlier desktop/platform acceptance remains outstanding |
+| Active feature | F34 implemented — Single-file SFTP transfer queue; Phase 4 tests deferred |
+| Next feature | F35 — Overwrite decisions; earlier desktop/platform acceptance remains outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-01 |
+| Last roadmap update | 2026-11-02 |
 
 ## Selected technology stack
 
@@ -162,7 +162,7 @@ Dependencies: Phase 3 and the SSH connection layer.
 
 - [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
-- [ ] **F34 — Transfers:** Queue, upload/download progress, cancellation, and failure reporting.
+- [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [ ] **F35 — Overwrites:** Replace/skip decisions and validated destination paths.
 - [ ] **F36 — Remote editing:** Temporary download, editor integration, change detection, and deliberate upload.
 - [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support.
@@ -884,3 +884,32 @@ are written for payload validation, session ownership, mutation serialization, c
 nonempty-folder preservation, modes/symlinks, partial local rename, remote disconnect outcomes,
 and desktop confirmation/cancel/refresh flows. Tests are deferred until the Phase 4 gate.
 Live-server, interactive visual and Windows/macOS verification remain pending. Next: F34.
+
+### F34 implementation
+
+Added Upload/Download actions for regular files after both browser folders load, with a dialog
+showing the SSH tab, file, direction and captured folders. A window-owned queue holds up to 32
+jobs and runs one at a time. It displays throttled byte progress, status, queued/active cancel,
+sanitized failures, uncertain publication outcomes and possible leftover staging paths. Clearing
+finished jobs removes only queue records. Settled jobs refresh visible folders; browser reads
+are serialized within each pane to avoid overlapping a completion refresh with navigation.
+
+Copies reuse a separate SFTP channel on the verified SSH connection, with a 64 KiB buffer,
+per-request deadlines, source size/mtime checks, and destination staging files created exclusively
+with restrictive permissions. Upload publishes with standard non-overwriting SFTP rename;
+download syncs/closes the staging file and uses exclusive hard-link publication. Existing and
+concurrently created destinations are refused. Cancellation attempts bounded cleanup without
+removing final destination files; source files are not removed. Downloads require a filesystem
+that supports hard links. This is not checksum verification, immutable source capture or resume.
+
+The queue survives closing Files or switching views. Session close/reset/disconnect cancels its
+queued and active work, renderer reload/crash cancels outstanding work, and browser mutations
+are refused during an active transfer. Requests validate window ownership, paths, names and active
+SSH session ownership. Queue state is memory-only; jobs never reconnect or replay automatically.
+
+Typecheck, lint, formatting, production build and diff checks passed on Linux. Regression tests
+are written for copying, empty files, destination collisions including publication races, source
+changes, cancellation/cleanup, uncertain rename acknowledgments, deadlines, queue ordering/limits,
+session lifecycle notifications, IPC boundaries and desktop progress/cancel/clear interactions.
+Tests remain unrun until the Phase 4 gate. Live-server, interactive visual and Windows/macOS
+acceptance remain pending. Usage and limits: `docs/FILE_BROWSER.md`. Next: F35; do not push.

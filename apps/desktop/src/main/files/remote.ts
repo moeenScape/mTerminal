@@ -8,39 +8,33 @@ import {
 } from '../../shared/files.js';
 import { directoryListing, fileKind, FileBrowserError } from './listing.js';
 import { childPath } from './operations.js';
-
-function request<T>(
-  signal: AbortSignal,
-  invoke: (done: (error: Error | undefined, value: T) => void) => void,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(new FileBrowserError('disconnected'));
-    if (signal.aborted) {
-      abort();
-      return;
-    }
-    signal.addEventListener('abort', abort, { once: true });
-    try {
-      invoke((error, value) => {
-        signal.removeEventListener('abort', abort);
-        if (error) reject(error);
-        else resolve(value);
-      });
-    } catch (error) {
-      signal.removeEventListener('abort', abort);
-      reject(error);
-    }
-  });
-}
+import { sftpRequest as request } from './sftp-request.js';
+import { transferFile, type TransferOutcome } from './transfer-file.js';
+import type { TransferRequest } from '../../shared/transfers.js';
 
 /** Each operation owns a short-lived SFTP channel on the verified SSH connection. */
 export class RemoteFileBrowser {
   private pending: AbortController | undefined;
   private closed = false;
+  private readonly lifetime = new AbortController();
   constructor(private readonly client: Client) {}
   dispose(): void {
     this.closed = true;
+    this.lifetime.abort(new FileBrowserError('disconnected'));
     this.pending?.abort();
+  }
+  transfer(
+    request: TransferRequest,
+    signal: AbortSignal,
+    progress: (transferred: number, total: number) => void,
+  ): Promise<TransferOutcome> {
+    if (this.closed) return Promise.reject(new FileBrowserError('disconnected'));
+    return transferFile(
+      this.client,
+      request,
+      AbortSignal.any([signal, this.lifetime.signal]),
+      progress,
+    );
   }
   private async withChannel<T>(
     operation: (channel: SFTPWrapper, signal: AbortSignal) => Promise<T>,

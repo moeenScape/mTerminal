@@ -2283,6 +2283,66 @@ button.file-name svg {
   white-space: pre-wrap;
   font-family: var(--terminal-font);
 }
+.transfer-queue {
+  flex: 0 0 auto;
+  max-height: 210px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar);
+  font-size: 12px;
+}
+.transfer-queue > header,
+.transfer-job-heading,
+.transfer-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.transfer-queue > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  background: var(--sidebar);
+}
+.transfer-queue > header button,
+.transfer-job-heading button {
+  margin-left: auto;
+}
+.transfer-queue > p,
+.transfer-queue li {
+  padding: 8px 12px;
+  margin: 0;
+}
+.transfer-queue ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.transfer-queue li {
+  border-top: 1px solid var(--border);
+}
+.transfer-queue li p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.transfer-job-heading strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 55%;
+}
+.transfer-job-heading span,
+.transfer-empty,
+.transfer-progress span {
+  color: var(--muted);
+}
+.transfer-progress progress {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  accent-color: var(--accent);
+}
 .file-empty {
   color: var(--muted);
 }
