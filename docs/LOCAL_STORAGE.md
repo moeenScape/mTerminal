@@ -48,7 +48,13 @@ Quit mTerminal before running these commands from the repository root, using Nod
 
 ```bash
 npm run database -- backup "/path/to/userData" --app-closed
+```
+```bash
 npm run database -- restore "/path/to/userData" "/path/to/backup.sqlite" --app-closed
+
+```
+```bash
+rm -- ~/.config/mTerminal/mterminal.sqlite.lock
 ```
 
 Backup prints the new snapshot path. Manual snapshots have unique names and are
