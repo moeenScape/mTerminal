@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
-import type { TransferRecoveryRecord } from '../../../../shared/transfers';
+import type { TransferRecoveryRecord, PartialCleanupPreview } from '../../../../shared/transfers';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 
-export function TransferRecoveryPanel() {
+export function TransferRecoveryPanel({
+  sessionId,
+  onCleaned,
+}: {
+  sessionId: string | null;
+  onCleaned: () => void;
+}) {
   const [records, setRecords] = useState<TransferRecoveryRecord[]>([]);
   const [error, setError] = useState('');
+  const [inspecting, setInspecting] = useState<string | null>(null);
+  const [cleanup, setCleanup] = useState<{
+    preview: PartialCleanupPreview;
+    sessionId: string;
+  } | null>(null);
   const [selected, setSelected] = useState<TransferRecoveryRecord | null>(null);
   useEffect(() => {
     let mounted = true;
@@ -53,8 +64,35 @@ export function TransferRecoveryPanel() {
               <span>
                 {record.phase === 'settled' ? record.state : `Interrupted · ${record.phase}`}
               </span>
+              {record.partialPath && (
+                <button
+                  type="button"
+                  disabled={!sessionId || !record.staging || !record.peer || !!inspecting}
+                  aria-label={`Inspect temporary file for ${record.name}`}
+                  onClick={() => {
+                    if (!sessionId) return;
+                    setInspecting(record.id);
+                    setError('');
+                    void window.mterminal
+                      .inspectTransferPartial(record.id, sessionId)
+                      .then(
+                        (preview) => setCleanup({ preview, sessionId }),
+                        (cause: unknown) =>
+                          setError(
+                            cause instanceof Error
+                              ? cause.message
+                              : 'Unable to verify the temporary file.',
+                          ),
+                      )
+                      .finally(() => setInspecting(null));
+                  }}
+                >
+                  {inspecting === record.id ? 'Inspecting…' : 'Inspect temporary file…'}
+                </button>
+              )}
               <button
                 type="button"
+                disabled={!!inspecting}
                 aria-label={`Forget recovery record for ${record.name}`}
                 onClick={() => setSelected(record)}
               >
@@ -91,6 +129,12 @@ export function TransferRecoveryPanel() {
                 <code>{record.partialPath}</code>
               </p>
             )}
+            {record.partialPath && (!record.staging || !record.peer) && (
+              <p>Creation or connection evidence is unavailable; inspect this file manually.</p>
+            )}
+            {record.partialPath && record.staging && record.peer && !sessionId && (
+              <p>Open Files in the matching SSH host/account tab to verify this temporary file.</p>
+            )}
             {record.backupPath && (
               <p>
                 Possible backup ({record.direction === 'upload' ? 'remote' : 'local'}):{' '}
@@ -104,6 +148,50 @@ export function TransferRecoveryPanel() {
           </li>
         ))}
       </ol>
+      {cleanup && cleanup.sessionId === sessionId && (
+        <ConfirmDialog
+          title="Delete verified temporary file?"
+          confirmLabel="Delete temporary file"
+          danger
+          onCancel={() => setCleanup(null)}
+          onConfirm={async () => {
+            try {
+              await window.mterminal.cleanupTransferPartial(cleanup.preview.token);
+              setRecords((items) =>
+                items.map((item) =>
+                  item.id === cleanup.preview.recordId ? { ...item, partialPath: null } : item,
+                ),
+              );
+              setCleanup(null);
+            } catch (cause) {
+              setCleanup(null);
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Cleanup failed. Inspect the paths before retrying.',
+              );
+            } finally {
+              onCleaned();
+            }
+          }}
+        >
+          <p>Delete this verified {cleanup.preview.side} staging file only?</p>
+          <p>
+            <code>{cleanup.preview.file.path}</code> · {cleanup.preview.file.size} bytes
+          </p>
+          <p>
+            {cleanup.preview.peer.username}@{cleanup.preview.peer.address}:
+            {cleanup.preview.peer.port}
+          </p>
+          <p>
+            Host key: <code>{cleanup.preview.peer.fingerprint}</code>
+          </p>
+          <p>
+            The staged bytes match the unchanged source. Verification runs again before deletion.
+            Destination files and backups are preserved.
+          </p>
+        </ConfirmDialog>
+      )}
       {selected && (
         <ConfirmDialog
           title="Forget recovery record?"

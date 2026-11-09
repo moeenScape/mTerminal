@@ -101,6 +101,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'ackTerminal',
       'answerSshChallenge',
       'cancelTransfer',
+      'cleanupTransferPartial',
       'clearFinishedTransfers',
       'clearHistory',
       'closeTerminal',
@@ -124,6 +125,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'getVaultState',
       'importSshKey',
       'importWorkspace',
+      'inspectTransferPartial',
       'installSshPublicKey',
       'listDirectory',
       'listHostGroups',
@@ -279,6 +281,92 @@ test('shows saved recovery evidence and confirms forgetting only the record', as
   await recovery.getByRole('button', { name: 'Forget recovery record for recover.txt' }).click();
   await dialog.getByRole('button', { name: 'Forget record', exact: true }).click();
   await expect(recovery).toHaveCount(0);
+});
+
+test('inspects a recovery item before confirmed temporary-file deletion', async () => {
+  await application.evaluate(({ ipcMain, BrowserWindow }) => {
+    const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    const peer = {
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      fingerprint: `SHA256:${'a'.repeat(43)}`,
+    };
+    const file = {
+      path: `/remote/.mterminal-${id}.part`,
+      kind: 'file',
+      size: 3,
+      modified: 1,
+      permissions: '0600',
+      version: 'partial',
+    };
+    let records = [
+      {
+        id,
+        sessionId: id,
+        title: 'Cleanup fixture',
+        name: 'recover.txt',
+        direction: 'upload',
+        localDirectory: '/local',
+        remoteDirectory: '/remote',
+        state: 'failed',
+        phase: 'staging',
+        partialPath: file.path as string | null,
+        backupPath: '/remote/retained.bak',
+        source: null,
+        destination: null,
+        staging: { ...file, size: 0 },
+        peer,
+        updatedAt: '2026-11-09T00:00:00.000Z',
+      },
+    ];
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', (event, id: string) => {
+      event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+      return { ok: true };
+    });
+    ipcMain.removeHandler('transfers:recovery');
+    ipcMain.handle('transfers:recovery', () => ({ ok: true, value: records }));
+    ipcMain.removeHandler('transfers:inspect-partial');
+    ipcMain.handle('transfers:inspect-partial', () => ({
+      ok: true,
+      value: { file, digest: 'hash', token: id, recordId: id, side: 'remote', peer },
+    }));
+    ipcMain.removeHandler('transfers:cleanup-partial');
+    ipcMain.handle('transfers:cleanup-partial', () => {
+      records = records.map((record) => ({ ...record, partialPath: null }));
+      BrowserWindow.getAllWindows()[0]!.webContents.send('transfers:changed');
+      return { ok: true, value: undefined };
+    });
+  });
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Cleanup fixture',
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Cleanup fixture', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill('fixture');
+  await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const recovery = page.getByRole('region', { name: 'Saved transfer recovery' });
+  const inspect = recovery.getByRole('button', { name: 'Inspect temporary file for recover.txt' });
+  await inspect.click();
+  const dialog = page.getByRole('dialog', { name: 'Delete verified temporary file?' });
+  await expect(dialog).toContainText('deploy@example.com:22');
+  await expect(dialog).toContainText('Destination files and backups are preserved.');
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(inspect).toBeVisible();
+  await inspect.click();
+  await dialog.getByRole('button', { name: 'Delete temporary file', exact: true }).click();
+  await expect(inspect).toHaveCount(0);
+  await expect(recovery).toContainText('/remote/retained.bak');
 });
 
 test('renders transfer progress and cancels and clears jobs through preload', async () => {

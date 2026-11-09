@@ -6,7 +6,7 @@ import { FileBrowserError } from './listing.js';
 
 const RECOVERY_LIMIT = 256;
 
-/** Journal entries are evidence only: never use imported paths as filesystem instructions. */
+/** Journal paths require fresh identity and content verification before any cleanup. */
 export class TransferRecoveryStore {
   constructor(private readonly database: LocalDatabase) {}
 
@@ -124,6 +124,7 @@ function validRecord(value: unknown): value is TransferRecoveryRecord {
         typeof peer.fingerprint === 'string' &&
         /^SHA256:[A-Za-z0-9+/]{43}$/.test(peer.fingerprint) &&
         Object.keys(peer).length === 4)) &&
-    Object.keys(record).length === 15
+    (record.staging === undefined || (info(record.staging) && record.staging.kind === 'file')) &&
+    Object.keys(record).length === (record.staging === undefined ? 15 : 16)
   );
 }

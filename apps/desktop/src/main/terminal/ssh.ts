@@ -163,6 +163,8 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
+            recoverPartial: (record, signal, expected) =>
+              files.recoverPartial(record, signal, expected),
             transferPeer: {
               address: host.address,
               port: host.port,

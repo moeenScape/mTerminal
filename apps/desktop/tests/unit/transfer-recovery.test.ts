@@ -85,6 +85,28 @@ describe('durable transfer evidence', () => {
     });
   });
 
+  it('keeps legacy records readable and persists new staging creation evidence', async () => {
+    await fixture(async (db) => {
+      const store = new TransferRecoveryStore(db);
+      const legacy = record();
+      store.save(legacy);
+      const created = {
+        ...record(),
+        staging: {
+          path: '/remote/created.part',
+          kind: 'file' as const,
+          size: 0,
+          modified: 1700000000000,
+          permissions: '0600',
+          version: '0:1700000000:33152:1000:1000',
+        },
+      };
+      store.save(created);
+      expect(store.list()).toContainEqual(legacy);
+      expect(store.list()).toContainEqual(created);
+    });
+  });
+
   it('migrates schema 5 without losing existing workspace metadata', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-recovery-migration-'));
     const path = join(directory, 'workspace.sqlite');

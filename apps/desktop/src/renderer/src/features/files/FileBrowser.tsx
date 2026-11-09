@@ -37,6 +37,7 @@ export function FileBrowser({
     (path: string) => setRemoteDirectory({ sessionId, path }),
     [sessionId],
   );
+  const [recoveryRevision, setRecoveryRevision] = useState(0);
   const transfers = useTransfers();
   const editor = useRemoteEdit();
   const transferContext =
@@ -62,7 +63,7 @@ export function FileBrowser({
           sessionId={null}
           onDirectory={setLocalDirectory}
           transferContext={transferContext}
-          transferRevision={transfers.revision}
+          transferRevision={transfers.revision + recoveryRevision}
           canEdit={false}
         />
         {remote ? (
@@ -72,7 +73,7 @@ export function FileBrowser({
             sessionId={sessionId}
             onDirectory={onRemoteDirectory}
             transferContext={transferContext}
-            transferRevision={transfers.revision}
+            transferRevision={transfers.revision + recoveryRevision}
             canEdit={editor.ready && !editor.edit}
           />
         ) : (
@@ -84,7 +85,10 @@ export function FileBrowser({
         )}
       </div>
       <TransferQueueView jobs={transfers.jobs} error={transfers.error} />
-      <TransferRecoveryPanel />
+      <TransferRecoveryPanel
+        sessionId={remote ? sessionId : null}
+        onCleaned={() => setRecoveryRevision((value) => value + 1)}
+      />
       <RemoteEditorPanel edit={editor.edit} error={editor.error} />
     </section>
   );

@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F37-A implemented — Durable transfer recovery records and saved-records view; F37 remains in progress |
-| Next feature | F37-B — Verified, explicitly selected partial-file cleanup; F37-C verified resume follows |
+| Active feature | F37-B implemented — Verified partial-file inspection and confirmed cleanup; F37 remains in progress |
+| Next feature | F37-C — Verified transfer resume; Phase 4 tests and desktop/platform acceptance remain outstanding |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -167,7 +167,7 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F36 — Remote editing (implementation):** One regular UTF-8 file up to 1 MiB per window; private `.txt` working copy in the OS default text editor, saved-byte change detection, explicit immutable-snapshot uploads through existing version/conflict/backup checks, and confirmed scoped discard or retained copies. No auto-upload or connection rebinding. Tests written; execution and native/visual/platform acceptance deferred. See `docs/REMOTE_EDITING.md`.
 - [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support. In progress; see `docs/TRANSFER_RECOVERY.md`.
   - [x] **F37-A — Durable evidence (implementation):** SQLite-backed queue acceptance and pre-mutation staging/backup/publication checkpoints; verified connection metadata; restart-visible records; confirmed metadata-only forgetting. No automatic replay. Regression tests written, execution deferred at the user's request.
-  - [ ] **F37-B — Partial-file cleanup:** Fresh identity/ownership checks, explicit selection and confirmation, and safe cleanup of verified leftover staging files.
+  - [x] **F37-B — Partial-file cleanup (implementation):** Opened-stage creation evidence, fresh SSH host/account/key checks, canonical-path/regular-file/ownership checks and streamed source-prefix verification, single-use expiring previews, repeated checks on confirmation, and one-file cleanup preserving sources, destinations and backups. Older/unverifiable records require manual inspection. Tests written, execution deferred. See `docs/TRANSFER_RECOVERY.md` for concurrent-writer limits.
   - [ ] **F37-C — Verified resume:** Fresh connection binding, source/destination/partial-content verification, supported server operations, and explicit resume decisions.
 
 Completion criteria: Test permissions, interruptions, large files, symlinks, unusual filenames, overwrites, and partial transfers. Preserve originals during replacement where supported. SFTP does not automatically provide elevated permissions.
@@ -999,3 +999,37 @@ visual, native editor and Windows/macOS acceptance remain pending.
 F37 remains unchecked: next is F37-B cleanup, then F37-C verified resume. Editor preparation
 copies and retained working-copy discovery are outside this transfer-journal substep. See
 `docs/TRANSFER_RECOVERY.md`. Commit locally with the phase and step; do not push.
+
+
+### F37-B implementation — 2026-11-09
+
+Added explicit Inspect temporary file and confirmed Delete temporary file actions to the saved
+recovery panel. The current SSH tab must match the earlier address, port, username and verified
+host-key fingerprint, including for local download partials. Renderer requests contain record IDs,
+session IDs and opaque tokens; privileged code derives and verifies every actionable path.
+
+New transfers persist the empty, opened staging identity before copying. The existing schema-6
+JSON journal accepts this optional field while retaining older records; records without creation
+evidence remain manual-only. Verification checks canonical source/destination folders, generated
+`.part` names, regular files, private mode, creation identity/ownership, unchanged source metadata,
+and exact source-prefix bytes. A confirmation stores the inspected version/digest and expires
+after 60 seconds. Confirmation reruns verification and refuses changed records, files or peers.
+
+Only the verified staging name is unlinked. Source/final destination/backup names are never cleanup
+targets, and other hard-link names are preserved. After success, the partial path is cleared in the
+journal and visible queue; backup/outcome evidence remains. File panes refresh after attempts.
+Storage is checked before deletion; post-delete persistence or acknowledgement failures remain
+uncertain with earlier evidence retained. Reload, renderer loss, disconnect and window close
+invalidate approvals and cancel pending work. Cleanup is serialized against competing file work.
+
+Regression code covers local/remote partials, source/destination/backup retention, changed bytes
+and source versions, creation checkpoint ordering, symlinks, inode replacement, hard-link names,
+peer mismatches, record changes, token expiry/reuse, renderer reset, IPC validation and the
+Cancel-first desktop confirmation. Tests remain unrun at the user's request. `npm run check`, `npm run build`, and `git diff --check` passed on Linux x64;
+no test cases were executed. Live SFTP, visual, actual crash/restart and
+Windows/macOS acceptance remain pending.
+
+Standard SFTP cannot provide a portable inode identity or conditional unlink; local unlink also
+has a final pathname race. Repeated metadata/content checks reduce stale decisions but do not
+guarantee atomic deletion against concurrent writers. See `docs/TRANSFER_RECOVERY.md`.
+F37 remains unchecked until F37-C verified resume is implemented. Commit locally; do not push.

@@ -122,8 +122,16 @@ export async function transferFile(
     );
     if (destination && !replacing) throw new TransferConflict(conflictPreview(source, destination));
     if (approval && !destination) throw new FileBrowserError('destination-changed');
+    let staging: TransferFileInfo | undefined;
     const record = (phase: TransferCheckpoint['phase'], plannedBackup = backupPath) =>
-      checkpoint?.({ phase, partialPath: stage, backupPath: plannedBackup, source, destination });
+      checkpoint?.({
+        phase,
+        partialPath: stage,
+        backupPath: plannedBackup,
+        source,
+        destination,
+        ...(staging ? { staging } : {}),
+      });
     let size: number;
     let modified: number;
     if (upload) {
@@ -147,6 +155,8 @@ export async function transferFile(
       record('staging');
       remoteHandle = await rpc<Buffer>((done) => sftp.open(stage!, 'wx', 0o600, done));
       stageCreated = true;
+      staging = remoteFileInfo(stage, await rpc<Stats>((done) => sftp.fstat(remoteHandle!, done)));
+      record('staging');
     } else {
       const expected = await rpc<Stats>((done) => sftp.lstat(remotePath, done));
       if (fileKind(expected.mode) !== 'file') throw new FileBrowserError('unsupported');
@@ -165,6 +175,8 @@ export async function transferFile(
       record('staging');
       local = await open(stage, 'wx', 0o600);
       stageCreated = true;
+      staging = localFileInfo(stage, await local.stat());
+      record('staging');
     }
     if (!Number.isSafeInteger(size) || size < 0) throw new FileBrowserError('unsupported');
     progress(0, size);

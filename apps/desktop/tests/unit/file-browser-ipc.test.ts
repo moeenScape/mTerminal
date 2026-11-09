@@ -3,7 +3,11 @@ import type { BrowserWindow } from 'electron';
 import type { TerminalRegistry } from '../../src/main/terminal/registry.js';
 import { attachFiles } from '../../src/main/files/ipc.js';
 import { FILES_LIST, FILES_MUTATE } from '../../src/shared/files.js';
-import { transferChannels } from '../../src/shared/transfers.js';
+import {
+  transferChannels,
+  type PartialCleanupPreview,
+  type TransferRecoveryRecord,
+} from '../../src/shared/transfers.js';
 import { remoteEditChannels } from '../../src/shared/remote-edit.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -189,5 +193,138 @@ describe('file browser IPC', () => {
       code: 'permission',
     });
     expect(listDirectory).toHaveBeenCalledWith(sessionId, '/');
+  });
+  it('binds cleanup to a fresh matching peer, a single-use preview, and unchanged record', async () => {
+    const frame = { url: 'file:///renderer/index.html' };
+    const events = new Map<string, () => void>();
+    const contents = {
+      mainFrame: frame,
+      on: (name: string, listener: () => void) => events.set(name, listener),
+      send: vi.fn(),
+      isDestroyed: () => false,
+    };
+    const window = {
+      webContents: contents,
+      once: (_name: string, close: () => void) => fixture.close.push(close),
+    } as unknown as BrowserWindow;
+    const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    const sessionId = '14e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    const peer = {
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      fingerprint: `SHA256:${'a'.repeat(43)}`,
+    };
+    const file = {
+      path: `/remote/.mterminal-${id}.part`,
+      kind: 'file' as const,
+      size: 3,
+      modified: 1,
+      permissions: '0600',
+      version: 'partial',
+    };
+    let record: TransferRecoveryRecord = {
+      id,
+      sessionId: id,
+      title: 'Fixture',
+      direction: 'upload',
+      name: 'file.txt',
+      localDirectory: tmpdir(),
+      remoteDirectory: '/remote',
+      state: 'failed',
+      phase: 'staging',
+      partialPath: file.path,
+      backupPath: '/remote/original.bak',
+      source: null,
+      destination: null,
+      staging: { ...file, size: 0 },
+      peer,
+      updatedAt: '2026-11-09T00:00:00.000Z',
+    };
+    let connectedPeer = { ...peer };
+    const recoverPartial = vi.fn(async () => ({ file, digest: 'hash' }));
+    const save = vi.fn((value: TransferRecoveryRecord) => {
+      record = value;
+    });
+    attachFiles(
+      window,
+      frame.url,
+      {
+        onSessionClosed: () => () => {},
+        canTransfer: () => true,
+        transferPeer: () => connectedPeer,
+        recoverPartial,
+      } as unknown as TerminalRegistry,
+      join(tmpdir(), 'unused-edit-root'),
+      { list: () => [record], save, forget: vi.fn() },
+    );
+    const event = { sender: contents, senderFrame: frame };
+    const inspect = fixture.handlers.get(transferChannels.inspectPartial)!;
+    const clean = fixture.handlers.get(transferChannels.cleanupPartial)!;
+    await expect(inspect({ ...event, sender: {} }, id, sessionId)).rejects.toThrow('Unauthorized');
+    await expect(clean({ ...event, sender: {} }, id)).rejects.toThrow('Unauthorized');
+    await expect(inspect(event, { id, path: '/' }, sessionId)).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
+    await expect(clean(event, id, '/forged/path')).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
+    for (const other of [
+      { ...peer, address: 'other.example' },
+      { ...peer, username: 'root' },
+      { ...peer, port: 2222 },
+      { ...peer, fingerprint: `SHA256:${'b'.repeat(43)}` },
+    ]) {
+      connectedPeer = other;
+      await expect(inspect(event, id, sessionId)).resolves.toEqual({
+        ok: false,
+        code: 'recovery-unverified',
+      });
+    }
+    expect(recoverPartial).not.toHaveBeenCalled();
+    connectedPeer = { ...peer };
+    const start = async () =>
+      ((await inspect(event, id, sessionId)) as { ok: true; value: PartialCleanupPreview }).value;
+    let preview = await start();
+    record = { ...record, updatedAt: '2026-11-09T00:00:01.000Z' };
+    await expect(clean(event, preview.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
+    preview = await start();
+    const future = Date.now() + 60001;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(future);
+    try {
+      await expect(clean(event, preview.token)).resolves.toEqual({
+        ok: false,
+        code: 'recovery-stale',
+      });
+    } finally {
+      now.mockRestore();
+    }
+    preview = await start();
+    events.get('did-navigate')!();
+    await expect(clean(event, preview.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
+    preview = await start();
+    const before = recoverPartial.mock.calls.length;
+    await expect(clean(event, preview.token)).resolves.toEqual({ ok: true, value: undefined });
+    expect(recoverPartial).toHaveBeenCalledTimes(before + 1);
+    expect(recoverPartial).toHaveBeenLastCalledWith(
+      sessionId,
+      expect.objectContaining({ partialPath: file.path }),
+      expect.any(AbortSignal),
+      preview,
+    );
+    expect(record.partialPath).toBeNull();
+    expect(record.backupPath).toBe('/remote/original.bak');
+    await expect(clean(event, preview.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
   });
 });

@@ -175,6 +175,8 @@ validation; interactive visual checks and Windows/macOS acceptance remain pendin
 
 F37-A persists transfer checkpoints before staging, backup moves and publication. Files shows
 records needing inspection below the queue, including after restart or **Clear finished**.
-**Forget record…** removes metadata only. No transfer resumes automatically and no journal
-path is deleted by this action. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
-planned-path caveats, remaining cleanup/resume work and validation status.
+**Forget record…** removes metadata only. F37-B adds **Inspect temporary file…** in a matching
+SSH tab, followed by explicit confirmation and repeated identity/prefix checks before deleting
+only the verified `.part` name. Older records without creation evidence require manual inspection.
+No transfer resumes automatically. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
+planned-path caveats, cleanup limitations, remaining resume work and validation status.

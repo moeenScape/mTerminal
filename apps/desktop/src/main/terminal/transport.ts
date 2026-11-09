@@ -3,6 +3,11 @@ export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
 > & {
+  recoverPartial?: (
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+    expected?: import('../../shared/transfers.js').PartialInspection,
+  ) => Promise<import('../../shared/transfers.js').PartialInspection>;
   transferPeer?: import('../../shared/transfers.js').TransferPeer;
   onExit: (listener: (event: TerminalExit) => void) => IDisposable;
   listDirectory?: (path: string) => Promise<import('../../shared/files.js').DirectoryListing>;

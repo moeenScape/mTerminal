@@ -1,20 +1,43 @@
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  link,
+  symlink,
+  rename,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Client, SFTPWrapper, Stats } from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
+import { inspectPartial } from '../../src/main/files/partial-cleanup.js';
 import { transferFile } from '../../src/main/files/transfer-file.js';
 import { FileBrowserError } from '../../src/main/files/listing.js';
-import type { TransferRequest, TransferConflictPreview } from '../../src/shared/transfers.js';
+import type {
+  TransferRequest,
+  TransferConflictPreview,
+  TransferRecoveryRecord,
+} from '../../src/shared/transfers.js';
 import { localFileInfo, TransferConflict } from '../../src/main/files/transfer-conflict.js';
 
 function remoteFixture(initial: Record<string, Buffer> = {}) {
   const files = new Map(Object.entries(initial));
   const handles = new Map<string, string>();
   const metadata = (path: string) =>
-    ({ mode: 0o100600, size: files.get(path)!.length, mtime: 1700000000 }) as Stats;
+    ({
+      mode: 0o100600,
+      size: files.get(path)!.length,
+      mtime: 1700000000,
+      uid: 1000,
+      gid: 1000,
+    }) as Stats;
   const missing = () => Object.assign(new Error('Missing'), { code: 2 });
   let next = 0;
   const channel = Object.assign(new EventEmitter(), {
@@ -516,7 +539,7 @@ describe('recovery checkpoints', () => {
             undefined,
             (checkpoint) => {
               checkpoints.push(checkpoint.phase);
-              if (checkpoint.phase === 'staging') {
+              if (checkpoint.phase === 'staging' && !checkpoint.staging) {
                 expect(remote.files.has(checkpoint.partialPath!)).toBe(false);
                 expect(checkpoint.source?.path).toBe(join(directory, 'sample.bin'));
               }
@@ -536,4 +559,192 @@ describe('recovery checkpoints', () => {
       }
     },
   );
+});
+
+describe('verified partial-file cleanup', () => {
+  async function partialFixture(
+    direction: 'upload' | 'download',
+    run: (value: {
+      directory: string;
+      remote: ReturnType<typeof remoteFixture>;
+      record: TransferRecoveryRecord;
+    }) => Promise<void>,
+  ) {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-partial-'));
+    const bytes = Buffer.alloc(150000, 'x');
+    const stageName = `.mterminal-${randomUUID()}.part`;
+    const stage = direction === 'upload' ? `/remote/${stageName}` : join(directory, stageName);
+    const remote = remoteFixture(direction === 'upload' ? {} : { '/remote/sample.bin': bytes });
+    try {
+      const localPath = join(directory, 'sample.bin');
+      if (direction === 'upload') await writeFile(localPath, bytes);
+      else await writeFile(stage, '', { mode: 0o600 });
+      const created =
+        direction === 'upload'
+          ? {
+              path: stage,
+              kind: 'file' as const,
+              size: 0,
+              modified: 1700000000000,
+              permissions: '0600',
+              version: `${0}:1700000000:${0o100600}:1000:1000`,
+            }
+          : localFileInfo(stage, await lstat(stage));
+      if (direction === 'upload') remote.files.set(stage, bytes.subarray(0, 70001));
+      else await writeFile(stage, bytes.subarray(0, 70001));
+      const source =
+        direction === 'upload'
+          ? localFileInfo(localPath, await lstat(localPath))
+          : {
+              path: '/remote/sample.bin',
+              kind: 'file' as const,
+              size: bytes.length,
+              modified: 1700000000000,
+              permissions: '0600',
+              version: `${bytes.length}:1700000000:${0o100600}:1000:1000`,
+            };
+      const record: TransferRecoveryRecord = {
+        ...request(directory, direction),
+        id: randomUUID(),
+        state: 'failed',
+        phase: 'staging',
+        partialPath: stage,
+        staging: created,
+        backupPath:
+          direction === 'upload' ? '/remote/retained.bak' : join(directory, 'retained.bak'),
+        source,
+        destination: null,
+        peer: null,
+        updatedAt: new Date().toISOString(),
+      };
+      await run({ directory, remote, record });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  it.each(['upload', 'download'] as const)(
+    'inspects and confirms %s cleanup while retaining source, destination and backup',
+    async (direction) => {
+      await partialFixture(direction, async ({ directory, remote, record }) => {
+        const channel = remote.channel as unknown as SFTPWrapper;
+        if (direction === 'upload') {
+          remote.files.set('/remote/sample.bin', Buffer.from('destination'));
+          remote.files.set(record.backupPath!, Buffer.from('backup'));
+        } else {
+          await writeFile(join(directory, 'sample.bin'), 'destination');
+          await writeFile(record.backupPath!, 'backup');
+        }
+        const preview = await inspectPartial(channel, new AbortController().signal, record);
+        expect(preview.file.size).toBe(70001);
+        expect(preview.digest).toMatch(/^[a-f0-9]{64}$/);
+        expect(remote.channel.unlink).not.toHaveBeenCalled();
+        await inspectPartial(channel, new AbortController().signal, record, preview);
+        if (direction === 'upload') {
+          expect(remote.files.has(record.partialPath!)).toBe(false);
+          expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('destination');
+          expect(remote.files.get(record.backupPath!)?.toString()).toBe('backup');
+          expect((await readFile(join(directory, 'sample.bin'))).length).toBe(150000);
+        } else {
+          await expect(lstat(record.partialPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+          expect(await readFile(join(directory, 'sample.bin'), 'utf8')).toBe('destination');
+          expect(await readFile(record.backupPath!, 'utf8')).toBe('backup');
+          expect(remote.files.get('/remote/sample.bin')?.length).toBe(150000);
+        }
+        expect(remote.handles.size).toBe(0);
+      });
+    },
+  );
+
+  it('refuses missing creation evidence, backup paths, changed source and nonmatching bytes', async () => {
+    await partialFixture('upload', async ({ directory, remote, record }) => {
+      const channel = remote.channel as unknown as SFTPWrapper;
+      const missingCreation = { ...record };
+      delete missingCreation.staging;
+      for (const invalid of [
+        missingCreation,
+        { ...record, partialPath: record.backupPath },
+        { ...record, partialPath: '/remote/sample.bin' },
+      ])
+        await expect(
+          inspectPartial(channel, new AbortController().signal, invalid),
+        ).rejects.toMatchObject({ code: 'recovery-unverified' });
+      remote.files.set(record.partialPath!, Buffer.from('different bytes'));
+      await expect(
+        inspectPartial(channel, new AbortController().signal, record),
+      ).rejects.toMatchObject({ code: 'recovery-unverified' });
+      remote.files.set(record.partialPath!, Buffer.from('xxx'));
+      await writeFile(join(directory, 'sample.bin'), 'changed source');
+      await expect(
+        inspectPartial(channel, new AbortController().signal, record),
+      ).rejects.toMatchObject({ code: 'recovery-unverified' });
+      expect(remote.channel.unlink).not.toHaveBeenCalled();
+      expect(remote.handles.size).toBe(0);
+    });
+  });
+
+  it('refuses changed preview metadata and cancellation before deleting', async () => {
+    await partialFixture('upload', async ({ remote, record }) => {
+      const channel = remote.channel as unknown as SFTPWrapper;
+      const preview = await inspectPartial(channel, new AbortController().signal, record);
+      remote.files.set(record.partialPath!, Buffer.alloc(70002, 'x'));
+      await expect(
+        inspectPartial(channel, new AbortController().signal, record, preview),
+      ).rejects.toMatchObject({ code: 'recovery-stale' });
+      const abort = new AbortController();
+      abort.abort();
+      await expect(inspectPartial(channel, abort.signal, record, preview)).rejects.toThrow();
+      expect(remote.channel.unlink).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses replacement inodes and symlinks and preserves other hard-link names', async () => {
+    await partialFixture('download', async ({ directory, remote, record }) => {
+      const channel = remote.channel as unknown as SFTPWrapper;
+      await rename(record.partialPath!, join(directory, 'original.part'));
+      await writeFile(record.partialPath!, Buffer.alloc(70001, 'x'), { mode: 0o600 });
+      await expect(
+        inspectPartial(channel, new AbortController().signal, record),
+      ).rejects.toMatchObject({ code: 'recovery-unverified' });
+      await rm(record.partialPath!);
+      await symlink(join(directory, 'original.part'), record.partialPath!);
+      await expect(
+        inspectPartial(channel, new AbortController().signal, record),
+      ).rejects.toMatchObject({ code: 'recovery-unverified' });
+      await rm(record.partialPath!);
+      await link(join(directory, 'original.part'), record.partialPath!);
+      const preview = await inspectPartial(channel, new AbortController().signal, record);
+      await inspectPartial(channel, new AbortController().signal, record, preview);
+      expect((await readFile(join(directory, 'original.part'))).length).toBe(70001);
+    });
+  });
+
+  it('records the created staging identity before the first write', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-stage-identity-'));
+    const remote = remoteFixture();
+    let observed = false;
+    try {
+      await writeFile(join(directory, 'sample.bin'), 'bytes');
+      await transferFile(
+        remote.client,
+        request(directory),
+        new AbortController().signal,
+        () => {},
+        undefined,
+        undefined,
+        (checkpoint) => {
+          if (!checkpoint.staging) return;
+          if (checkpoint.phase === 'staging') {
+            expect(checkpoint.staging.size).toBe(0);
+            expect(remote.files.has(checkpoint.staging.path)).toBe(true);
+            expect(remote.channel.write).not.toHaveBeenCalled();
+            observed = true;
+          }
+        },
+      );
+      expect(observed).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

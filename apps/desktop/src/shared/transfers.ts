@@ -8,6 +8,8 @@ export const transferChannels = {
   resolve: 'transfers:resolve',
   recovery: 'transfers:recovery',
   forget: 'transfers:forget',
+  inspectPartial: 'transfers:inspect-partial',
+  cleanupPartial: 'transfers:cleanup-partial',
 } as const;
 export const TRANSFERS_CHANGED = 'transfers:changed';
 export const TRANSFER_LIMIT = 32;
@@ -65,7 +67,18 @@ export interface TransferPeer {
   username: string;
   fingerprint: string;
 }
+export interface PartialInspection {
+  file: TransferFileInfo;
+  digest: string;
+}
+export interface PartialCleanupPreview extends PartialInspection {
+  token: string;
+  recordId: string;
+  side: 'local' | 'remote';
+  peer: TransferPeer;
+}
 export interface TransferCheckpoint {
+  staging?: TransferFileInfo;
   phase: 'queued' | 'staging' | 'backup' | 'publishing' | 'settled';
   partialPath: string | null;
   backupPath: string | null;
@@ -79,6 +92,8 @@ export interface TransferRecoveryRecord extends TransferRequest, TransferCheckpo
   updatedAt: string;
 }
 export interface TransfersApi {
+  inspectTransferPartial: (id: string, sessionId: string) => Promise<PartialCleanupPreview>;
+  cleanupTransferPartial: (token: string) => Promise<void>;
   listTransferRecovery: () => Promise<TransferRecoveryRecord[]>;
   forgetTransferRecovery: (id: string) => Promise<void>;
   listTransfers: () => Promise<TransferJob[]>;

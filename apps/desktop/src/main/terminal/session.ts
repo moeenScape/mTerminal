@@ -152,6 +152,14 @@ export class TerminalSession {
     if (!this.session?.pty.listDirectory) throw new FileBrowserError('disconnected');
     return this.session.pty.listDirectory(path);
   }
+  async recoverPartial(
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+    expected?: import('../../shared/transfers.js').PartialInspection,
+  ) {
+    if (!this.session?.pty.recoverPartial) throw new FileBrowserError('disconnected');
+    return this.session.pty.recoverPartial(record, signal, expected);
+  }
   get transferPeer() {
     return this.session?.pty.transferPeer ?? null;
   }

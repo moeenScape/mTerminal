@@ -56,6 +56,10 @@ export const fileErrorMessages = {
   'editor-copy-unavailable':
     'The working copy is missing, changing, or unreadable. Save it in the editor and retry.',
   'editor-unchanged': 'There are no saved changes to upload.',
+  'recovery-unverified':
+    'This temporary file could not be verified. Use the matching SSH host and account; the original source and recorded staging identity must still match. Inspect the paths manually if verification remains unavailable.',
+  'recovery-stale':
+    'The recovery preview expired or the file, record or connection changed. Inspect the temporary file again before cleanup.',
   'recovery-unavailable':
     'Recovery records could not be saved or read. No new transfer will start until storage is available.',
   'recovery-full':

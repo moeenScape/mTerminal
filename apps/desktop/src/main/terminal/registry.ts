@@ -36,6 +36,16 @@ export class TerminalRegistry {
     if (!session) throw new FileBrowserError('disconnected');
     return session.prepareRemoteEdit(request, directory, signal);
   }
+  async recoverPartial(
+    id: string,
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+    expected?: import('../../shared/transfers.js').PartialInspection,
+  ) {
+    const session = this.sessions.get(id);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.recoverPartial(record, signal, expected);
+  }
   transferPeer(id: string) {
     return this.sessions.get(id)?.transferPeer ?? null;
   }

@@ -7,6 +7,7 @@ import {
   type FileOperation,
 } from '../../shared/files.js';
 import { directoryListing, fileKind, FileBrowserError } from './listing.js';
+import { inspectPartial } from './partial-cleanup.js';
 import { childPath } from './operations.js';
 import { sftpRequest as request } from './sftp-request.js';
 import { transferFile, type TransferOutcome } from './transfer-file.js';
@@ -14,6 +15,8 @@ import type {
   TransferRequest,
   TransferConflictPreview,
   TransferCheckpoint,
+  TransferRecoveryRecord,
+  PartialInspection,
 } from '../../shared/transfers.js';
 import { REMOTE_EDIT_MAX_BYTES, type RemoteEditRequest } from '../../shared/remote-edit.js';
 
@@ -61,9 +64,21 @@ export class RemoteFileBrowser {
       { maxBytes: REMOTE_EDIT_MAX_BYTES },
     );
   }
+  recoverPartial(
+    record: TransferRecoveryRecord,
+    signal: AbortSignal,
+    expected?: PartialInspection,
+  ): Promise<PartialInspection> {
+    return this.withChannel(
+      (channel, combined) => inspectPartial(channel, combined, record, expected),
+      !!expected,
+      signal,
+    );
+  }
   private async withChannel<T>(
     operation: (channel: SFTPWrapper, signal: AbortSignal) => Promise<T>,
     mutating = false,
+    signal?: AbortSignal,
   ): Promise<T> {
     if (this.closed) throw new FileBrowserError('disconnected');
     if (this.pending) throw new FileBrowserError('busy');
@@ -76,6 +91,8 @@ export class RemoteFileBrowser {
       controller.abort();
     }, 15000);
     const close = () => controller.abort();
+    signal?.addEventListener('abort', close, { once: true });
+    if (signal?.aborted) controller.abort();
     const stop = () => {
       sftp?.destroy();
     };
@@ -101,6 +118,7 @@ export class RemoteFileBrowser {
       throw error;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', close);
       sftp?.removeListener('close', close);
       sftp?.removeListener('error', close);
       controller.signal.removeEventListener('abort', stop);

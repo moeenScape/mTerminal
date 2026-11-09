@@ -81,6 +81,16 @@ export class TransferQueue {
     this.records.delete(id);
     this.changed();
   }
+  clearRecoveredPartial(id: string): void {
+    const record = this.listRecovery().find((entry) => entry.id === id);
+    if (!record) throw new FileBrowserError('recovery-stale');
+    const updated = { ...record, partialPath: null, updatedAt: new Date().toISOString() };
+    this.recovery.save(updated);
+    this.records.set(id, updated);
+    const job = this.jobs.find((entry) => entry.id === id);
+    if (job) job.partialPath = null;
+    this.changed();
+  }
   private record(job: TransferJob, checkpoint?: TransferCheckpoint): void {
     const previous = this.records.get(job.id);
     const record: TransferRecoveryRecord = {
@@ -99,6 +109,7 @@ export class TransferQueue {
       backupPath: job.backupPath,
       source: job.source ?? job.conflict?.source ?? previous?.source ?? null,
       destination: job.conflict?.destination ?? previous?.destination ?? null,
+      ...(previous?.staging ? { staging: previous.staging } : {}),
       ...checkpoint,
     };
     this.recovery.save(record);
