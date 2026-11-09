@@ -47,6 +47,7 @@ export function TerminalPane({
   onRequestClose,
   onOpenVault,
   active,
+  autoStart,
   visible,
   position,
   split,
@@ -65,6 +66,7 @@ export function TerminalPane({
   onRequestClose: (id: string) => void;
   onOpenVault: () => Promise<void>;
   active: boolean;
+  autoStart: boolean;
   visible: boolean;
   position: PanePosition | undefined;
   split: boolean;
@@ -455,13 +457,13 @@ export function TerminalPane({
     [id, onPhaseChange, hostId, logConnection],
   );
   useEffect(() => {
-    if (!active || autoStarted.current) return;
+    if (!autoStart || !active || autoStarted.current) return;
     const frame = requestAnimationFrame(() => {
       autoStarted.current = true;
       void start();
     });
     return () => cancelAnimationFrame(frame);
-  }, [active, start]);
+  }, [autoStart, active, start]);
 
   function cancelConnection(expectedId = session.current) {
     if (!hostId || !expectedId || session.current !== expectedId) return;

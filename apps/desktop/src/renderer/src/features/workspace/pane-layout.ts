@@ -1,13 +1,6 @@
-export type SplitDirection = 'right' | 'down';
-export type PaneLayout =
-  | { id: string }
-  | {
-      splitId: string;
-      direction: SplitDirection;
-      ratio: number;
-      first: PaneLayout;
-      second: PaneLayout;
-    };
+import type { WorkspaceLayout, SplitDirection } from '../../../../shared/workspace-templates.js';
+export type { SplitDirection };
+export type PaneLayout = WorkspaceLayout;
 export interface PaneBounds {
   left: number;
   top: number;

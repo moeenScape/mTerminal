@@ -5,6 +5,9 @@ import { ContextMenu, menuPositionFor, type MenuPosition } from '../../component
 import { MAX_TERMINAL_TABS } from '../../../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
 import { PaneDivider } from './PaneDivider';
+import { WorkspaceTemplates } from './WorkspaceTemplates';
+import { instantiateTemplate } from './templates';
+import type { WorkspaceTemplateDraft } from '../../../../shared/workspace-templates';
 import { paneIds, layoutGeometry, adjacentPane, type SplitDirection } from './pane-layout';
 import { paneShortcut } from '../../components/keyboard';
 import type { ToolsPreferences } from './TerminalTools';
@@ -117,6 +120,7 @@ export function WorkspaceView({
   onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], layouts: [], activeId: null });
+  const [showTemplates, setShowTemplates] = useState(false);
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
   const panels = useRef<HTMLDivElement>(null);
@@ -240,6 +244,22 @@ export function WorkspaceView({
         ratio: Math.max(divider.minimum, Math.min(divider.maximum, divider.ratio + sign * 0.02)),
       });
     }
+  }
+  async function openTemplate(template: WorkspaceTemplateDraft) {
+    if (state.tabs.length + template.panes.length > MAX_TERMINAL_TABS)
+      throw new Error(
+        `Close some sessions first. A workspace supports at most ${MAX_TERMINAL_TABS} panes.`,
+      );
+    const hosts = await window.mterminal.listHosts();
+    if (
+      template.panes.some((pane) => pane.hostId && !hosts.some((host) => host.id === pane.hostId))
+    )
+      throw new Error('A saved host is missing. Recreate the template with an existing host.');
+    const incoming = instantiateTemplate(template);
+    dispatch({ type: 'restore', workspace: incoming });
+    setShowTemplates(false);
+    onActivate();
+    focus(incoming.activeId, true);
   }
   function add() {
     if (state.tabs.length >= MAX_TERMINAL_TABS) return;
@@ -382,6 +402,18 @@ export function WorkspaceView({
       <button
         type="button"
         className="session-new"
+        aria-label="Workspace templates"
+        title="Save or open a workspace layout"
+        onClick={() => {
+          onActivate();
+          setShowTemplates(true);
+        }}
+      >
+        <Icon name="folder" />
+      </button>
+      <button
+        type="button"
+        className="session-new"
         aria-label="New terminal"
         title={`New local terminal (up to ${MAX_TERMINAL_TABS} tabs)`}
         disabled={state.tabs.length >= MAX_TERMINAL_TABS}
@@ -428,6 +460,7 @@ export function WorkspaceView({
                   title={tab.title}
                   hostId={tab.hostId}
                   active={active && state.activeId === tab.id}
+                  autoStart={tab.autoStart !== false}
                   visible={active && visiblePanes.some((pane) => pane.id === tab.id)}
                   position={visiblePanes.find((pane) => pane.id === tab.id)}
                   split={visiblePanes.length > 1}
@@ -464,6 +497,13 @@ export function WorkspaceView({
             </div>
           </div>
         </>
+      )}
+      {showTemplates && (
+        <WorkspaceTemplates
+          state={state}
+          onOpen={openTemplate}
+          onClose={() => setShowTemplates(false)}
+        />
       )}
       {tabMenu && menuTab && (
         <ContextMenu

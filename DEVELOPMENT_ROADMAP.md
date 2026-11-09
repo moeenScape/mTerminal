@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F38-B implemented — Draggable/keyboard pane resizing, spatial focus and minimum sizes; acceptance pending |
-| Next feature | F39 — Workspace templates; Phase 4/5 runtime verification remains deferred |
+| Active feature | F39 implemented — Persistent workspace templates and explicit per-pane startup; acceptance pending |
+| Next feature | F40 — Snippets; Phase 4/5 runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -183,7 +183,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F38 — Split panes (implementation):** Independent sessions, draggable/keyboard resizing, spatial focus shortcuts and minimum-size scrollable layouts. Phase 5 runtime/platform acceptance remains pending.
   - [x] **F38-A — Basic splits (implementation):** Split right/down, independent local or same-host SSH sessions, click focus, stable mounted terminals, split-group tab navigation and confirmed per-pane close. Fixed equal sizes; regression code written, execution deferred.
   - [x] **F38-B — Resize and shortcuts (implementation):** Accessible pointer-captured dividers, Escape cancellation, balance/reset, keyboard limits/resizing, spatial focus shortcuts and recursive minimum sizes. Regression code written/type-checked; test execution, visual and platform acceptance deferred.
-- [ ] **F39 — Workspace templates:** Saved layouts and deliberate reconnection.
+- [x] **F39 — Workspace templates (implementation):** SQLite-backed named layouts, pane/tab order and split ratios; review/open adds fresh idle panes without replacing current sessions or replaying commands. Explicit per-pane startup, missing-host/limit checks and confirmed deletion. Regression code written; execution and runtime/platform acceptance deferred.
 - [ ] **F40 — Snippets:** Save, organize, search, and execute commands.
 - [ ] **F41 — Startup snippets:** Assigned connection-time actions with visible execution.
 - [ ] **F42 — Multiple-host execution:** Destination selection and per-host results/failures.
@@ -1255,3 +1255,30 @@ Tests were not run per user instruction. `npm run check`, `npm run build` and
 `git diff --check` passed on Linux x64. Live SSH resize,
 native pointer/touch and screen-reader use, visual quality, OS shortcut conflicts and
 Windows/macOS acceptance remain unverified. F38 implementation is complete; F39 is next.
+
+
+### F39 workspace templates — 2026-11-09
+
+Added a Workspace templates dialog in the session strip. Save the complete current layout
+under a unique name; review its local/SSH destinations, open a fresh idle copy, or confirm
+metadata-only deletion. Opening brings Workspace into view and retains existing sessions.
+Every restored pane/divider receives a new ID. Start local shell / Connect SSH remains an
+explicit action per pane, retaining the existing SSH login, vault and host-key checks.
+No commands, process state, terminal output or credentials are stored/replayed.
+
+Added SQLite schema 7 through the backed-up migration chain and narrow sender-validated
+list/save/delete IPC. Version-1 payload validation bounds records/depth/counts, rejects extra
+fields, validates layout/pane bijections, ratios, UUIDs and active selection. Saving verifies
+host references; deleted hosts remain visible in templates and opening is blocked rather than
+silently dropping panes. Names are unique; 50 templates and 16 total session tabs are enforced.
+Opening appends atomically or refuses the whole layout. Existing JSON backup format is unchanged;
+full SQLite snapshots include templates. See `docs/WORKSPACE_TEMPLATES.md`.
+
+Regression code covers metadata-only snapshots, fresh idle IDs, SSH references, existing-session
+preservation, atomic restore limits, invalid/cyclic layouts, schema 6 migration, persistence,
+duplicates, deletion, stale hosts and IPC validation. Updated the schema-5 transfer-recovery
+fixture to remove both later tables before exercising the migration chain. Existing tests
+remain deferred at the user's request. `npm run check`, `npm run build` and `git diff --check`
+passed on Linux x64. SQLite migration execution, native/visual behavior, live SSH and
+Windows/macOS acceptance remain unverified.
+Unrelated local-storage documentation edits and reference image remain outside this change.

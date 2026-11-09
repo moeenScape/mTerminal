@@ -228,6 +228,12 @@ that setting. Window shrinkage temporarily clamps sizes and restores the preferr
 when space returns. Native keyboard, drag, accessibility and cross-platform acceptance
 remain pending; regression tests are written and execution deferred.
 
+F39 adds **Workspace templates** beside New terminal. Save the current tabs and split layout
+under a unique name, review a saved template, then **Open layout** to add fresh idle panes.
+Start or connect each pane explicitly; existing sessions stay open and commands are never
+replayed. Templates survive app restarts and exclude credentials and terminal output.
+See [workspace templates](docs/WORKSPACE_TEMPLATES.md) for limits, deletion and backup scope.
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

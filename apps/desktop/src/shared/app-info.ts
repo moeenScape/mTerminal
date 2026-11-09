@@ -1,3 +1,4 @@
+import type { TemplatesApi } from './workspace-templates.js';
 import type { HostsApi } from './hosts.js';
 import type { TerminalApi } from './terminal.js';
 import type { VaultApi } from './vault.js';
@@ -23,7 +24,8 @@ export interface DesktopApi
     HistoryApi,
     FilesApi,
     TransfersApi,
-    RemoteEditApi {
+    RemoteEditApi,
+    TemplatesApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;

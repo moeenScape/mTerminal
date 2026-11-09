@@ -1,3 +1,4 @@
+import { templateChannels } from '../shared/workspace-templates.js';
 import type { SshChallenge } from '../shared/ssh.js';
 import { hostChannels } from '../shared/hosts.js';
 import {
@@ -57,6 +58,9 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  listWorkspaceTemplates: () => ipcRenderer.invoke(templateChannels.list),
+  saveWorkspaceTemplate: (draft) => ipcRenderer.invoke(templateChannels.save, draft),
+  deleteWorkspaceTemplate: (id) => ipcRenderer.invoke(templateChannels.delete, id),
   getRemoteEdit: () => transferRequest<RemoteEditState | null>(remoteEditChannels.state),
   startRemoteEdit: (request) => transferRequest<void>(remoteEditChannels.start, request),
   reopenRemoteEdit: () => transferRequest<void>(remoteEditChannels.reopen),

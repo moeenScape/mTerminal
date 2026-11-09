@@ -112,6 +112,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteSshIdentity',
       'deleteSshKey',
       'deleteSshPassword',
+      'deleteWorkspaceTemplate',
       'enqueueTransfer',
       'exportWorkspace',
       'finishRemoteEdit',
@@ -135,6 +136,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listSshIdentities',
       'listTransferRecovery',
       'listTransfers',
+      'listWorkspaceTemplates',
       'lockVault',
       'mutateDirectory',
       'onHistoryChanged',
@@ -157,6 +159,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveSshIdentity',
       'saveSshLogin',
       'saveSshPassword',
+      'saveWorkspaceTemplate',
       'searchHistory',
       'setupVault',
       'startRemoteEdit',
@@ -1379,6 +1382,163 @@ test('split SSH panes connect independently without copying a one-time login', a
     .click();
   await expect(page.locator('.terminal-pane:not([hidden])')).toHaveCount(1);
   await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toHaveCount(1);
+});
+
+test('saves a split workspace, reopens idle panes after reload and explicitly starts just one', async () => {
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await terminalAction('Split right');
+  const first = page.getByRole('tabpanel', { name: 'Terminal 1', exact: true });
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(second.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const divider = page.getByRole('separator', { name: 'Resize panes 1' });
+  await divider.focus();
+  for (let n = 0; n < 5; n++) await divider.press('ArrowRight');
+  await expect(divider).toHaveAttribute('aria-valuenow', '60');
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Workspace templates', exact: true });
+  await dialog.getByLabel('Template name', { exact: true }).fill('Development');
+  await dialog.getByRole('button', { name: 'Save new template' }).click();
+  await expect(dialog.getByLabel('Saved template')).toContainText('Development');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  // Opening a template adds panes and leaves both live originals intact.
+  const original = await first.locator('.xterm').elementHandle();
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open layout', exact: true }).click();
+  await expect(page.getByRole('tab')).toHaveCount(4);
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  await expect(
+    page
+      .locator('.terminal-pane:not([hidden])')
+      .getByRole('status')
+      .filter({ hasText: 'No active session' }),
+  ).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await application.evaluate(({ ipcMain }) => {
+    let starts = 0;
+    ipcMain.removeHandler('terminal:open');
+    ipcMain.handle('terminal:open', () => {
+      starts++;
+      return { ok: true };
+    });
+    ipcMain.on('fixture:template-starts', (_event, respond: (value: number) => void) =>
+      respond(starts),
+    );
+  });
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Workspace templates', exact: true });
+  await expect(dialog.getByLabel('Saved template')).toContainText('Development');
+  await dialog.getByRole('button', { name: 'Open layout', exact: true }).click();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('separator', { name: 'Resize panes 1' })).toHaveAttribute(
+    'aria-valuenow',
+    '60',
+  );
+  const count = () =>
+    application.evaluate(
+      ({ ipcMain }) =>
+        new Promise<number>((resolve) => ipcMain.emit('fixture:template-starts', null, resolve)),
+    );
+  await page.evaluate(() => window.mterminal.getVaultState());
+  expect(await count()).toBe(0);
+  await page
+    .getByRole('tabpanel', { name: 'Terminal 1', exact: true })
+    .getByRole('button', { name: 'Start local shell', exact: true })
+    .click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toHaveCount(1);
+  expect(await count()).toBe(1);
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete template', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Delete template “Development”?' })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Workspace templates', exact: true })
+      .getByLabel('Saved template'),
+  ).toContainText('Development');
+  await page
+    .getByRole('dialog', { name: 'Workspace templates', exact: true })
+    .getByRole('button', { name: 'Delete template', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Delete template “Development”?' })
+    .getByRole('button', { name: 'Delete template', exact: true })
+    .click();
+  await expect(
+    page.getByRole('dialog', { name: 'Workspace templates', exact: true }),
+  ).toContainText('No saved templates yet.');
+  expect(await count()).toBe(1);
+  await expect(page.getByRole('tab')).toHaveCount(2);
+});
+
+test('refuses missing-host templates and malformed template IPC without starting SSH', async () => {
+  const hostId = await page.evaluate(async () => {
+    const host = await window.mterminal.saveHost({
+      name: 'Template host',
+      address: 'example.internal',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+    const id = crypto.randomUUID();
+    const draft = {
+      version: 1 as const,
+      name: 'Remote',
+      panes: [{ id, title: 'Remote pane', hostId: host.id }],
+      layouts: [{ id }],
+      activeId: id,
+    };
+    await window.mterminal.saveWorkspaceTemplate(draft);
+    return host.id;
+  });
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open layout', exact: true }).click();
+  await expect(
+    page
+      .getByRole('tabpanel', { name: 'Remote pane', exact: true })
+      .getByRole('button', { name: 'Connect SSH', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close Remote pane', exact: true }).click();
+  await page.evaluate((id) => window.mterminal.deleteHost(id), hostId);
+  await page.getByRole('button', { name: 'Workspace templates', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Workspace templates', exact: true });
+  await expect(dialog.getByRole('alert')).toContainText('referenced SSH host has been deleted');
+  await expect(dialog.getByRole('button', { name: 'Open layout', exact: true })).toBeDisabled();
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  const rejected = await page.evaluate(async () => {
+    const id = crypto.randomUUID();
+    const draft = {
+      version: 1 as const,
+      name: 'Bad',
+      panes: [{ id, title: 'Local' }],
+      layouts: [{ id }],
+      activeId: id,
+    };
+    const results: boolean[] = [];
+    for (const value of [
+      { ...draft, password: 'must-not-store' },
+      { ...draft, command: 'never-run' },
+      { ...draft, layouts: [{ id: crypto.randomUUID() }] },
+    ]) {
+      try {
+        await window.mterminal.saveWorkspaceTemplate(value);
+        results.push(false);
+      } catch {
+        results.push(true);
+      }
+    }
+    return results;
+  });
+  expect(rejected).toEqual([true, true, true]);
+  expect(await page.evaluate(() => window.mterminal.listWorkspaceTemplates())).toHaveLength(1);
 });
 
 test('supports terminal tab keyboard navigation, rename, and reorder', async () => {

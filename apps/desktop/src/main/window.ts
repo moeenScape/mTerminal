@@ -1,3 +1,4 @@
+import { templateChannels } from '../shared/workspace-templates.js';
 import { hostChannels, validHostId } from '../shared/hosts.js';
 import type { LocalDatabase } from './storage/database.js';
 import { attachClipboard } from './clipboard.js';
@@ -128,6 +129,29 @@ export async function createMainWindow(
   }
   window.once('closed', () => {
     for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
+  });
+
+  for (const channel of Object.values(templateChannels)) {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      try {
+        if (channel === templateChannels.list && args.length === 0)
+          return database.listWorkspaceTemplates();
+        if (channel === templateChannels.save && args.length === 1)
+          return database.saveWorkspaceTemplate(args[0]);
+        if (channel === templateChannels.delete && args.length === 1)
+          return database.deleteWorkspaceTemplate(args[0]);
+        throw new Error('Invalid template request.');
+      } catch {
+        diagnostics.record('template-operation-failed');
+        throw new Error(
+          'Workspace template operation failed. Check the name, layout and local storage.',
+        );
+      }
+    });
+  }
+  window.once('closed', () => {
+    for (const channel of Object.values(templateChannels)) ipcMain.removeHandler(channel);
   });
 
   ipcMain.handle(backupChannels.export, async (event) => {

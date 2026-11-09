@@ -1,3 +1,8 @@
+import {
+  validateWorkspaceTemplate,
+  MAX_WORKSPACE_TEMPLATES,
+  type WorkspaceTemplate,
+} from '../../shared/workspace-templates.ts';
 import { validFingerprint } from '../../shared/ssh.ts';
 import {
   validateHost,
@@ -66,6 +71,12 @@ const migrations = [
       id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(length(data) <= 65536)
     ) STRICT;`);
   },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE workspace_templates (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      data TEXT NOT NULL CHECK(length(data) <= 65536)
+    ) STRICT;`);
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -132,6 +143,8 @@ function validateDatabase(database: DatabaseSync): void {
   }
   if (pragmaNumber(database, 'user_version') >= 6)
     database.prepare('SELECT id,data FROM transfer_recovery LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 7)
+    database.prepare('SELECT id,name,data FROM workspace_templates LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -233,6 +246,43 @@ export class LocalDatabase {
       this.connection.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  listWorkspaceTemplates(): WorkspaceTemplate[] {
+    const rows = this.connection
+      .prepare(
+        'SELECT id,name,data FROM workspace_templates ORDER BY name COLLATE NOCASE,id LIMIT 51',
+      )
+      .all();
+    if (rows.length > MAX_WORKSPACE_TEMPLATES) throw new Error('Too many saved templates.');
+    return rows.map((row) => {
+      if (!validHostId(row.id) || typeof row.data !== 'string' || row.data.length > 65536)
+        throw new Error('Invalid saved template.');
+      const draft = validateWorkspaceTemplate(JSON.parse(row.data));
+      if (row.name !== draft.name) throw new Error('Invalid saved template name.');
+      return { ...draft, id: row.id };
+    });
+  }
+  saveWorkspaceTemplate(value: unknown): WorkspaceTemplate {
+    const draft = validateWorkspaceTemplate(value);
+    const templates = this.listWorkspaceTemplates();
+    if (
+      templates.length >= MAX_WORKSPACE_TEMPLATES ||
+      templates.some((item) => item.name.toLowerCase() === draft.name.toLowerCase())
+    )
+      throw new Error('Choose a unique template name.');
+    const hosts = new Set(this.listHosts().map((host) => host.id));
+    if (draft.panes.some((pane) => pane.hostId && !hosts.has(pane.hostId)))
+      throw new Error('A template host no longer exists.');
+    const id = randomUUID();
+    this.connection
+      .prepare('INSERT INTO workspace_templates (id,name,data) VALUES (?,?,?)')
+      .run(id, draft.name, JSON.stringify(draft));
+    return { ...draft, id };
+  }
+  deleteWorkspaceTemplate(id: unknown): void {
+    if (!validHostId(id)) throw new Error('Invalid template ID.');
+    this.connection.prepare('DELETE FROM workspace_templates WHERE id=?').run(id);
   }
 
   listHosts(): SavedHost[] {

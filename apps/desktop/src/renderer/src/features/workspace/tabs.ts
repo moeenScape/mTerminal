@@ -46,6 +46,7 @@ export interface TerminalTab {
   title: string;
   phase: TabPhase;
   hostId?: string;
+  autoStart?: false;
 }
 export interface TabsState {
   tabs: TerminalTab[];
@@ -53,6 +54,7 @@ export interface TabsState {
   activeId: string | null;
 }
 export type TabsAction =
+  | { type: 'restore'; workspace: TabsState }
   | { type: 'add'; id: string; title: string; hostId?: string }
   | { type: 'split'; id: string; sourceId: string; title: string; direction: SplitDirection }
   | { type: 'resize'; id: string; splitId: string; ratio: number }
@@ -72,6 +74,22 @@ export function tabTitle(value: string): string | undefined {
     : undefined;
 }
 export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
+  if (action.type === 'restore') {
+    const incoming = action.workspace;
+    const ids = new Set(incoming.tabs.map((tab) => tab.id));
+    if (
+      !incoming.tabs.length ||
+      state.tabs.length + incoming.tabs.length > MAX_TERMINAL_TABS ||
+      ids.size !== incoming.tabs.length ||
+      state.tabs.some((tab) => ids.has(tab.id))
+    )
+      return state;
+    return {
+      tabs: [...state.tabs, ...incoming.tabs],
+      layouts: [...state.layouts, ...incoming.layouts],
+      activeId: incoming.activeId,
+    };
+  }
   const index = state.tabs.findIndex((tab) => tab.id === action.id);
   if (action.type === 'add' || action.type === 'split') {
     const title = tabTitle(action.title);

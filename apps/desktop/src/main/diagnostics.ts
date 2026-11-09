@@ -6,6 +6,7 @@ export const LOG_LIMIT = 256 * 1024;
 const diagnosticEvents = [
   'clipboard-failed',
   'host-operation-failed',
+  'template-operation-failed',
   'terminal-open-failed',
   'terminal-operation-failed',
   'startup-ready',
