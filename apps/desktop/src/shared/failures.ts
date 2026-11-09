@@ -1,4 +1,10 @@
 export const failureMessages = {
+  'snippet-limit':
+    'Snippet storage is full. Delete unused snippets before saving more (200 snippets or 512 KiB).',
+  'snippet-conflict':
+    'A snippet with this name already exists in this folder. Choose another name or edit the existing snippet.',
+  'snippet-missing': 'The snippet no longer exists. Reload the snippet list before editing again.',
+  'snippet-failed': 'Snippet operation failed. Check its fields and the local vault, then retry.',
   'vault-unavailable':
     'Secure credential storage is unavailable. Check that your operating system keychain is unlocked and supported; secrets were not saved.',
   'vault-corrupt':

@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F39 implemented — Persistent workspace templates and explicit per-pane startup; acceptance pending |
-| Next feature | F40 — Snippets; Phase 4/5 runtime verification remains deferred |
+| Active feature | F40 implemented — Encrypted snippets with folders/tags, search, insertion and confirmed execution; acceptance pending |
+| Next feature | F41 — Startup snippets; Phase 4/5 runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -184,7 +184,7 @@ Dependencies: Stable sessions, storage, and credential handling.
   - [x] **F38-A — Basic splits (implementation):** Split right/down, independent local or same-host SSH sessions, click focus, stable mounted terminals, split-group tab navigation and confirmed per-pane close. Fixed equal sizes; regression code written, execution deferred.
   - [x] **F38-B — Resize and shortcuts (implementation):** Accessible pointer-captured dividers, Escape cancellation, balance/reset, keyboard limits/resizing, spatial focus shortcuts and recursive minimum sizes. Regression code written/type-checked; test execution, visual and platform acceptance deferred.
 - [x] **F39 — Workspace templates (implementation):** SQLite-backed named layouts, pane/tab order and split ratios; review/open adds fresh idle panes without replacing current sessions or replaying commands. Explicit per-pane startup, missing-host/limit checks and confirmed deletion. Regression code written; execution and runtime/platform acceptance deferred.
-- [ ] **F40 — Snippets:** Save, organize, search, and execute commands.
+- [x] **F40 — Snippets (implementation):** Shared encrypted local library with create/edit/delete, nested folders/tags and search; single-line Insert and target-bound, confirmed multiline Run. Vault lifecycle, quotas and regression code included; execution/runtime/platform acceptance deferred.
 - [ ] **F41 — Startup snippets:** Assigned connection-time actions with visible execution.
 - [ ] **F42 — Multiple-host execution:** Destination selection and per-host results/failures.
 - [ ] **F43 — Broadcast input:** Explicit mode, visible recipients, and immediate stop.
@@ -1282,3 +1282,33 @@ remain deferred at the user's request. `npm run check`, `npm run build` and `git
 passed on Linux x64. SQLite migration execution, native/visual behavior, live SSH and
 Windows/macOS acceptance remain unverified.
 Unrelated local-storage documentation edits and reference image remain outside this change.
+
+
+### F40 encrypted command snippets — 2026-11-09
+
+Added Snippets to the terminal tools tabs and More actions. Create/edit reusable commands,
+organize with nested folders and tags, filter/search, confirm deletion, insert one line without
+Enter, or preview the complete command and pane title before explicitly running. Multiline
+commands require Run. Existing history suggestions remain unchanged; snippet suggestion sources
+are future F47 work. Snippets never run automatically or as part of template restoration.
+
+The shared library lives in passphrase/OS-protected `snippets.enc`, using existing vault
+serialization and atomic ciphertext writes. Read/write limits, version/record validation,
+UUID ownership, duplicate-name checks, no insecure keychain fallback, keychain rotation and
+vault reset preservation are included. No SQLite schema/dependency changes. Sender-validated
+CRUD IPC returns safe failures and content-free change notifications; commands never enter
+diagnostics or default exports. Lock clears loaded snippet/editor/preview state.
+
+Run binds reviewed content to the current session and terminal objects, checks the vault,
+visibility, selected pane, input readiness and supported Bash prompt again before submitting.
+Generation guards invalidate cancelled, locked or disposed previews after asynchronous checks.
+Unsupported/SSH prompt detection is explicitly described; no claim of program-state detection.
+Existing paste/input handling is reused, and no command is replayed on failure or reconnect.
+
+Regression code covers command/control validation, folder/tag search, encrypted persistence,
+editing/deletion, lock/restart/reset, failed writes, corruption, quotas/insecure backend,
+IPC ownership/arity/safe errors, UI CRUD, Insert without Enter, multiline Run cancellation,
+split-pane targeting and changed-session refusal. Test execution remains deferred at the user's
+request. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64.
+Live SSH, real keychain restart, native/visual and Windows/macOS acceptance remain unverified. See `docs/SNIPPETS.md`. Preserve unrelated local
+storage documentation edits and the reference image.

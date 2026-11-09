@@ -1,3 +1,5 @@
+import { validateSnippet, validateSavedSnippet, type Snippet } from '../../../../shared/snippets';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { PanePosition, SplitDirection } from './pane-layout';
 import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
@@ -123,6 +125,26 @@ export function TerminalPane({
     onSessionStatus: historyStatus,
   } = history;
   const [tools, setTools] = useState<ToolTab | null>(null);
+  const snippetGeneration = useRef(0);
+  const [snippetRun, setSnippetRun] = useState<{
+    snippet: Snippet;
+    generation: number;
+    sessionId: string;
+    term: Terminal;
+  } | null>(null);
+  useEffect(() => {
+    const invalidate = () => {
+      snippetGeneration.current++;
+    };
+    const unsubscribe = window.mterminal.onVaultLocked(() => {
+      invalidate();
+      setSnippetRun(null);
+    });
+    return () => {
+      invalidate();
+      unsubscribe();
+    };
+  }, []);
   const [running, setRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [attempted, setAttempted] = useState(false);
@@ -479,6 +501,30 @@ export function TerminalPane({
     window.mterminal.closeTerminal(expectedId);
   }
 
+  function insertSnippet(command: string): string | undefined {
+    if (!active || filesOpen || !inputReady.current || !session.current)
+      return 'Select a running terminal before inserting a snippet.';
+    try {
+      validateSnippet({ name: 'Insert', command, folder: '', tags: [] });
+    } catch {
+      return 'The command contains unsupported terminal control characters.';
+    }
+    return history.insert(command);
+  }
+  function requestSnippetRun(snippet: Snippet): string | undefined {
+    const term = terminal.current;
+    if (!active || filesOpen || !inputReady.current || !session.current || !term)
+      return 'Select a running terminal before running a snippet.';
+    const error = history.insertionError();
+    if (error) return error;
+    setSnippetRun({
+      snippet,
+      generation: ++snippetGeneration.current,
+      sessionId: session.current,
+      term,
+    });
+    return undefined;
+  }
   const menuItems: MenuItem[] = [
     {
       label: 'Copy',
@@ -511,6 +557,13 @@ export function TerminalPane({
       onSelect: () => {
         setFilesOpen(false);
         setTools('history');
+      },
+    },
+    {
+      label: 'Snippets',
+      onSelect: () => {
+        setFilesOpen(false);
+        setTools('snippets');
       },
     },
     {
@@ -635,7 +688,7 @@ export function TerminalPane({
           aria-label="Terminal tools"
           aria-expanded={tools !== null}
           aria-controls={`terminal-tools-${id}`}
-          title="Autocomplete, history and themes"
+          title="Autocomplete, history, snippets and themes"
           onClick={() => {
             setFilesOpen(false);
             setTools((value) => (value ? null : 'history'));
@@ -798,7 +851,10 @@ export function TerminalPane({
             local={!hostId}
             integration={history.integration}
             directory={history.directory}
-            onInsert={history.insert}
+            onInsert={insertSnippet}
+            onRunSnippet={requestSnippetRun}
+            onOpenVault={onOpenVault}
+            ready={running && active && !filesOpen}
             preferences={toolsPreferences}
             onPreferenceChange={onToolsPreferenceChange}
             appearance={terminalAppearance}
@@ -807,6 +863,50 @@ export function TerminalPane({
           />
         )}
       </div>
+      {snippetRun && (
+        <ConfirmDialog
+          title={`Run “${snippetRun.snippet.name}” in “${title}”?`}
+          confirmLabel="Run snippet"
+          onCancel={() => {
+            snippetGeneration.current++;
+            setSnippetRun(null);
+          }}
+          onConfirm={async () => {
+            const target = snippetRun;
+            const vault = await window.mterminal.getVaultState();
+            if (!vault.configured || vault.locked || !vault.available)
+              throw new Error('Unlock the vault before running a saved snippet.');
+            const panel = document.getElementById(`terminal-panel-${id}`);
+            if (
+              snippetGeneration.current !== target.generation ||
+              session.current !== target.sessionId ||
+              terminal.current !== target.term ||
+              !inputReady.current ||
+              !panel?.clientWidth ||
+              panel.dataset.active !== 'true' ||
+              filesOpen
+            )
+              throw new Error(
+                'The target session changed or is no longer active. Cancel and select the snippet again.',
+              );
+            const error = history.insertionError();
+            if (error) throw new Error(error);
+            const command = validateSavedSnippet(target.snippet).command;
+            target.term.paste(command);
+            target.term.input('\r', true);
+            snippetGeneration.current++;
+            setSnippetRun(null);
+            setTools(null);
+            target.term.focus();
+          }}
+        >
+          <p>
+            Send this command to this terminal and press Enter. Ensure it is at an empty shell
+            prompt; SSH and unsupported shells cannot verify the current program or prompt.
+          </p>
+          <pre className="snippet-preview">{snippetRun.snippet.command}</pre>
+        </ConfirmDialog>
+      )}
       {clipboard.pending && (
         <PasteDialog
           title={title}

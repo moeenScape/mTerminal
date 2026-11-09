@@ -1,3 +1,4 @@
+import { attachSnippets } from './snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import { hostChannels, validHostId } from '../shared/hosts.js';
 import type { LocalDatabase } from './storage/database.js';
@@ -131,6 +132,8 @@ export async function createMainWindow(
     for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
   });
 
+  attachSnippets(window, rendererUrl, secrets);
+
   for (const channel of Object.values(templateChannels)) {
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
@@ -233,7 +236,7 @@ export async function createMainWindow(
             title: 'Reset local vault',
             message: 'Create a new vault without the current passphrase?',
             detail:
-              'Saved passwords and keys will no longer be available. Their encrypted files will be preserved in a recovery folder under the vault directory. Host and identity records will remain.',
+              'Saved passwords, keys, history and snippets will no longer be available. Their encrypted files will be preserved in a recovery folder under the vault directory. Host and identity records will remain.',
           });
           if (confirmation.response !== 0) return { ok: true, value: false };
           await secrets.resetVault();

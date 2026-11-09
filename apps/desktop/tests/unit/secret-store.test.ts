@@ -288,3 +288,98 @@ describe('vault passphrase and lock lifecycle', () => {
     }
   });
 });
+
+describe('encrypted snippet storage', () => {
+  it('persists editable snippets as ciphertext, refuses locked reads, and retains them across restart', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
+    try {
+      const provider = fakeStorage();
+      const store = new SshSecretStore(directory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      const draft = {
+        name: 'Deploy',
+        command: 'echo PRIVATE_SNIPPET',
+        folder: 'Work',
+        tags: ['deploy'],
+      };
+      const saved = await store.saveSnippet(draft);
+      const encrypted = await readFile(join(directory, 'snippets.enc'));
+      expect(encrypted.toString()).not.toContain('PRIVATE_SNIPPET');
+      expect(encrypted.toString()).not.toContain('Deploy');
+      expect((await stat(join(directory, 'snippets.enc'))).mode & 0o777).toBe(0o600);
+      await store.lockVault();
+      await expect(store.listSnippets()).rejects.toMatchObject({ code: 'vault-locked' });
+      const reopened = new SshSecretStore(directory, provider, 'linux');
+      await reopened.unlockVault(vaultPassphrase);
+      expect(await reopened.listSnippets()).toEqual([saved]);
+      const updated = await reopened.saveSnippet(
+        { ...draft, command: 'echo updated', folder: 'Work/Production' },
+        saved.id,
+      );
+      expect(updated.id).toBe(saved.id);
+      expect(await reopened.listSnippets()).toEqual([updated]);
+      await reopened.deleteSnippet(saved.id);
+      expect(await reopened.listSnippets()).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('preserves previous snippets on failed writes, duplicate names and corrupt ciphertext', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
+    try {
+      const provider = fakeStorage();
+      const store = new SshSecretStore(directory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      const draft = { name: 'Kept', command: 'echo kept', folder: '', tags: [] };
+      const saved = await store.saveSnippet(draft);
+      vi.spyOn(provider, 'encryptStringAsync').mockRejectedValueOnce(new Error('keychain failure'));
+      await expect(
+        store.saveSnippet({ ...draft, command: 'echo changed' }, saved.id),
+      ).rejects.toThrow();
+      expect(await store.listSnippets()).toEqual([saved]);
+      await expect(store.saveSnippet({ ...draft, name: 'kept' })).rejects.toThrow();
+      expect(await store.listSnippets()).toEqual([saved]);
+      await writeFile(join(directory, 'snippets.enc'), 'broken');
+      await expect(store.listSnippets()).rejects.toMatchObject({ code: 'vault-corrupt' });
+      await expect(store.saveSnippet({ ...draft, name: 'New' })).rejects.toMatchObject({
+        code: 'vault-corrupt',
+      });
+      expect(await readFile(join(directory, 'snippets.enc'), 'utf8')).toBe('broken');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('enforces the snippet count and refuses insecure keychain fallback without replacing data', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
+    try {
+      const provider = fakeStorage();
+      const store = new SshSecretStore(directory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      for (let n = 0; n < 200; n++)
+        await store.saveSnippet({ name: `Snippet ${n}`, command: 'echo ok', folder: '', tags: [] });
+      await expect(
+        store.saveSnippet({ name: 'Overflow', command: 'echo no', folder: '', tags: [] }),
+      ).rejects.toMatchObject({ code: 'snippet-limit' });
+      const before = await readFile(join(directory, 'snippets.enc'));
+      vi.spyOn(provider, 'getSelectedStorageBackend').mockReturnValue('basic_text');
+      await expect(store.listSnippets()).rejects.toMatchObject({ code: 'vault-unavailable' });
+      expect(await readFile(join(directory, 'snippets.enc'))).toEqual(before);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('preserves snippet ciphertext in the recovery folder on vault reset', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
+    try {
+      const store = new SshSecretStore(directory, fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
+      await store.saveSnippet({ name: 'Recovery', command: 'echo recover', folder: '', tags: [] });
+      const before = await readFile(join(directory, 'snippets.enc'));
+      await store.resetVault();
+      const recovery = (await readdir(directory)).find((name) => name.startsWith('recovery-'));
+      expect(await readFile(join(directory, recovery!, 'snippets.enc'))).toEqual(before);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});

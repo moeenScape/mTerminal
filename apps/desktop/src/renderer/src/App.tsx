@@ -431,8 +431,8 @@ function VaultAccessGate({
                   />
                 </label>
                 <p className="vault-warning">
-                  If you forget this passphrase, saved passwords and private keys cannot be
-                  recovered. Existing host and identity records are not encrypted by this
+                  If you forget this passphrase, saved passwords, private keys and snippets cannot
+                  be recovered. Existing host and identity records are not encrypted by this
                   passphrase.
                 </p>
               </>

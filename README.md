@@ -234,6 +234,12 @@ Start or connect each pane explicitly; existing sessions stay open and commands 
 replayed. Templates survive app restarts and exclude credentials and terminal output.
 See [workspace templates](docs/WORKSPACE_TEMPLATES.md) for limits, deletion and backup scope.
 
+F40 adds **Terminal tools → Snippets** (also in More actions). Save encrypted reusable
+commands with folders and tags, search/edit/delete them, insert a single line without Enter,
+or review and confirm **Run…** for the selected session. Multiline snippets require Run;
+a changed session cannot receive a pending command. The local vault must be open.
+See [snippets](docs/SNIPPETS.md) for storage, limits and shell-prompt requirements.
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

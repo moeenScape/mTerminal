@@ -109,6 +109,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteHistory',
       'deleteHost',
       'deleteHostGroup',
+      'deleteSnippet',
       'deleteSshIdentity',
       'deleteSshKey',
       'deleteSshPassword',
@@ -133,6 +134,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listDirectory',
       'listHostGroups',
       'listHosts',
+      'listSnippets',
       'listSshIdentities',
       'listTransferRecovery',
       'listTransfers',
@@ -141,6 +143,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'mutateDirectory',
       'onHistoryChanged',
       'onRemoteEditChanged',
+      'onSnippetsChanged',
       'onSshChallenge',
       'onTerminalEvent',
       'onTransfersChanged',
@@ -156,6 +159,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveHost',
       'saveHostGroup',
       'savePreferences',
+      'saveSnippet',
       'saveSshIdentity',
       'saveSshLogin',
       'saveSshPassword',
@@ -1681,14 +1685,173 @@ test('searches retained terminal output and keeps searches isolated by tab', asy
 });
 
 /** The visible terminal's tools panel, opened on the given tab. */
-async function openTools(tab: 'Autocomplete' | 'History' | 'Themes') {
-  const pane = page.locator('.terminal-pane:not([hidden])');
+async function openTools(tab: 'Autocomplete' | 'History' | 'Snippets' | 'Themes') {
+  const pane = page.locator('.terminal-pane[data-active="true"]:not([hidden])');
   const panel = pane.getByRole('complementary', { name: /^Terminal tools for/ });
   if (!(await panel.isVisible()))
     await pane.getByRole('button', { name: 'Terminal tools', exact: true }).click();
   await panel.getByRole('tab', { name: tab, exact: true }).click();
   return panel;
 }
+
+/** Isolated encrypted-store stand-in; actual cipher persistence is covered by store tests. */
+async function snippetFixture() {
+  await application.evaluate(({ ipcMain }) => {
+    const snippets = new Map<
+      string,
+      { id: string; name: string; command: string; folder: string; tags: string[] }
+    >();
+    const writes: { id: string; data: string }[] = [];
+    ipcMain.removeHandler('vault:state');
+    ipcMain.handle('vault:state', () => ({
+      ok: true,
+      value: { configured: true, locked: false, available: true },
+    }));
+    ipcMain.removeHandler('snippets:list');
+    ipcMain.handle('snippets:list', () => ({ ok: true, value: [...snippets.values()] }));
+    ipcMain.removeHandler('snippets:save');
+    ipcMain.handle('snippets:save', (event, draft, existing?: string) => {
+      const id = existing ?? crypto.randomUUID();
+      const saved = { ...draft, id };
+      snippets.set(id, saved);
+      event.sender.send('snippets:changed');
+      return { ok: true, value: saved };
+    });
+    ipcMain.removeHandler('snippets:delete');
+    ipcMain.handle('snippets:delete', (event, id: string) => {
+      snippets.delete(id);
+      event.sender.send('snippets:changed');
+      return { ok: true, value: undefined };
+    });
+    ipcMain.on('terminal:write', (_event, id: string, input: { data: string }) =>
+      writes.push({ id, data: input.data }),
+    );
+    ipcMain.on('fixture:snippet-writes', (_event, respond: (value: typeof writes) => void) =>
+      respond(writes),
+    );
+  });
+}
+async function snippetWrites() {
+  await page.evaluate(() => window.mterminal.getVaultState());
+  return application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<{ id: string; data: string }[]>((resolve) =>
+        ipcMain.emit('fixture:snippet-writes', null, resolve),
+      ),
+  );
+}
+
+test('creates, organizes and inserts a snippet without submitting it, then edits and confirms deletion', async () => {
+  await snippetFixture();
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const panel = await openTools('Snippets');
+  await panel.getByRole('button', { name: 'New snippet', exact: true }).click();
+  let editor = page.getByRole('dialog', { name: 'New snippet', exact: true });
+  await editor.getByLabel('Snippet name').fill('Inspect release');
+  await editor.getByLabel('Command', { exact: true }).fill('echo SNIPPET_INSERT_VALUE');
+  await editor.getByLabel('Folder', { exact: true }).fill('Work/Production');
+  await editor.getByLabel('Tags (comma-separated)').fill('deploy, release');
+  await editor.getByRole('button', { name: 'Save snippet', exact: true }).click();
+  const item = panel.getByRole('listitem').filter({ hasText: 'Inspect release' });
+  await expect(item).toBeVisible();
+  await panel.getByRole('searchbox', { name: 'Search snippets' }).fill('RELEASE production');
+  await expect(item).toBeVisible();
+  await panel.getByLabel('Folder', { exact: true }).selectOption('Work');
+  await item.getByRole('button', { name: 'Insert', exact: true }).click();
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('SNIPPET_INSERT_VALUE')),
+  ).toEqual([{ id: expect.any(String), data: 'echo SNIPPET_INSERT_VALUE' }]);
+  await page.keyboard.press('Control+u');
+  await item.getByRole('button', { name: 'Edit', exact: true }).click();
+  editor = page.getByRole('dialog', { name: 'Edit snippet', exact: true });
+  await editor.getByLabel('Snippet name').fill('Inspect updated');
+  await editor.getByLabel('Command', { exact: true }).fill('echo SNIPPET_UPDATED');
+  await editor.getByRole('button', { name: 'Save snippet', exact: true }).click();
+  await panel.getByRole('searchbox', { name: 'Search snippets' }).fill('updated');
+  const updated = panel.getByRole('listitem').filter({ hasText: 'Inspect updated' });
+  await expect(updated).toBeVisible();
+  await updated.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete snippet “Inspect updated”?' })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  await expect(updated).toBeVisible();
+  await updated.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete snippet “Inspect updated”?' })
+    .getByRole('button', { name: 'Delete snippet', exact: true })
+    .click();
+  await expect(updated).toHaveCount(0);
+});
+
+test('confirms multiline snippet execution in one split pane and rejects a changed session', async () => {
+  await snippetFixture();
+  await page.evaluate(() =>
+    window.mterminal.saveSnippet({
+      name: 'Multiline',
+      command: 'echo SNIPPET_FIRST_LINE\necho SNIPPET_SECOND_LINE',
+      folder: '',
+      tags: [],
+    }),
+  );
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await terminalAction('Split right');
+  const pane = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(pane.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  let panel = await openTools('Snippets');
+  const item = panel.getByRole('listitem').filter({ hasText: 'Multiline' });
+  await expect(item.getByRole('button', { name: 'Insert', exact: true })).toBeDisabled();
+  await expect(async () => {
+    await item.getByRole('button', { name: 'Run…', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Run “Multiline” in “Terminal 2”?' }),
+    ).toBeVisible({ timeout: 300 });
+  }).toPass({ timeout: 5000 });
+  let confirmation = page.getByRole('dialog', { name: 'Run “Multiline” in “Terminal 2”?' });
+  await expect(confirmation.locator('pre')).toContainText('SNIPPET_FIRST_LINE');
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('SNIPPET_FIRST_LINE')),
+  ).toHaveLength(0);
+  await item.getByRole('button', { name: 'Run…', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Run snippet', exact: true }).click();
+  await expect(pane.locator('.xterm-accessibility-tree')).toContainText('SNIPPET_SECOND_LINE');
+  const commands = (await snippetWrites()).filter((write) =>
+    write.data.includes('SNIPPET_FIRST_LINE'),
+  );
+  expect(commands).toHaveLength(1);
+  expect(new Set(commands.map((write) => write.id)).size).toBe(1);
+  panel = await openTools('Snippets');
+  await expect(async () => {
+    await panel
+      .getByRole('listitem')
+      .filter({ hasText: 'Multiline' })
+      .getByRole('button', { name: 'Run…', exact: true })
+      .click();
+    await expect(
+      page.getByRole('dialog', { name: 'Run “Multiline” in “Terminal 2”?' }),
+    ).toBeVisible({ timeout: 300 });
+  }).toPass({ timeout: 5000 });
+  confirmation = page.getByRole('dialog', { name: 'Run “Multiline” in “Terminal 2”?' });
+  await application.evaluate(
+    ({ BrowserWindow }, id) =>
+      BrowserWindow.getAllWindows()[0]!.webContents.send('terminal:event', {
+        kind: 'exit',
+        id,
+        exitCode: 0,
+      }),
+    commands[0]!.id,
+  );
+  await confirmation.getByRole('button', { name: 'Run snippet', exact: true }).click();
+  await expect(confirmation.getByRole('alert')).toContainText('target session changed');
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('SNIPPET_FIRST_LINE')),
+  ).toHaveLength(1);
+});
 
 test('keeps terminal appearance settings independent between tabs', async () => {
   await navButton('Workspace').click();

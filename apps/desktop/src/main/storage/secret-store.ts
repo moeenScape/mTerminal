@@ -1,3 +1,9 @@
+import {
+  MAX_SNIPPETS,
+  validateSnippet,
+  validateSavedSnippet,
+  type Snippet,
+} from '../../shared/snippets.js';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto';
 import { lstat, mkdir, open, readFile, rename, rm, chmod, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -190,6 +196,7 @@ export class SshSecretStore {
           (name) =>
             name === 'vault.master' ||
             name === 'history.enc' ||
+            name === 'snippets.enc' ||
             /^[0-9a-f-]{36}\.(password|key|login)\.enc$/.test(name),
         );
         if (!files.length) return;
@@ -399,6 +406,81 @@ export class SshSecretStore {
     return this.serialize(async () => {
       const entries = await this.readHistory();
       await this.writeHistory(id ? entries.filter((entry) => entry.id !== id) : []);
+    });
+  }
+
+  private async readSnippets(): Promise<Snippet[]> {
+    this.requireUnlocked();
+    await this.requireSecureStorage();
+    try {
+      const path = join(this.directory, 'snippets.enc');
+      const info = await lstat(path);
+      if (!info.isFile() || info.size < 1 || info.size > 2 * 1024 * 1024)
+        throw new AppFailure('vault-corrupt');
+      const decrypted = await this.storage.decryptStringAsync(await readFile(path));
+      const plaintext = await this.reveal(decrypted.result);
+      if (Buffer.byteLength(plaintext) > 512 * 1024) throw new AppFailure('vault-corrupt');
+      const data = JSON.parse(plaintext) as { version?: unknown; snippets?: unknown };
+      if (
+        !data ||
+        Object.keys(data).length !== 2 ||
+        data.version !== 1 ||
+        !Array.isArray(data.snippets) ||
+        data.snippets.length > MAX_SNIPPETS
+      )
+        throw new AppFailure('vault-corrupt');
+      const snippets = Array.from(data.snippets).map(validateSavedSnippet);
+      if (new Set(snippets.map((item) => item.id)).size !== snippets.length)
+        throw new AppFailure('vault-corrupt');
+      if (decrypted.shouldReEncrypt)
+        await this.writeEncrypted(path, await this.storage.encryptStringAsync(decrypted.result));
+      return snippets;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if (error instanceof AppFailure) throw error;
+      throw new AppFailure('vault-corrupt');
+    }
+  }
+  private async writeSnippets(snippets: Snippet[]): Promise<void> {
+    const plaintext = JSON.stringify({ version: 1, snippets });
+    if (Buffer.byteLength(plaintext) > 512 * 1024) throw new AppFailure('snippet-limit');
+    await this.writeEncrypted(
+      join(this.directory, 'snippets.enc'),
+      await this.storage.encryptStringAsync(await this.protect(plaintext)),
+    );
+  }
+  listSnippets(): Promise<Snippet[]> {
+    return this.serialize(() => this.readSnippets());
+  }
+  saveSnippet(value: unknown, id?: string): Promise<Snippet> {
+    const draft = validateSnippet(value);
+    if (id !== undefined && !validHostId(id)) throw new Error('Invalid snippet ID.');
+    return this.serialize(async () => {
+      const snippets = await this.readSnippets();
+      const existing = snippets.find((item) => item.id === id);
+      if (id && !existing) throw new AppFailure('snippet-missing');
+      if (!id && snippets.length >= MAX_SNIPPETS) throw new AppFailure('snippet-limit');
+      if (
+        snippets.some(
+          (item) =>
+            item.id !== id &&
+            item.folder === draft.folder &&
+            item.name.toLowerCase() === draft.name.toLowerCase(),
+        )
+      )
+        throw new AppFailure('snippet-conflict');
+      const saved = { ...draft, id: id ?? randomUUID() };
+      await this.writeSnippets(
+        existing ? snippets.map((item) => (item.id === id ? saved : item)) : [...snippets, saved],
+      );
+      return saved;
+    });
+  }
+  deleteSnippet(id: string): Promise<void> {
+    if (!validHostId(id)) throw new Error('Invalid snippet ID.');
+    return this.serialize(async () => {
+      const snippets = await this.readSnippets();
+      await this.writeSnippets(snippets.filter((item) => item.id !== id));
     });
   }
 

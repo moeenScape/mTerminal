@@ -1,3 +1,4 @@
+import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import type { SshChallenge } from '../shared/ssh.js';
 import { hostChannels } from '../shared/hosts.js';
@@ -58,6 +59,14 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  listSnippets: () => historyRequest<Snippet[]>(snippetChannels.list),
+  saveSnippet: (draft, id) => historyRequest<Snippet>(snippetChannels.save, draft, id),
+  deleteSnippet: (id) => historyRequest<void>(snippetChannels.delete, id),
+  onSnippetsChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(SNIPPETS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(SNIPPETS_CHANGED, handler);
+  },
   listWorkspaceTemplates: () => ipcRenderer.invoke(templateChannels.list),
   saveWorkspaceTemplate: (draft) => ipcRenderer.invoke(templateChannels.save, draft),
   deleteWorkspaceTemplate: (id) => ipcRenderer.invoke(templateChannels.delete, id),

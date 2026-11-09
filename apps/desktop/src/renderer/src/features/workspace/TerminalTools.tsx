@@ -1,3 +1,5 @@
+import { SnippetsTab } from './SnippetsTab';
+import type { Snippet } from '../../../../shared/snippets';
 import { useCallback, useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -16,10 +18,11 @@ import {
   type TerminalTheme,
 } from './appearance';
 
-export type ToolTab = 'autocomplete' | 'history' | 'themes';
+export type ToolTab = 'autocomplete' | 'history' | 'snippets' | 'themes';
 const tabs: { id: ToolTab; label: string; icon: IconName }[] = [
   { id: 'autocomplete', label: 'Autocomplete', icon: 'rocket' },
   { id: 'history', label: 'History', icon: 'history' },
+  { id: 'snippets', label: 'Snippets', icon: 'terminal' },
   { id: 'themes', label: 'Themes', icon: 'palette' },
 ];
 
@@ -39,6 +42,9 @@ export function TerminalTools({
   integration,
   directory,
   onInsert,
+  onRunSnippet,
+  onOpenVault,
+  ready,
   preferences,
   onPreferenceChange,
   appearance,
@@ -54,6 +60,9 @@ export function TerminalTools({
   integration: HistoryIntegration;
   directory: () => string;
   onInsert: (command: string) => string | undefined;
+  onRunSnippet: (snippet: Snippet) => string | undefined;
+  onOpenVault: () => Promise<void>;
+  ready: boolean;
   preferences: ToolsPreferences;
   onPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
   appearance: TerminalAppearance;
@@ -103,8 +112,15 @@ export function TerminalTools({
       className="terminal-tools"
       id={`terminal-tools-${id}`}
       aria-label={`Terminal tools for ${title}`}
+      onFocusCapture={() => {
+        if (!vaultOpen) refreshVault();
+      }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !event.defaultPrevented) {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          !(event.target as Element).closest('dialog')
+        ) {
           event.preventDefault();
           onClose();
         }
@@ -157,6 +173,15 @@ export function TerminalTools({
         )}
         {tab === 'history' && (
           <HistoryTab directory={directory} onInsert={onInsert} vaultOpen={vaultOpen} />
+        )}
+        {tab === 'snippets' && (
+          <SnippetsTab
+            vaultOpen={vaultOpen}
+            onOpenVault={onOpenVault}
+            onInsert={onInsert}
+            onRun={onRunSnippet}
+            ready={ready}
+          />
         )}
         {tab === 'themes' && (
           <ThemesTab

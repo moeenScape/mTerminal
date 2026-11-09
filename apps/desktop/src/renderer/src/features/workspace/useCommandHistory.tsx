@@ -269,21 +269,28 @@ export function useCommandHistory(
     [dismiss, prefix, accept],
   );
 
+  const insertionError = useCallback((): string | undefined => {
+    if (!session.current || !ready.current) return 'Start the session before inserting a command.';
+    if (local && integration === 'ready' && prefix() !== '')
+      return 'Clear the command line and return to an empty shell prompt first.';
+    return undefined;
+  }, [session, ready, local, integration, prefix]);
+
   /**
    * Types a command at the prompt without running it. Local Bash tabs require an empty
    * prompt; other sessions receive the text as typed input. Returns an error message.
    */
   const insert = useCallback(
     (command: string): string | undefined => {
-      if (!session.current) return 'Start the session before inserting a command.';
+      const error = insertionError();
+      if (error) return error;
+      if (!session.current) return 'The target session is no longer available.';
       if (/[\r\n]/.test(command)) return 'Multi-line commands can be copied but not inserted.';
-      if (local && integration === 'ready' && prefix() !== '')
-        return 'Clear the command line before inserting a command.';
       window.mterminal.writeTerminal(session.current, { kind: 'text', data: command });
       terminal.current?.focus();
       return undefined;
     },
-    [session, local, integration, prefix],
+    [session, insertionError],
   );
 
   const getDirectory = useCallback(() => directory.current, []);
@@ -377,6 +384,7 @@ export function useCommandHistory(
     overlay,
     integration,
     insert,
+    insertionError,
     directory: getDirectory,
   };
 }

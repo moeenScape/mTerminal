@@ -1,3 +1,4 @@
+import type { SnippetsApi } from './snippets.js';
 import type { TemplatesApi } from './workspace-templates.js';
 import type { HostsApi } from './hosts.js';
 import type { TerminalApi } from './terminal.js';
@@ -25,7 +26,8 @@ export interface DesktopApi
     FilesApi,
     TransfersApi,
     RemoteEditApi,
-    TemplatesApi {
+    TemplatesApi,
+    SnippetsApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
