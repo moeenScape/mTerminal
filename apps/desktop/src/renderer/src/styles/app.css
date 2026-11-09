@@ -735,9 +735,34 @@ h2 {
 
 .terminal-panels {
   position: relative;
+  overflow: auto;
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+.terminal-layout {
+  position: relative;
+}
+.pane-divider {
+  position: absolute;
+  z-index: 9;
+  touch-action: none;
+  user-select: none;
+  background: var(--border);
+}
+.pane-divider[aria-orientation='vertical'] {
+  cursor: col-resize;
+}
+.pane-divider[aria-orientation='horizontal'] {
+  cursor: row-resize;
+}
+.pane-divider:hover,
+.pane-divider:focus-visible {
+  background: var(--accent);
+}
+.pane-divider:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
 }
 .terminal-pane {
   position: absolute;

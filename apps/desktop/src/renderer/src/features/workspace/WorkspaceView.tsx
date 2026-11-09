@@ -4,11 +4,12 @@ import { Icon } from '../../components/Icon';
 import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
 import { MAX_TERMINAL_TABS } from '../../../../shared/terminal';
 import { TerminalPane } from './TerminalPane';
+import { PaneDivider } from './PaneDivider';
+import { paneIds, layoutGeometry, adjacentPane, type SplitDirection } from './pane-layout';
+import { paneShortcut } from '../../components/keyboard';
 import type { ToolsPreferences } from './TerminalTools';
 import {
   tabsReducer,
-  panePositions,
-  type SplitDirection,
   tabTitle,
   tabPhaseLabels,
   isLiveTab,
@@ -118,7 +119,8 @@ export function WorkspaceView({
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], layouts: [], activeId: null });
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
-  const workspace = useRef<HTMLDivElement>(null);
+  const panels = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const nextNumber = useRef(1);
   const dragged = useRef<string | null>(null);
   const focusFrame = useRef<number | undefined>(undefined);
@@ -126,9 +128,27 @@ export function WorkspaceView({
     (tab) => tab.phase === 'running' || tab.phase === 'connected',
   ).length;
   const selectedLayout = state.layouts.find((layout) =>
-    panePositions(layout).some((pane) => pane.id === state.activeId),
+    paneIds(layout).includes(state.activeId ?? ''),
   );
-  const visiblePanes = selectedLayout ? panePositions(selectedLayout) : [];
+  const geometry = selectedLayout
+    ? layoutGeometry(selectedLayout, viewport.width, viewport.height)
+    : null;
+  const visiblePanes = geometry?.panes ?? [];
+  const hasTabs = state.tabs.length > 0;
+  useEffect(() => {
+    const element = panels.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      if (width && height)
+        setViewport((previous) =>
+          previous.width === width && previous.height === height ? previous : { width, height },
+        );
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasTabs]);
   const dialogTab = state.tabs.find((tab) => tab.id === dialog?.id);
   const menuTab = state.tabs.find((tab) => tab.id === tabMenu?.id);
   const phaseChanged = useCallback(
@@ -184,6 +204,42 @@ export function WorkspaceView({
       if (element?.clientWidth)
         (pane ? element.querySelector<HTMLTextAreaElement>('textarea') : element)?.focus();
     });
+  }
+  function paneKeyDown(event: React.KeyboardEvent) {
+    const command = paneShortcut(event.nativeEvent);
+    if (
+      !navigationShortcuts ||
+      !command ||
+      !active ||
+      !state.activeId ||
+      !geometry ||
+      !(event.target instanceof Element) ||
+      !event.target.matches('.xterm-helper-textarea') ||
+      document.querySelector('dialog[open], [role="menu"]')
+    )
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (command === 'focus') {
+      const id = adjacentPane(visiblePanes, state.activeId, event.key);
+      if (id) {
+        dispatch({ type: 'select', id });
+        focus(id, true);
+      }
+    } else {
+      const direction = event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? 'right' : 'down';
+      const divider = geometry.dividers
+        .filter((item) => item.direction === direction && item.paneIds.includes(state.activeId!))
+        .sort((a, b) => a.width * a.height - b.width * b.height)[0];
+      if (!divider) return;
+      const sign = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+      dispatch({
+        type: 'resize',
+        id: state.activeId,
+        splitId: divider.splitId,
+        ratio: Math.max(divider.minimum, Math.min(divider.maximum, divider.ratio + sign * 0.02)),
+      });
+    }
   }
   function add() {
     if (state.tabs.length >= MAX_TERMINAL_TABS) return;
@@ -336,7 +392,7 @@ export function WorkspaceView({
     </>
   );
   return (
-    <div className="local-workspace" ref={workspace} hidden={!active}>
+    <div className="local-workspace" hidden={!active} onKeyDownCapture={paneKeyDown}>
       {tabBarTarget && createPortal(sessionTabs, tabBarTarget)}
       <h1 className="sr-only">Workspace</h1>
       {limitError && (
@@ -355,32 +411,57 @@ export function WorkspaceView({
         </div>
       ) : (
         <>
-          <div className="terminal-panels">
-            {/* Stable siblings preserve sessions and scrollback when the layout changes. */}
-            {state.tabs.map((tab) => (
-              <TerminalPane
-                key={tab.id}
-                id={tab.id}
-                title={tab.title}
-                hostId={tab.hostId}
-                active={active && state.activeId === tab.id}
-                visible={active && visiblePanes.some((pane) => pane.id === tab.id)}
-                position={visiblePanes.find((pane) => pane.id === tab.id)}
-                split={visiblePanes.length > 1}
-                onActivate={() => {
-                  if (state.activeId !== tab.id) dispatch({ type: 'select', id: tab.id });
-                }}
-                onSplit={(direction) => split(tab.id, direction)}
-                canSplit={state.tabs.length < MAX_TERMINAL_TABS}
-                appearance={appearance}
-                navigationShortcuts={navigationShortcuts}
-                onPhaseChange={phaseChanged}
-                onRequestClose={requestClose}
-                onOpenVault={onOpenVault}
-                toolsPreferences={toolsPreferences}
-                onToolsPreferenceChange={onToolsPreferenceChange}
-              />
-            ))}
+          <div className="terminal-panels" ref={panels}>
+            <p id="pane-resize-help" className="sr-only">
+              Drag to resize. Arrow keys move this divider; Home/End reach its limits, Enter or
+              double-click balances panes, Escape cancels a drag.
+            </p>
+            <div
+              className="terminal-layout"
+              style={{ width: geometry?.width, height: geometry?.height }}
+            >
+              {/* Stable siblings preserve sessions and scrollback when the layout changes. */}
+              {state.tabs.map((tab) => (
+                <TerminalPane
+                  key={tab.id}
+                  id={tab.id}
+                  title={tab.title}
+                  hostId={tab.hostId}
+                  active={active && state.activeId === tab.id}
+                  visible={active && visiblePanes.some((pane) => pane.id === tab.id)}
+                  position={visiblePanes.find((pane) => pane.id === tab.id)}
+                  split={visiblePanes.length > 1}
+                  onActivate={() => {
+                    if (state.activeId !== tab.id) dispatch({ type: 'select', id: tab.id });
+                  }}
+                  onSplit={(direction) => split(tab.id, direction)}
+                  canSplit={state.tabs.length < MAX_TERMINAL_TABS}
+                  appearance={appearance}
+                  navigationShortcuts={navigationShortcuts}
+                  onPhaseChange={phaseChanged}
+                  onRequestClose={requestClose}
+                  onOpenVault={onOpenVault}
+                  toolsPreferences={toolsPreferences}
+                  onToolsPreferenceChange={onToolsPreferenceChange}
+                />
+              ))}
+              {geometry?.dividers.map((divider, index) => (
+                <PaneDivider
+                  key={`divider-${divider.splitId}`}
+                  divider={divider}
+                  index={index}
+                  onResize={(ratio) => {
+                    if (state.activeId)
+                      dispatch({
+                        type: 'resize',
+                        id: state.activeId,
+                        splitId: divider.splitId,
+                        ratio,
+                      });
+                  }}
+                />
+              ))}
+            </div>
           </div>
         </>
       )}

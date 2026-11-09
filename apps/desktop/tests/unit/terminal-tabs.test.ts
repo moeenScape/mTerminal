@@ -1,8 +1,8 @@
+import { layoutGeometry } from '../../src/renderer/src/features/workspace/pane-layout.js';
 import { isLiveTab } from '../../src/renderer/src/features/workspace/tabs.js';
 import { describe, expect, it } from 'vitest';
 import {
   tabsReducer,
-  panePositions,
   tabTitle,
   type TabsState,
 } from '../../src/renderer/src/features/workspace/tabs.js';
@@ -88,10 +88,10 @@ describe('split terminal layouts', () => {
     });
     expect(state.tabs[0]).toBe(original);
     expect(state.activeId).toBe('bottom');
-    expect(panePositions(state.layouts[0]!)).toEqual([
-      { id: 'one', left: 0, top: 0, width: 50, height: 100 },
-      { id: 'right', left: 50, top: 0, width: 50, height: 50 },
-      { id: 'bottom', left: 50, top: 50, width: 50, height: 50 },
+    expect(layoutGeometry(state.layouts[0]!, 1000, 800).panes).toEqual([
+      { id: 'one', left: 0, top: 0, width: 500, height: 800 },
+      { id: 'right', left: 500, top: 0, width: 500, height: 400 },
+      { id: 'bottom', left: 500, top: 400, width: 500, height: 400 },
     ]);
     const layouts = state.layouts;
     state = tabsReducer(state, { type: 'select', id: 'one' });
@@ -99,14 +99,14 @@ describe('split terminal layouts', () => {
     expect(state.layouts).toBe(layouts);
     state = tabsReducer(state, { type: 'close', id: 'right' });
     expect(state.activeId).toBe('one');
-    expect(panePositions(state.layouts[0]!)).toEqual([
-      { id: 'one', left: 0, top: 0, width: 50, height: 100 },
-      { id: 'bottom', left: 50, top: 0, width: 50, height: 100 },
+    expect(layoutGeometry(state.layouts[0]!, 1000, 800).panes).toEqual([
+      { id: 'one', left: 0, top: 0, width: 500, height: 800 },
+      { id: 'bottom', left: 500, top: 0, width: 500, height: 800 },
     ]);
     state = tabsReducer(state, { type: 'close', id: 'one' });
     expect(state.activeId).toBe('bottom');
-    expect(panePositions(state.layouts[0]!)).toEqual([
-      { id: 'bottom', left: 0, top: 0, width: 100, height: 100 },
+    expect(layoutGeometry(state.layouts[0]!, 1000, 800).panes).toEqual([
+      { id: 'bottom', left: 0, top: 0, width: 1000, height: 800 },
     ]);
     expect(state.tabs.find((tab) => tab.id === 'bottom')?.phase).toBe('idle');
   });

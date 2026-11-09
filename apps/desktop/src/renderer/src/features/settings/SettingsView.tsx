@@ -95,13 +95,18 @@ export function SettingsView({
               <label className="check-row">
                 <input
                   type="checkbox"
+                  aria-describedby="navigation-shortcuts-hint"
                   checked={draft.navigationShortcuts}
                   onChange={(event) =>
                     setDraft({ ...draft, navigationShortcuts: event.target.checked })
                   }
                 />
-                Enable Ctrl+Alt+1/2/3 to open Hosts, Workspace, and Settings
+                Enable workspace and pane navigation shortcuts
               </label>
+              <p id="navigation-shortcuts-hint" className="field-hint">
+                Ctrl+Alt+1/2/3 switches views. In a terminal, Alt+Shift+Arrow moves pane focus;
+                Ctrl+Alt+Shift+Arrow moves the nearest divider.
+              </p>
               <label className="check-row">
                 <input
                   type="checkbox"

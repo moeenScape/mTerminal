@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F38-A implemented — Basic split panes, independent sessions, click focus and per-pane close; verification pending |
-| Next feature | F38-B — Draggable pane resizing and focus shortcuts; Phase 4 verification remains deferred |
+| Active feature | F38-B implemented — Draggable/keyboard pane resizing, spatial focus and minimum sizes; acceptance pending |
+| Next feature | F39 — Workspace templates; Phase 4/5 runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -180,9 +180,9 @@ Completion criteria: Test permissions, interruptions, large files, symlinks, unu
 
 Dependencies: Stable sessions, storage, and credential handling.
 
-- [ ] **F38 — Split panes:** Resizing, focus shortcuts, and independent sessions.
+- [x] **F38 — Split panes (implementation):** Independent sessions, draggable/keyboard resizing, spatial focus shortcuts and minimum-size scrollable layouts. Phase 5 runtime/platform acceptance remains pending.
   - [x] **F38-A — Basic splits (implementation):** Split right/down, independent local or same-host SSH sessions, click focus, stable mounted terminals, split-group tab navigation and confirmed per-pane close. Fixed equal sizes; regression code written, execution deferred.
-  - [ ] **F38-B — Resize and shortcuts:** Draggable dividers, keyboard resizing/focus navigation, minimum sizes and layout acceptance.
+  - [x] **F38-B — Resize and shortcuts (implementation):** Accessible pointer-captured dividers, Escape cancellation, balance/reset, keyboard limits/resizing, spatial focus shortcuts and recursive minimum sizes. Regression code written/type-checked; test execution, visual and platform acceptance deferred.
 - [ ] **F39 — Workspace templates:** Saved layouts and deliberate reconnection.
 - [ ] **F40 — Snippets:** Save, organize, search, and execute commands.
 - [ ] **F41 — Startup snippets:** Assigned connection-time actions with visible execution.
@@ -1226,3 +1226,32 @@ independent local shell state, retained xterm nodes, group/view navigation, clic
 close confirmation/cancellation and independent SSH prompts. Tests remain unrun per user
 instruction. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64.
 Visual, live SSH, native focus/PTY interaction and Windows/macOS acceptance remain unverified. Preserve unrelated local-storage edits/image.
+
+
+### F38-B pane resize and focus shortcuts — 2026-11-09
+
+Added persistent-in-memory split ratios and accessible separators with pointer capture,
+orientation/range/control semantics, keyboard arrows, Home/End limits, Enter/double-click
+balance and Escape/pointer-cancel rollback. Divider unmount/lost capture releases drag state;
+no global pointer listeners or new dependencies. Geometry is a focused pure module reused
+by layout, divider bounds, spatial focus and unit regression code.
+
+Each pane has a recursive 260 × 160 CSS-pixel minimum. Undersized windows scroll a virtual
+layout instead of shrinking sessions out of usability. Effective ratios clamp to available
+space without rewriting preferences on window resize, so expanding the window restores them.
+Stable keyed terminal siblings and existing ResizeObserver/TerminalSizing continue fitting
+xterm and publishing PTY/SSH grid changes without recreating sessions.
+
+Alt+Shift+Arrow focuses a spatial neighbor; Ctrl+Alt+Shift+Arrow moves the nearest matching
+ancestor divider by two percentage points. Terminal-only capture prevents reserved keys
+from reaching the shell and skips dialogs, menus, text fields and IME/AltGraph events.
+The existing navigation-shortcut preference controls these bindings; Settings documents them.
+Divider keyboard operation remains available with global navigation disabled.
+
+Regression code covers nested geometry/minimums, preferred-ratio restoration, group ownership,
+retained session records, spatial neighbors, shortcut modifiers, drag/key resize, cancellation,
+PTY output, small windows, shell-input isolation, search focus and disabled navigation.
+Tests were not run per user instruction. `npm run check`, `npm run build` and
+`git diff --check` passed on Linux x64. Live SSH resize,
+native pointer/touch and screen-reader use, visual quality, OS shortcut conflicts and
+Windows/macOS acceptance remain unverified. F38 implementation is complete; F39 is next.

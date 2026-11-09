@@ -1185,6 +1185,139 @@ test('splits local sessions in both directions, preserves them across navigation
   await expect(first.locator('.xterm-accessibility-tree')).toContainText('STILL_ALIVE=original');
 });
 
+test('resizes split panes with pointer and accessible separator keys while retaining sessions', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  const shells = await page.evaluate(() => window.mterminal.getShells());
+  const bash = shells.find((shell) => shell.name === 'bash');
+  test.skip(info.platform === 'win32' || !bash, 'The PTY grid fixture requires Bash/stty.');
+  await page.evaluate(async (path) => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: path! });
+  }, bash?.path);
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const first = page.getByRole('tabpanel', { name: 'Terminal 1', exact: true });
+  await expect(first.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const original = await first.locator('.xterm').elementHandle();
+  await terminalAction('Split right');
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(second.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const divider = page.getByRole('separator', { name: 'Resize panes 1' });
+  const before = (await first.boundingBox())!;
+  const handle = (await divider.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 100, handle.y + handle.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await first.boundingBox())!.width)
+    .toBeGreaterThan(before.width + 60);
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  const afterDrag = Number(await divider.getAttribute('aria-valuenow'));
+  await divider.focus();
+  await divider.press('ArrowLeft');
+  await expect
+    .poll(async () => Number(await divider.getAttribute('aria-valuenow')))
+    .toBeLessThan(afterDrag);
+  await divider.press('Home');
+  await expect.poll(async () => Math.round((await first.boundingBox())!.width)).toBe(260);
+  await divider.press('End');
+  await expect.poll(async () => Math.round((await second.boundingBox())!.width)).toBe(260);
+  await divider.press('Enter');
+  await expect(divider).toHaveAttribute('aria-valuenow', '50');
+  const reset = (await divider.boundingBox())!;
+  await page.mouse.move(reset.x + 3, reset.y + reset.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(reset.x - 80, reset.y + reset.height / 2);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(divider).toHaveAttribute('aria-valuenow', '50');
+  // Compare the remote PTY grid with xterm's bottom-right cursor report.
+  await first.locator('.xterm-screen').click();
+  const command = `saved=$(stty -g); stty -echo -icanon min 1 time 0; printf '\\033[999;999H\\033[6n'; IFS= read -r -d R reply; stty "$saved"; reply=\${reply#$'\\e['}; set -- $(stty size); printf 'F38_GRID:%sx%s:%s\\n' "$1" "$2" "$reply"`;
+  await page.keyboard.insertText(command);
+  await page.keyboard.press('Enter');
+  await expect(first.locator('.xterm-accessibility-tree')).toContainText(
+    /F38_GRID:(\d+)x(\d+):\1;\2/,
+  );
+  await page.setViewportSize({ width: 560, height: 400 });
+  await expect.poll(async () => (await first.boundingBox())!.width).toBeGreaterThanOrEqual(260);
+  expect((await second.boundingBox())!.width).toBeGreaterThanOrEqual(260);
+  expect(
+    await page
+      .locator('.terminal-panels')
+      .evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(divider).toHaveAttribute('aria-valuenow', '50');
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+});
+
+test('moves pane focus and resizes by shortcut without sending shortcut bytes to the shell', async () => {
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await terminalAction('Split right');
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(second.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await terminalAction('Split down');
+  const first = page.getByRole('tabpanel', { name: 'Terminal 1', exact: true });
+  const third = page.getByRole('tabpanel', { name: 'Terminal 3', exact: true });
+  await expect(third.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await application.evaluate(({ ipcMain }) => {
+    let writes = 0;
+    ipcMain.on('terminal:write', (_event, _id, input: { data: string }) => {
+      // Ignore terminal replies to a shell's cursor-position query.
+      if (!(input.data.charCodeAt(0) === 27 && /^\[\d+;\d+R$/.test(input.data.slice(1)))) writes++;
+    });
+    ipcMain.on('fixture:pane-write-count', (_event, respond: (value: number) => void) =>
+      respond(writes),
+    );
+  });
+  await page.keyboard.press('Alt+Shift+ArrowUp');
+  await expect(second).toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('Alt+Shift+ArrowLeft');
+  await expect(first).toHaveAttribute('data-active', 'true');
+  await page.keyboard.press('Alt+Shift+ArrowRight');
+  await expect(second).toHaveAttribute('data-active', 'true');
+  const horizontal = page.getByRole('separator', { name: 'Resize panes 2' });
+  const beforeVertical = (await second.boundingBox())!.height;
+  const sash = (await horizontal.boundingBox())!;
+  await page.mouse.move(sash.x + sash.width / 2, sash.y + 3);
+  await page.mouse.down();
+  await page.mouse.move(sash.x + sash.width / 2, sash.y + 45, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await second.boundingBox())!.height)
+    .toBeGreaterThan(beforeVertical + 20);
+  await horizontal.press('Enter');
+  await second.locator('.xterm-screen').click();
+  await page.keyboard.press('Control+Alt+Shift+ArrowDown');
+  await expect(horizontal).toHaveAttribute('aria-valuenow', '52');
+  await expect(second).toHaveAttribute('data-active', 'true');
+  await page.evaluate(() => window.mterminal.getVaultState());
+  const writes = await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<number>((resolve) => ipcMain.emit('fixture:pane-write-count', null, resolve)),
+  );
+  expect(writes).toBe(0);
+  await second.getByRole('button', { name: 'Search', exact: true }).click();
+  const search = second.getByRole('search').getByRole('searchbox');
+  await search.fill('search terms');
+  await search.press('Alt+Shift+ArrowDown');
+  await expect(search).toBeFocused();
+  await expect(second).toHaveAttribute('data-active', 'true');
+  await second.getByRole('button', { name: 'Close terminal search' }).click();
+  await navButton('Settings').click();
+  await page.getByLabel('Enable workspace and pane navigation shortcuts').uncheck();
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
+  await navButton('Workspace').click();
+  await page.keyboard.press('Alt+Shift+ArrowDown');
+  await expect(second).toHaveAttribute('data-active', 'true');
+});
+
 test('split SSH panes connect independently without copying a one-time login', async () => {
   await application.evaluate(({ ipcMain }) => {
     const calls: { id: string; hostId: string; username: string }[] = [];

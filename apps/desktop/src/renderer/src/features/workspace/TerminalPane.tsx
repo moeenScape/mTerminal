@@ -1,4 +1,4 @@
-import type { PanePosition, SplitDirection } from './tabs';
+import type { PanePosition, SplitDirection } from './pane-layout';
 import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
 import { findSavedCredentials } from './saved-credentials';
@@ -549,10 +549,10 @@ export function TerminalPane({
       style={
         position
           ? {
-              left: `${position.left}%`,
-              top: `${position.top}%`,
-              width: `${position.width}%`,
-              height: `${position.height}%`,
+              left: `${position.left}px`,
+              top: `${position.top}px`,
+              width: `${position.width}px`,
+              height: `${position.height}px`,
             }
           : undefined
       }

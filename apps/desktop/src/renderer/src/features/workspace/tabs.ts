@@ -1,3 +1,11 @@
+import {
+  paneIds,
+  splitPane,
+  removePane,
+  resizePane,
+  type PaneLayout,
+  type SplitDirection,
+} from './pane-layout.js';
 import { MAX_TERMINAL_TABS, type SshConnectionState } from '../../../../shared/terminal.js';
 export type TabPhase =
   | 'idle'
@@ -39,49 +47,6 @@ export interface TerminalTab {
   phase: TabPhase;
   hostId?: string;
 }
-export type SplitDirection = 'right' | 'down';
-export type PaneLayout =
-  { id: string } | { direction: SplitDirection; first: PaneLayout; second: PaneLayout };
-export interface PanePosition {
-  id: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-export function panePositions(
-  layout: PaneLayout,
-  bounds = { left: 0, top: 0, width: 100, height: 100 },
-): PanePosition[] {
-  if ('id' in layout) return [{ id: layout.id, ...bounds }];
-  const dimension = layout.direction === 'right' ? 'width' : 'height';
-  const offset = layout.direction === 'right' ? 'left' : 'top';
-  const half = { ...bounds, [dimension]: bounds[dimension] / 2 };
-  return [
-    ...panePositions(layout.first, half),
-    ...panePositions(layout.second, { ...half, [offset]: bounds[offset] + half[dimension] }),
-  ];
-}
-function splitPane(
-  layout: PaneLayout,
-  id: string,
-  newId: string,
-  direction: SplitDirection,
-): PaneLayout {
-  if ('id' in layout)
-    return layout.id === id ? { direction, first: layout, second: { id: newId } } : layout;
-  return {
-    ...layout,
-    first: splitPane(layout.first, id, newId, direction),
-    second: splitPane(layout.second, id, newId, direction),
-  };
-}
-function removePane(layout: PaneLayout, id: string): PaneLayout | null {
-  if ('id' in layout) return layout.id === id ? null : layout;
-  const first = removePane(layout.first, id);
-  const second = removePane(layout.second, id);
-  return first && second ? { ...layout, first, second } : (first ?? second);
-}
 export interface TabsState {
   tabs: TerminalTab[];
   layouts: PaneLayout[];
@@ -90,6 +55,7 @@ export interface TabsState {
 export type TabsAction =
   | { type: 'add'; id: string; title: string; hostId?: string }
   | { type: 'split'; id: string; sourceId: string; title: string; direction: SplitDirection }
+  | { type: 'resize'; id: string; splitId: string; ratio: number }
   | { type: 'select'; id: string }
   | { type: 'close'; id: string }
   | { type: 'rename'; id: string; title: string }
@@ -134,13 +100,22 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
     };
   }
   if (index < 0) return state;
+  if (action.type === 'resize') {
+    if (!Number.isFinite(action.ratio)) return state;
+    return {
+      ...state,
+      layouts: state.layouts.map((layout) =>
+        paneIds(layout).includes(action.id)
+          ? resizePane(layout, action.splitId, action.ratio)
+          : layout,
+      ),
+    };
+  }
   if (action.type === 'select') return { ...state, activeId: action.id };
   if (action.type === 'close') {
     const tabs = state.tabs.filter((tab) => tab.id !== action.id);
-    const group = state.layouts.find((layout) =>
-      panePositions(layout).some((pane) => pane.id === action.id),
-    );
-    const siblings = group ? panePositions(group).filter((pane) => pane.id !== action.id) : [];
+    const group = state.layouts.find((layout) => paneIds(layout).includes(action.id));
+    const siblings = group ? paneIds(group).filter((id) => id !== action.id) : [];
     return {
       tabs,
       layouts: state.layouts.flatMap((layout) => {
@@ -149,7 +124,7 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       }),
       activeId:
         state.activeId === action.id
-          ? (siblings[0]?.id ?? tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
+          ? (siblings[0] ?? tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
           : state.activeId,
     };
   }

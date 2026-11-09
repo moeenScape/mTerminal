@@ -20,3 +20,17 @@ export function isTerminalSearchShortcut(event: KeyboardEvent): boolean {
       (event.ctrlKey && event.shiftKey && !event.metaKey))
   );
 }
+
+/** Pane shortcuts are handled in capture phase so no bytes reach the shell. */
+export function paneShortcut(event: KeyboardEvent): 'focus' | 'resize' | undefined {
+  if (
+    event.isComposing ||
+    event.getModifierState('AltGraph') ||
+    event.metaKey ||
+    !event.altKey ||
+    !event.shiftKey ||
+    !/^Arrow(Left|Right|Up|Down)$/.test(event.key)
+  )
+    return;
+  return event.ctrlKey ? 'resize' : 'focus';
+}

@@ -211,8 +211,22 @@ context menu. Local panes open independent shells; SSH panes start a separate co
 the same host, using its saved login or asking for credentials. Click a pane or select its tab
 to focus it. Each session keeps its tab; selecting any tab in a split group shows the group.
 Close confirms live work and removes only that pane, expanding the survivors. New terminal
-opens an independent tab outside the current group. Splits use equal sizes for this step;
-drag resizing and dedicated pane shortcuts follow in F38-B. Layouts last for this app session.
+opens an independent tab outside the current group. Layouts last for this app session.
+
+F38-B adds draggable dividers. Drag a boundary or double-click it to balance the adjoining
+branches. Focus a divider with Tab and use its arrow keys to resize, Home/End for limits,
+or Enter to balance. Escape cancels an active drag. Panes keep at least 260 × 160 CSS pixels;
+small windows scroll the layout rather than hiding sessions. Resizing keeps the original
+terminal and SSH sessions alive and updates their terminal grids.
+
+From terminal input, **Alt+Shift+Arrow** focuses a pane in that direction, and
+**Ctrl+Alt+Shift+Arrow** moves the nearest divider on that axis by two percentage points.
+At an outside edge, focus stays put. These shortcuts skip dialogs, menus and search fields;
+Settings → Enable workspace and pane navigation shortcuts controls them. On macOS, use
+Option for Alt; Control remains Control. Divider keys continue to work independently of
+that setting. Window shrinkage temporarily clamps sizes and restores the preferred ratios
+when space returns. Native keyboard, drag, accessibility and cross-platform acceptance
+remain pending; regression tests are written and execution deferred.
 
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
