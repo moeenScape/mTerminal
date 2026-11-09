@@ -222,6 +222,17 @@ export async function createMainWindow(
         // Saved passwords can also belong to a host directly; keys are identity-only.
         const isHost =
           validHostId(identityId) && database.listHosts().some((item) => item.id === identityId);
+        if (channel === vaultChannels.saveLogin) {
+          if (
+            !isHost ||
+            args.length !== 3 ||
+            typeof value !== 'string' ||
+            typeof args[2] !== 'string'
+          )
+            throw new AppFailure('vault-secret-missing');
+          await secrets.saveLogin(identityId, value, args[2]);
+          return { ok: true, value: undefined };
+        }
         const passwordChannel = [vaultChannels.status, vaultChannels.save, vaultChannels.delete];
         if (!isIdentity && !(isHost && (passwordChannel as readonly string[]).includes(channel)))
           throw new AppFailure('vault-secret-missing');

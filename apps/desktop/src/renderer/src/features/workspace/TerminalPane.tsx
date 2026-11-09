@@ -44,6 +44,7 @@ export function TerminalPane({
   title,
   hostId,
   onRequestClose,
+  onOpenVault,
   active,
   appearance,
   navigationShortcuts,
@@ -55,6 +56,7 @@ export function TerminalPane({
   title: string;
   hostId: string | undefined;
   onRequestClose: (id: string) => void;
+  onOpenVault: () => Promise<void>;
   active: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
@@ -548,6 +550,7 @@ export function TerminalPane({
           notice={sshNotice}
           onConnect={(credentials) => void start(credentials)}
           onCancel={() => setSshPrompt(false)}
+          onOpenVault={onOpenVault}
         />
       )}
       <header className="pane-bar">

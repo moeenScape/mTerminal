@@ -29,13 +29,13 @@ export async function resolveSshCredentials(
   const identityId = credentials.savedPasswordIdentityId;
   if (!identityId || (identityId !== assignedIdentityId && identityId !== hostId))
     throw new AppFailure('vault-secret-missing');
-  const password = await secrets.getPassword(identityId);
-  if (!password) throw new AppFailure('vault-secret-missing');
+  const login = await secrets.getLogin(identityId);
+  if (!login) throw new AppFailure('vault-secret-missing');
   return {
-    username: credentials.username,
+    username: login.username ?? credentials.username,
     method: credentials.method ?? 'password',
     keyboardInteractive: credentials.keyboardInteractive === true,
     fingerprint: credentials.fingerprint,
-    password,
+    password: login.password,
   };
 }

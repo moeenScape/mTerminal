@@ -222,8 +222,9 @@ F14 adds per-tab terminal appearance controls for theme, font, size, zoom, curso
 ## SSH sessions
 
 Save an SSH profile in Hosts, then choose Connect. Enter a username and authentication details
-when no saved login is available. A missing username can be remembered from that dialog; save
-the password in the unlocked local vault to reconnect without retyping it after closing a tab.
+when no saved login is available. Check **Save username and password for this host** to store
+the complete login securely on this device. Future **Connect** clicks use that login without
+asking again, even after closing the terminal tab. Leave the box unchecked for a one-time login.
 Unlock the vault again after restarting the app. Unknown server keys require confirmation after comparing
 the fingerprint through a trusted channel. Approved keys are saved by address
 and port; changed keys refuse the current connection. An optional expected

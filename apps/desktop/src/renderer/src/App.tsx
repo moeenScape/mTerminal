@@ -202,6 +202,11 @@ export function App() {
             onCountChange={setTerminalCount}
             tabBarTarget={sessionBar}
             onActivate={() => setActiveView('workspace')}
+            onOpenVault={async () => {
+              const state = await window.mterminal.getVaultState();
+              setVaultState(state);
+              if (!state.configured) setShowVaultSetup(true);
+            }}
             toolsPreferences={toolsPreferences}
             onToolsPreferenceChange={changeToolsPreference}
           />

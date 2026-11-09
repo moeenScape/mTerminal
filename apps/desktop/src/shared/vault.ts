@@ -6,6 +6,7 @@ export const vaultChannels = {
   reset: 'vault:reset',
   status: 'vault:password-status',
   save: 'vault:save-password',
+  saveLogin: 'vault:save-login',
   delete: 'vault:delete-password',
   keyStatus: 'vault:key-status',
   keyImport: 'vault:key-import',
@@ -20,14 +21,20 @@ export interface VaultState {
   available: boolean;
 }
 
+export interface SshPasswordStatus {
+  available: boolean;
+  saved: boolean;
+  username?: string;
+}
 export interface VaultApi {
+  saveSshLogin: (hostId: string, username: string, password: string) => Promise<void>;
   getVaultState: () => Promise<VaultState>;
   setupVault: (passphrase: string) => Promise<void>;
   unlockVault: (passphrase: string) => Promise<void>;
   lockVault: () => Promise<void>;
   resetVault: () => Promise<boolean>;
   onVaultLocked: (listener: () => void) => () => void;
-  getSshPasswordStatus: (identityId: string) => Promise<{ available: boolean; saved: boolean }>;
+  getSshPasswordStatus: (identityId: string) => Promise<SshPasswordStatus>;
   saveSshPassword: (identityId: string, password: string) => Promise<void>;
   deleteSshPassword: (identityId: string) => Promise<void>;
   getSshKeyStatus: (

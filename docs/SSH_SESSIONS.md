@@ -13,27 +13,29 @@ Agents and hardware-backed keys are not yet supported.
 
 ## Remember a login on this device
 
-1. Set up or unlock the local vault using the status bar. A secure OS credential backend must
-   be available; passwords are not saved as plaintext when it is unavailable.
-2. Connect from **Hosts**. If the host has no default username, enter it and leave **Remember
-   this username for this host on this device** checked. This fills only an empty effective
-   default; existing host, group and shared-identity usernames are preserved.
-3. For password authentication, leave **Save password on this device for one-click connections**
-   checked. The password goes to the encrypted vault, separately from the username/host metadata.
-4. Close the terminal and connect to the saved host again. With a saved username, an unlocked
-   available vault and valid saved credentials, the app uses the saved reference without asking
-   for the server username/password again. The secret is read in the main process.
+1. Connect from **Hosts**, then enter the SSH username and password.
+2. Check **Save username and password for this host** to remember both on this device.
+   If needed, vault setup/unlock opens over the connection dialog; finish it and click
+   **Connect**. Your entered server details stay in the dialog.
+3. Close the tab and click **Connect** on the same host again. The saved login connects
+   directly without asking for the server username or password.
+4. Leave the save checkbox unchecked for a one-time login. Entered details are not saved.
+   Existing saved credentials are not overwritten or deleted by this choice; use **Forget
+   saved password** to remove a previous login, or save replacement details explicitly.
 
-After restarting the app, unlock the vault once to use saved secrets. A missing, locked or
-unavailable vault, a rejected password, an unsaved login or interactive server challenges can
-still require input. The dialog clearly states when a typed password will be session-only.
-Saving occurs when Connect is submitted, before the SSH attempt; a failed connection does not
-automatically erase or validate a saved password. Host-key checks remain in effect.
+New logins are stored as one encrypted username/password pair in `<host-id>.login.enc`, using
+both the local vault passphrase and OS secure storage. The pair takes priority over host,
+group and shared-identity defaults without changing those defaults. Password-only entries
+from earlier versions remain usable with a configured username. Forget removes both formats.
+The renderer receives status and the saved username, never a retrieved password; main resolves
+both values together. Workspace exports exclude saved login files. An unavailable OS keychain
+never falls back to plaintext.
 
-The dialog waits for stored-credential lookup before enabling Connect, and binds a host's own
-saved password to that host ID, rather than an optional shared-identity ID. Duplicate submits
-are prevented. Cancelling a pending save prevents a later SSH attempt, although a local save
-already submitted may finish. Unchecking the username option leaves the host profile unchanged.
+After restarting or automatically locking the app, unlock the local vault once. This is the
+vault passphrase, not each server's password. Invalid credentials, changed server keys and MFA
+can still require interaction. Saving happens when Connect is submitted, before SSH succeeds;
+replace a saved login if the server rejects it. Cancelling a pending save prevents SSH from
+starting afterward, although an already submitted local save may finish.
 
 Password and key modes can optionally continue with keyboard-interactive
 challenges, for example an OTP required after primary authentication. Each round
@@ -164,11 +166,11 @@ override it. The connection prompt uses the identity username and method as
 defaults. Deleting an identity clears references; hosts then use a parent group
 identity or their existing connection fields.
 
-When connecting with password authentication, **Save password securely for this
-identity on this device** stores it through Electron `safeStorage` in an encrypted
-file separate from SQLite. Later connections can use the saved password; the
-renderer receives only a saved/not-saved status, and the main process retrieves
-the password for SSH authentication. Use **Forget saved password** to remove it.
+The identity manager can store a password shared by hosts assigned to that identity,
+through Electron `safeStorage` outside SQLite. A login explicitly saved from a connection
+prompt belongs only to that host and takes priority over shared defaults. The main process
+retrieves passwords for SSH authentication; the renderer receives status only (and the saved
+username for paired host logins). Use **Forget saved password** to remove a stored entry.
 On Linux, a recognized OS key store is required; the `basic_text` fallback is
 refused. When secure storage is unavailable, enter a session-only password.
 
@@ -207,10 +209,11 @@ confirmation, add only non-conflicting records, and apply as one SQLite transact
 leave the workspace unchanged.
 
 
-## Remembered-login regression coverage — F26-A
+## Remembered-login regression coverage — F26-B
 
-Regression code covers first-prompt username persistence and close/reopen with a host-owned
-saved password, correct host/identity ownership, metadata-only username updates, preservation
-of configured defaults, missing hosts, locked/unavailable vault lookup, and cancellation while
-saving. Tests remain unrun at the user's request. Static/build results are recorded in the
-roadmap; live SSH, real OS-keychain persistence, visual and platform acceptance remain pending.
+Regression code covers explicit save versus one-time login, close/reopen without re-entry,
+vault setup without losing typed fields, host/identity ownership, saved-account precedence,
+legacy passwords, encrypted persistence after restart, failed replacement preserving both
+values, corrupt pairs failing closed, forgetting, and cancellation during saving.
+Tests remain unrun at the user's request. Static/build results are recorded in the roadmap;
+live SSH, real OS-keychain persistence, visual and platform acceptance remain pending.

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
-import { formatSshPublicKey } from '../../shared/ssh.js';
+import type { SshPasswordStatus } from '../../shared/vault.js';
+import { validateSshCredentials, formatSshPublicKey } from '../../shared/ssh.js';
 import {
   historyMatches,
   isRecordableCommand,
@@ -189,7 +190,7 @@ export class SshSecretStore {
           (name) =>
             name === 'vault.master' ||
             name === 'history.enc' ||
-            /^[0-9a-f-]{36}\.(password|key)\.enc$/.test(name),
+            /^[0-9a-f-]{36}\.(password|key|login)\.enc$/.test(name),
         );
         if (!files.length) return;
         const recoveryDirectory = join(this.directory, `recovery-${Date.now()}-${randomUUID()}`);
@@ -271,11 +272,18 @@ export class SshSecretStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       throw error;
     }
-    for (const name of files.filter((item) => /^[0-9a-f-]{36}\.(password|key)\.enc$/.test(item))) {
+    for (const name of files.filter((item) =>
+      /^[0-9a-f-]{36}\.(password|key|login)\.enc$/.test(item),
+    )) {
       const path = join(this.directory, name);
       const info = await lstat(path);
       const isKey = name.endsWith('.key.enc');
-      if (!info.isFile() || info.size < 1 || info.size > (isKey ? 512 * 1024 : 16 * 1024))
+      const isLogin = name.endsWith('.login.enc');
+      if (
+        !info.isFile() ||
+        info.size < 1 ||
+        info.size > (isKey ? 512 * 1024 : isLogin ? 64 * 1024 : 16 * 1024)
+      )
         throw new AppFailure('vault-corrupt');
       const decrypted = await this.storage.decryptStringAsync(await readFile(path));
       if (decrypted.result.startsWith(SshSecretStore.payloadPrefix)) {
@@ -284,6 +292,7 @@ export class SshSecretStore {
           await this.writeEncrypted(path, await this.storage.encryptStringAsync(decrypted.result));
         continue;
       }
+      if (isLogin) throw new AppFailure('vault-corrupt');
       if (isKey) {
         const value = JSON.parse(decrypted.result) as {
           privateKey?: unknown;
@@ -451,24 +460,80 @@ export class SshSecretStore {
     }
   }
 
-  async passwordStatus(identityId: string): Promise<{ available: boolean; saved: boolean }> {
+  async passwordStatus(identityId: string): Promise<SshPasswordStatus> {
     this.requireUnlocked();
-    const path = this.path(identityId);
     try {
       await this.requireSecureStorage();
     } catch {
       return { available: false, saved: false };
     }
+    const login = await this.getLogin(identityId);
+    return {
+      available: true,
+      saved: !!login,
+      ...(login?.username ? { username: login.username } : {}),
+    };
+  }
+
+  private loginPath(id: string): string {
+    this.path(id);
+    return join(this.directory, `${id}.login.enc`);
+  }
+  private async readPairedLogin(
+    id: string,
+  ): Promise<{ username: string; password: string } | undefined> {
+    const path = this.loginPath(id);
+    let encrypted: Buffer;
     try {
       const info = await lstat(path);
-      if (!info.isFile() || info.size < 1 || info.size > 16 * 1024)
+      if (!info.isFile() || info.size < 1 || info.size > 64 * 1024)
         throw new AppFailure('vault-corrupt');
-      return { available: true, saved: true };
+      encrypted = await readFile(path);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return { available: true, saved: false };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
     }
+    try {
+      const decrypted = await this.storage.decryptStringAsync(encrypted);
+      const value = JSON.parse(await this.reveal(decrypted.result)) as Record<string, unknown>;
+      if (
+        !value ||
+        value.version !== 1 ||
+        Object.keys(value).length !== 3 ||
+        typeof value.password !== 'string' ||
+        !value.password
+      )
+        throw new AppFailure('vault-corrupt');
+      const login = validateSshCredentials({
+        username: value.username,
+        password: value.password,
+        fingerprint: '',
+      });
+      if (decrypted.shouldReEncrypt)
+        await this.writeEncrypted(path, await this.storage.encryptStringAsync(decrypted.result));
+      return { username: login.username, password: login.password! };
+    } catch (error) {
+      if (error instanceof AppFailure) throw error;
+      throw new AppFailure('vault-corrupt');
+    }
+  }
+  private async writeLogin(id: string, username: string, password: string): Promise<void> {
+    const encrypted = await this.storage.encryptStringAsync(
+      await this.protect(JSON.stringify({ version: 1, username, password })),
+    );
+    if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 64 * 1024)
+      throw new AppFailure('vault-unavailable');
+    await this.writeEncrypted(this.loginPath(id), encrypted);
+  }
+  saveLogin(id: string, username: string, password: string): Promise<void> {
+    this.loginPath(id);
+    validateSshCredentials({ username, password, fingerprint: '' });
+    if (!password) throw new Error('A saved login requires a password.');
+    return this.serialize(async () => {
+      this.requireUnlocked();
+      await this.requireSecureStorage();
+      await this.writeLogin(id, username, password);
+    });
   }
 
   savePassword(identityId: string, password: string): Promise<void> {
@@ -478,6 +543,11 @@ export class SshSecretStore {
     return this.serialize(async () => {
       this.requireUnlocked();
       await this.requireSecureStorage();
+      const login = await this.readPairedLogin(identityId);
+      if (login) {
+        await this.writeLogin(identityId, login.username, password);
+        return;
+      }
       const encrypted = await this.storage.encryptStringAsync(await this.protect(password));
       if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 16 * 1024)
         throw new AppFailure('vault-unavailable');
@@ -485,11 +555,16 @@ export class SshSecretStore {
     });
   }
 
-  getPassword(identityId: string): Promise<string | undefined> {
+  async getPassword(identityId: string): Promise<string | undefined> {
+    return (await this.getLogin(identityId))?.password;
+  }
+  getLogin(identityId: string): Promise<{ username?: string; password: string } | undefined> {
     return this.serialize(async () => {
       const path = this.path(identityId);
       this.requireUnlocked();
       await this.requireSecureStorage();
+      const paired = await this.readPairedLogin(identityId);
+      if (paired) return paired;
       let encrypted: Buffer;
       try {
         const info = await lstat(path);
@@ -508,7 +583,7 @@ export class SshSecretStore {
           const rotated = await this.storage.encryptStringAsync(decrypted.result);
           await this.writeEncrypted(path, rotated);
         }
-        return password;
+        return { password };
       } catch (error) {
         if (error instanceof AppFailure) throw error;
         throw new AppFailure('vault-unavailable');
@@ -520,6 +595,7 @@ export class SshSecretStore {
     const path = this.path(identityId);
     return this.serialize(async () => {
       await rm(path, { force: true });
+      await rm(this.loginPath(identityId), { force: true });
     });
   }
 

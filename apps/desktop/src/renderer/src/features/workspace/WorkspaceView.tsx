@@ -96,6 +96,7 @@ export function WorkspaceView({
   sshRequest,
   tabBarTarget,
   onActivate,
+  onOpenVault,
   toolsPreferences,
   onToolsPreferenceChange,
 }: {
@@ -108,6 +109,7 @@ export function WorkspaceView({
   tabBarTarget: HTMLElement | null;
   /** Shows the workspace view, e.g. when a session tab is chosen from another view. */
   onActivate: () => void;
+  onOpenVault: () => Promise<void>;
   toolsPreferences: ToolsPreferences;
   onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
@@ -345,6 +347,7 @@ export function WorkspaceView({
                 navigationShortcuts={navigationShortcuts}
                 onPhaseChange={phaseChanged}
                 onRequestClose={requestClose}
+                onOpenVault={onOpenVault}
                 toolsPreferences={toolsPreferences}
                 onToolsPreferenceChange={onToolsPreferenceChange}
               />

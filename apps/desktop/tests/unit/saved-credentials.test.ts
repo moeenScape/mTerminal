@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  findSavedCredentials,
-  rememberMissingUsername,
-} from '../../src/renderer/src/features/workspace/saved-credentials.js';
-import type { HostDraft, HostGroup, SavedHost, SshIdentity } from '../../src/shared/hosts.js';
+import { findSavedCredentials } from '../../src/renderer/src/features/workspace/saved-credentials.js';
+import type { HostGroup, SavedHost, SshIdentity } from '../../src/shared/hosts.js';
 
 const hostId = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
 const identityId = '14e9f162-d3cd-4c8f-a70a-2323a1751a9b';
@@ -26,14 +23,11 @@ function fixture() {
     listHosts: vi.fn(async () => [host]),
     listHostGroups: vi.fn(async () => groups),
     listSshIdentities: vi.fn(async () => identities),
-    saveHost: vi.fn(async (draft: HostDraft, id?: string) => {
-      host = { ...draft, id: id! };
-      return host;
-    }),
     getVaultState: vi.fn(async () => ({ configured: true, locked: false, available: true })),
     getSshPasswordStatus: vi.fn(async (owner: string) => ({
       available: true,
       saved: owner === hostId,
+      username: owner === hostId ? 'saved-user' : undefined,
     })),
     getSshKeyStatus: vi.fn(async () => ({ available: true, saved: false })),
   };
@@ -49,45 +43,41 @@ function fixture() {
   };
 }
 describe('remembered SSH connection defaults', () => {
-  it('fills a missing username and enables host-scoped saved-password reconnect without exposing the secret', async () => {
+  it('uses the saved host login without changing profile or shared identity defaults', async () => {
     const state = fixture();
-    expect(await findSavedCredentials(hostId)).toBeUndefined();
-    await rememberMissingUsername(hostId, 'root');
-    expect(state.host()).toMatchObject({
-      username: 'root',
-      inheritUsername: false,
-      port: 22037,
-      tags: ['production'],
-    });
-    expect(state.api.saveHost).toHaveBeenCalledWith(
-      expect.objectContaining({ username: 'root' }),
-      hostId,
-    );
-    const credentials = await findSavedCredentials(hostId);
-    expect(credentials).toMatchObject({
-      username: 'root',
-      useSavedPassword: true,
-      savedPasswordIdentityId: hostId,
-    });
-    expect(credentials).not.toHaveProperty('password');
-    expect(state.api.saveHost.mock.calls[0]?.[0]).not.toHaveProperty('password');
-  });
-  it('leaves explicit, inherited and shared-identity usernames untouched', async () => {
-    const state = fixture();
-    state.change({ username: 'existing', inheritUsername: false });
-    await rememberMissingUsername(hostId, 'root');
-    state.change({ username: '', inheritUsername: true, groupPath: 'Production' });
+    state.change({ username: 'profile-user', identityId, groupPath: 'Production' });
     state.groups.push({ path: 'Production', username: 'group-user', port: null, identityId: null });
-    await rememberMissingUsername(hostId, 'root');
-    state.change({ groupPath: '', identityId });
     state.identities.push({
       id: identityId,
       name: 'Shared',
       username: 'shared-user',
-      method: 'password',
+      method: 'privateKey',
     });
-    await rememberMissingUsername(hostId, 'root');
-    expect(state.api.saveHost).not.toHaveBeenCalled();
+    const credentials = await findSavedCredentials(hostId);
+    expect(credentials).toMatchObject({
+      username: 'saved-user',
+      useSavedPassword: true,
+      savedPasswordIdentityId: hostId,
+    });
+    expect(credentials).not.toHaveProperty('password');
+    expect(state.host().username).toBe('profile-user');
+    expect(state.identities[0]?.username).toBe('shared-user');
+    expect(state.api.getSshKeyStatus).not.toHaveBeenCalled();
+  });
+  it('retains legacy password-only lookup with a configured username', async () => {
+    const state = fixture();
+    state.change({ username: 'legacy-user', inheritUsername: false });
+    state.api.getSshPasswordStatus.mockResolvedValue({
+      available: true,
+      saved: true,
+      username: undefined,
+    });
+    expect(await findSavedCredentials(hostId)).toMatchObject({
+      username: 'legacy-user',
+      useSavedPassword: true,
+    });
+    state.change({ username: '' });
+    expect(await findSavedCredentials(hostId)).toBeUndefined();
   });
   it('keeps locked or unavailable vault connections out of automatic saved-password lookup', async () => {
     const state = fixture();
@@ -102,10 +92,10 @@ describe('remembered SSH connection defaults', () => {
     expect(await findSavedCredentials(hostId)).toBeUndefined();
     expect(state.api.getSshPasswordStatus).not.toHaveBeenCalled();
   });
-  it('does not recreate a host that disappeared before remembering its username', async () => {
+  it('does not connect a host that has been removed', async () => {
     const state = fixture();
     state.api.listHosts.mockResolvedValue([]);
-    await expect(rememberMissingUsername(hostId, 'root')).rejects.toThrow('no longer exists');
-    expect(state.api.saveHost).not.toHaveBeenCalled();
+    expect(await findSavedCredentials(hostId)).toBeUndefined();
+    expect(state.api.getSshPasswordStatus).not.toHaveBeenCalled();
   });
 });

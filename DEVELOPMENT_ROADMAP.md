@@ -24,7 +24,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F26-A fixed — Remember missing SSH usernames and correctly reuse host-owned saved passwords; verification pending |
+| Active feature | F26-B implemented — Explicitly save complete host logins for one-click connections; runtime verification pending |
 | Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
@@ -118,6 +118,7 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 - [x] **F25 — Reusable identities (implementation):** Reusable local SSH identity profiles hold a display name, username and preferred authentication method. Hosts can override group identity defaults; nested groups inherit the nearest assignment. Deleting an identity clears references safely. Profiles contain no secret material. Tests written; Phase 3 gate deferred.
 - [x] **F26 — Secret storage (implementation):** Opt-in SSH passwords are encrypted through Electron safeStorage and stored as separate, permission-restricted ciphertext files. Passwords are decrypted only in the main process for authentication. Linux `basic_text` and unavailable keychain backends are refused. Tests written; Phase 3 gate deferred.
   - [x] **F26-A — Remembered host login (fix):** First-prompt missing usernames can be saved to the same host without replacing configured defaults; saved-password references use the resolved password owner. Credential lookup/submission/cancel guards added. Existing encrypted vault and one-click lookup reused. Regression code written; tests unrun at the user's request.
+  - [x] **F26-B — Complete host login:** One explicit save checkbox stores an encrypted username/password pair per host; unchecked uses entered credentials once. Vault setup/unlock is available in the connection flow. Saved pairs override defaults without rewriting profiles/shared identities; legacy passwords remain supported. Regression code updated; execution deferred.
 - [x] **F27 — SSH keys (implementation):** Import supported OpenSSH/RFC4716/PPK private keys, generate Ed25519 keys or passphrase-protected RSA 2048 keys, store key/passphrase ciphertext through OS secure storage, and use a managed key only with its assigned identity. The identity manager exposes the public key for copying. Tests written; Phase 3 gate deferred.
 - [x] **F28 — Public-key installation (implementation):** Install the assigned identity's managed public key to a confirmed host/account using SFTP, after the host fingerprint has been trusted. Preserve existing `authorized_keys` entries, avoid duplicates, and enforce `.ssh`/file permissions. Authentication uses the identity's saved password or a one-time password. Tests written; Phase 3 gate deferred.
 - [x] **F29 — Lock and unlock (implementation):** Add a vault passphrase that wraps the vault key, migrate existing encrypted credential files, lock on restart and after five idle minutes, and gate saved-credential access while locked. Tests written; Phase 3 gate deferred.
@@ -1175,3 +1176,24 @@ claimed. See `docs/SSH_SESSIONS.md` for usage and boundaries.
 Keep unrelated local-storage edits/reference image outside this commit. Continue with the Phase 4
 verification gate when test execution is requested, then F38. Commit locally with phase/step;
 do not push.
+
+
+### F26-B complete host login — 2026-11-09
+
+Supersedes F26-A's separate missing-username checkbox. The connection dialog now offers one
+unchecked **Save username and password for this host** option. Checking it opens existing
+vault setup/unlock when needed and saves both fields as one encrypted per-host record before
+connecting. Closing/reopening a host uses the saved pair directly. Unchecked entries are
+session-only and do not overwrite older saved credentials; Forget removes stored credentials.
+
+Paired records take priority over profile, group and identity defaults without rewriting those
+records. Main resolves both saved fields, enforces host/identity ownership, and returns only
+status/username through preload. Atomic encrypted writes, corruption checks, legacy-password
+compatibility, keychain rotation, vault migration/reset and deletion include the new login format.
+No dependencies added. Host editor password saves use the complete login too.
+
+Regression code covers both save modes, setup from the prompt, close/reopen, main-only secret
+resolution, account precedence, legacy passwords, restart, encrypted files, failed replacement,
+corrupt records, forgetting and pending-save cancellation. Tests were not executed per user
+instruction. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64. Live SSH, real OS-keychain restart, visual and
+Windows/macOS behavior remain unverified. Preserve unrelated local-storage edits/reference image.

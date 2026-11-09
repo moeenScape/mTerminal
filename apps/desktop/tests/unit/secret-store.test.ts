@@ -92,6 +92,80 @@ describe('OS-encrypted SSH password storage', () => {
   });
 });
 
+describe('host-specific saved logins', () => {
+  it('keeps a username/password pair encrypted across restart, replaces it together, and forgets both formats', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-login-'));
+    try {
+      const provider = fakeStorage();
+      const store = new SshSecretStore(directory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      await store.savePassword(identityId, 'legacy-password');
+      await store.saveLogin(identityId, 'saved-user', 'saved-password');
+      const path = join(directory, `${identityId}.login.enc`);
+      const encrypted = await readFile(path);
+      expect(encrypted.toString()).not.toContain('saved-user');
+      expect(encrypted.toString()).not.toContain('saved-password');
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      const restarted = new SshSecretStore(directory, provider, 'linux');
+      await expect(restarted.getLogin(identityId)).rejects.toMatchObject({ code: 'vault-locked' });
+      await restarted.unlockVault(vaultPassphrase);
+      expect(await restarted.getLogin(identityId)).toEqual({
+        username: 'saved-user',
+        password: 'saved-password',
+      });
+      expect(await restarted.passwordStatus(identityId)).toEqual({
+        available: true,
+        saved: true,
+        username: 'saved-user',
+      });
+      vi.spyOn(provider, 'encryptStringAsync').mockRejectedValueOnce(
+        new Error('keychain unavailable'),
+      );
+      await expect(
+        restarted.saveLogin(identityId, 'other-user', 'other-password'),
+      ).rejects.toThrow();
+      expect(await restarted.getLogin(identityId)).toEqual({
+        username: 'saved-user',
+        password: 'saved-password',
+      });
+      await restarted.saveLogin(identityId, 'other-user', 'other-password');
+      expect(await restarted.getLogin(identityId)).toEqual({
+        username: 'other-user',
+        password: 'other-password',
+      });
+      await restarted.savePassword(identityId, 'updated-password');
+      expect(await restarted.getLogin(identityId)).toEqual({
+        username: 'other-user',
+        password: 'updated-password',
+      });
+      await restarted.deletePassword(identityId);
+      expect(await restarted.getLogin(identityId)).toBeUndefined();
+      expect((await readdir(directory)).filter((name) => name.endsWith('.enc'))).toEqual([]);
+      await restarted.saveLogin(identityId, 'recovery-user', 'recovery-password');
+      await restarted.resetVault();
+      const recovery = (await readdir(directory)).find((name) => name.startsWith('recovery-'));
+      expect(recovery).toBeDefined();
+      expect(await readdir(join(directory, recovery!))).toContain(`${identityId}.login.enc`);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('does not fall back to a stale password when the saved login is corrupt', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-login-'));
+    try {
+      const store = new SshSecretStore(directory, fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
+      await store.savePassword(identityId, 'legacy-password');
+      expect(await store.getLogin(identityId)).toEqual({ password: 'legacy-password' });
+      await store.saveLogin(identityId, 'saved-user', 'saved-password');
+      await writeFile(join(directory, `${identityId}.login.enc`), 'broken');
+      await expect(store.getLogin(identityId)).rejects.toMatchObject({ code: 'vault-corrupt' });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('OS-encrypted SSH key storage', () => {
   it('stores a private key and passphrase only as ciphertext and removes it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-key-vault-'));

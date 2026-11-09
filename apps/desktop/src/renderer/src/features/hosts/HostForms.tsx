@@ -253,10 +253,19 @@ export function HostForm({
       setError(hostValidationMessage(cause));
       return;
     }
+    const effective = resolveHost(draft, groups);
+    const loginUsername =
+      identities.find((identity) => identity.id === effective.identityId)?.username ||
+      effective.username;
+    if (password && !loginUsername) {
+      setError('Enter an SSH username before saving this login.');
+      return;
+    }
     setBusy(true);
     setError('');
     if (password && vault !== 'open') {
       setError('Set up or unlock the vault to save the password, or clear the password field.');
+      setBusy(false);
       return;
     }
     let saved;
@@ -268,8 +277,9 @@ export function HostForm({
       return;
     }
     try {
-      if (password) await window.mterminal.saveSshPassword(saved.id, password);
-      else if (forgetPassword) await window.mterminal.deleteSshPassword(saved.id);
+      if (password) {
+        await window.mterminal.saveSshLogin(saved.id, loginUsername, password);
+      } else if (forgetPassword) await window.mterminal.deleteSshPassword(saved.id);
     } catch (cause) {
       setError(
         `The host was saved, but its password was not. ${cause instanceof Error ? cause.message : ''}`,

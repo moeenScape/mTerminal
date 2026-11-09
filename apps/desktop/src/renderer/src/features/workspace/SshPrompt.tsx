@@ -1,4 +1,3 @@
-import { rememberMissingUsername } from './saved-credentials';
 import { resolveHost } from '../../../../shared/hosts';
 import { useEffect, useRef, useState } from 'react';
 import { validateSshCredentials, type SshCredentials } from '../../../../shared/ssh';
@@ -11,6 +10,7 @@ export function SshPrompt({
   notice = '',
   onConnect,
   onCancel,
+  onOpenVault,
 }: {
   title: string;
   reconnect: boolean;
@@ -19,6 +19,7 @@ export function SshPrompt({
   notice?: string;
   onConnect: (credentials: SshCredentials) => void;
   onCancel: () => void;
+  onOpenVault: () => Promise<void>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const active = useRef(true);
@@ -29,8 +30,7 @@ export function SshPrompt({
     onCancel();
   };
   const [username, setUsername] = useState('');
-  const [missingUsername, setMissingUsername] = useState(false);
-  const [rememberUsername, setRememberUsername] = useState(true);
+  const [savedUsername, setSavedUsername] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [method, setMethod] = useState<'password' | 'privateKey' | 'keyboard-interactive'>(
@@ -39,14 +39,14 @@ export function SshPrompt({
   const [privateKey, setPrivateKey] = useState('');
   const [keyLoading, setKeyLoading] = useState(false);
   const [identityId, setIdentityId] = useState<string | null>(null);
-  /** Where a typed password is saved: the host itself, or its shared identity. */
+  /** The owner of a selected existing password; new saved logins always belong to this host. */
   const [passwordOwner, setPasswordOwner] = useState(hostId);
   const [vaultAvailable, setVaultAvailable] = useState(false);
   const [savedPassword, setSavedPassword] = useState(false);
   const [savedKey, setSavedKey] = useState(false);
   const [useSavedKey, setUseSavedKey] = useState(false);
   const [useSavedPassword, setUseSavedPassword] = useState(false);
-  const [rememberPassword, setRememberPassword] = useState(true);
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [forgetting, setForgetting] = useState(false);
   const selectedFile = useRef<File | null>(null);
   useEffect(() => {
@@ -65,8 +65,6 @@ export function SshPrompt({
           const resolved = resolveHost(host, groups);
           const identity = identities.find((item) => item.id === resolved.identityId);
           setIdentityId(identity?.id ?? null);
-          setUsername((current) => current || identity?.username || resolved.username);
-          setMissingUsername(!(identity?.username || resolved.username));
           setMethod(identity?.method ?? 'password');
           if (identity) {
             void window.mterminal
@@ -93,13 +91,21 @@ export function SshPrompt({
               if (cancelled) return;
               const owner = shared ? identity!.id : hostId;
               const status = shared ?? own;
+              if (own.username) {
+                setSavedUsername(own.username);
+                setUsername((current) => current || own.username!);
+                setMethod('password');
+              } else setUsername((current) => current || identity?.username || resolved.username);
               setPasswordOwner(owner);
               setVaultAvailable(status.available);
               setSavedPassword(status.saved);
               // After a rejected saved password, ask for the new one instead.
               setUseSavedPassword(status.available && status.saved && !notice);
             } catch {
-              if (!cancelled) setVaultAvailable(false);
+              if (!cancelled) {
+                setVaultAvailable(false);
+                setUsername((current) => current || identity?.username || resolved.username);
+              }
             } finally {
               if (!cancelled) setLoadingCredentials(false);
             }
@@ -146,11 +152,19 @@ export function SshPrompt({
               keyboardInteractive: data.get('keyboardInteractive') === 'on',
               fingerprint: data.get('fingerprint'),
             });
-            if (rememberUsername && missingUsername)
-              await rememberMissingUsername(hostId, credentials.username);
-            if (!active.current) return;
-            if (rememberPassword && vaultAvailable && credentials.password)
-              await window.mterminal.saveSshPassword(passwordOwner, credentials.password);
+            if (method === 'password' && rememberLogin && !useSavedPassword) {
+              const state = await window.mterminal.getVaultState();
+              if (!active.current) return;
+              if (!state.configured || state.locked || !state.available) {
+                await onOpenVault();
+                return;
+              }
+              await window.mterminal.saveSshLogin(
+                hostId,
+                credentials.username,
+                credentials.password ?? '',
+              );
+            }
             if (!active.current) return;
             selectedFile.current = null;
             setPrivateKey('');
@@ -188,23 +202,13 @@ export function SshPrompt({
           <input
             name="username"
             value={username}
+            readOnly={!!savedUsername && useSavedPassword}
             onChange={(e) => setUsername(e.target.value)}
             required
             maxLength={100}
             autoComplete="off"
           />
         </label>
-        {missingUsername && (
-          <label>
-            <input
-              type="checkbox"
-              checked={rememberUsername}
-              disabled={submitting}
-              onChange={(event) => setRememberUsername(event.target.checked)}
-            />
-            Remember this username for this host on this device
-          </label>
-        )}
         <label>
           Authentication method
           <select
@@ -215,7 +219,7 @@ export function SshPrompt({
               setPrivateKey('');
               setUseSavedPassword(false);
               setUseSavedKey(false);
-              setRememberPassword(false);
+              setRememberLogin(false);
               setKeyLoading(false);
               setError('');
             }}
@@ -232,7 +236,8 @@ export function SshPrompt({
               checked={useSavedPassword}
               onChange={(event) => {
                 setUseSavedPassword(event.target.checked);
-                setRememberPassword(false);
+                if (event.target.checked && savedUsername) setUsername(savedUsername);
+                setRememberLogin(false);
               }}
             />
             Use the saved password
@@ -250,27 +255,36 @@ export function SshPrompt({
             />
           </label>
         )}
-        {method === 'password' && vaultAvailable && !useSavedPassword && (
-          <label>
+        {method === 'password' && !useSavedPassword && (
+          <label className="remember-login-option">
             <input
               type="checkbox"
-              checked={rememberPassword}
-              onChange={(event) => setRememberPassword(event.target.checked)}
+              checked={rememberLogin}
+              disabled={submitting || loadingCredentials}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setRememberLogin(checked);
+                setError('');
+                if (checked && !vaultAvailable)
+                  void onOpenVault().catch((cause: unknown) =>
+                    setError(errorMessage(cause, 'Unable to open secure login storage.')),
+                  );
+              }}
             />
-            Save password on this device for one-click connections
+            Save username and password for this host
           </label>
         )}
-        {method === 'password' && vaultAvailable && (
+        {method === 'password' && !useSavedPassword && (
           <p className="field-hint">
-            Saved passwords stay in the encrypted vault when a terminal closes. Unlock the vault
-            after restarting the app to use them again.
+            {rememberLogin
+              ? 'Save on this device when you connect. Next time, click Connect without entering this server’s username or password.'
+              : 'Not saved: use these details once. You will be asked again next time.'}
           </p>
         )}
-        {method === 'password' && !vaultAvailable && !loadingCredentials && (
-          <p role="status">
-            This password will not be saved. Cancel this dialog, set up or unlock the vault in the
-            status bar, then connect with Save password selected. Otherwise it is used only for this
-            connection.
+        {method === 'password' && useSavedPassword && (
+          <p className="field-hint">
+            Using the saved login. Uncheck Use the saved password to enter different details for
+            this connection.
           </p>
         )}
         {savedPassword && (
@@ -289,6 +303,7 @@ export function SshPrompt({
               } catch (cause) {
                 throw new Error(errorMessage(cause, 'Unable to forget saved password.'), { cause });
               }
+              setSavedUsername(null);
               setSavedPassword(false);
               setUseSavedPassword(false);
               setForgetting(false);

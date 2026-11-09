@@ -7,7 +7,7 @@ const identityId = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
 describe('saved SSH password resolution', () => {
   it('retrieves a saved password in main and binds it to the assigned identity', async () => {
     const secrets = {
-      getPassword: vi.fn().mockResolvedValue('main-only-password'),
+      getLogin: vi.fn().mockResolvedValue({ password: 'main-only-password' }),
     } as unknown as SshSecretStore;
     const credentials = await resolveSshCredentials(
       {
@@ -22,13 +22,13 @@ describe('saved SSH password resolution', () => {
     );
     expect(credentials.password).toBe('main-only-password');
     expect(credentials).not.toHaveProperty('useSavedPassword');
-    expect(secrets.getPassword).toHaveBeenCalledWith(identityId);
+    expect(secrets.getLogin).toHaveBeenCalledWith(identityId);
   });
 
   it("uses the connecting host's own saved password, but not another host's", async () => {
     const hostId = '9d6f0a51-2b1c-4b7e-8f3a-6c2d1e0b9a77';
     const secrets = {
-      getPassword: vi.fn().mockResolvedValue('host-password'),
+      getLogin: vi.fn().mockResolvedValue({ username: 'saved-user', password: 'host-password' }),
     } as unknown as SshSecretStore;
     const request = {
       username: 'deploy',
@@ -39,7 +39,8 @@ describe('saved SSH password resolution', () => {
     };
     const credentials = await resolveSshCredentials(request, null, secrets, hostId);
     expect(credentials.password).toBe('host-password');
-    expect(secrets.getPassword).toHaveBeenCalledWith(hostId);
+    expect(credentials.username).toBe('saved-user');
+    expect(secrets.getLogin).toHaveBeenCalledWith(hostId);
     await expect(resolveSshCredentials(request, null, secrets, identityId)).rejects.toMatchObject({
       code: 'vault-secret-missing',
     });
@@ -47,7 +48,7 @@ describe('saved SSH password resolution', () => {
 
   it('rejects stale identity references and missing saved passwords', async () => {
     const secrets = {
-      getPassword: vi.fn().mockResolvedValue(undefined),
+      getLogin: vi.fn().mockResolvedValue(undefined),
     } as unknown as SshSecretStore;
     const request = {
       username: 'deploy',
@@ -59,7 +60,7 @@ describe('saved SSH password resolution', () => {
     await expect(resolveSshCredentials(request, null, secrets)).rejects.toMatchObject({
       code: 'vault-secret-missing',
     });
-    expect(secrets.getPassword).not.toHaveBeenCalled();
+    expect(secrets.getLogin).not.toHaveBeenCalled();
     await expect(resolveSshCredentials(request, identityId, secrets)).rejects.toMatchObject({
       code: 'vault-secret-missing',
     });

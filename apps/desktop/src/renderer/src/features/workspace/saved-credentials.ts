@@ -17,6 +17,15 @@ export async function findSavedCredentials(hostId: string): Promise<SshCredentia
   if (!host || !vault.configured || vault.locked || !vault.available) return undefined;
   const resolved = resolveHost(host, groups);
   const identity = identities.find((item) => item.id === resolved.identityId);
+  const own = await window.mterminal.getSshPasswordStatus(host.id);
+  if (own.available && own.saved && own.username)
+    return validateSshCredentials({
+      username: own.username,
+      fingerprint: '',
+      method: 'password',
+      useSavedPassword: true,
+      savedPasswordIdentityId: host.id,
+    });
   const username = identity?.username || resolved.username;
   if (!username) return undefined;
   const base = { username, fingerprint: '', keyboardInteractive: false };
@@ -35,7 +44,7 @@ export async function findSavedCredentials(hostId: string): Promise<SshCredentia
   // The host's own password wins over one shared through its identity.
   for (const owner of [host.id, identity?.id]) {
     if (!owner) continue;
-    const status = await window.mterminal.getSshPasswordStatus(owner);
+    const status = owner === host.id ? own : await window.mterminal.getSshPasswordStatus(owner);
     if (status.available && status.saved)
       return validateSshCredentials({
         ...base,
@@ -45,20 +54,4 @@ export async function findSavedCredentials(hostId: string): Promise<SshCredentia
       });
   }
   return undefined;
-}
-
-/** Fill only a missing default; never rewrite an existing host, group or shared-identity username. */
-export async function rememberMissingUsername(hostId: string, username: string): Promise<void> {
-  const [hosts, groups, identities] = await Promise.all([
-    window.mterminal.listHosts(),
-    window.mterminal.listHostGroups(),
-    window.mterminal.listSshIdentities(),
-  ]);
-  const host = hosts.find((item) => item.id === hostId);
-  if (!host)
-    throw new Error('This host no longer exists. Close the dialog and choose another host.');
-  const resolved = resolveHost(host, groups);
-  const identity = identities.find((item) => item.id === resolved.identityId);
-  if (identity?.username || resolved.username) return;
-  await window.mterminal.saveHost({ ...host, username, inheritUsername: false }, hostId);
 }
