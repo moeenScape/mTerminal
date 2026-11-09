@@ -7,10 +7,10 @@ import {
   type FileOperation,
 } from '../../shared/files.js';
 import { directoryListing, fileKind, FileBrowserError } from './listing.js';
-import { inspectPartial } from './partial-cleanup.js';
+import { inspectPartial, inspectResume } from './partial-cleanup.js';
 import { childPath } from './operations.js';
 import { sftpRequest as request } from './sftp-request.js';
-import { transferFile, type TransferOutcome } from './transfer-file.js';
+import { transferFile, type TransferOutcome, type TransferResume } from './transfer-file.js';
 import type {
   TransferRequest,
   TransferConflictPreview,
@@ -37,6 +37,7 @@ export class RemoteFileBrowser {
     progress: (transferred: number, total: number) => void,
     approval?: TransferConflictPreview,
     checkpoint?: (value: TransferCheckpoint) => void,
+    resume?: TransferResume,
   ): Promise<TransferOutcome> {
     if (this.closed) return Promise.reject(new FileBrowserError('disconnected'));
     return transferFile(
@@ -47,6 +48,7 @@ export class RemoteFileBrowser {
       approval,
       undefined,
       checkpoint,
+      resume,
     );
   }
   prepareEdit(
@@ -62,6 +64,13 @@ export class RemoteFileBrowser {
       () => {},
       undefined,
       { maxBytes: REMOTE_EDIT_MAX_BYTES },
+    );
+  }
+  inspectResume(record: TransferRecoveryRecord, signal: AbortSignal) {
+    return this.withChannel(
+      (channel, combined) => inspectResume(channel, combined, record),
+      false,
+      signal,
     );
   }
   recoverPartial(

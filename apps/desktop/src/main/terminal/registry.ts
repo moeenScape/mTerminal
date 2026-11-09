@@ -36,6 +36,15 @@ export class TerminalRegistry {
     if (!session) throw new FileBrowserError('disconnected');
     return session.prepareRemoteEdit(request, directory, signal);
   }
+  async inspectResume(
+    id: string,
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+  ) {
+    const session = this.sessions.get(id);
+    if (!session) throw new FileBrowserError('disconnected');
+    return session.inspectResume(record, signal);
+  }
   async recoverPartial(
     id: string,
     record: import('../../shared/transfers.js').TransferRecoveryRecord,
@@ -56,10 +65,11 @@ export class TerminalRegistry {
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
     checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
+    resume?: import('../files/transfer-file.js').TransferResume,
   ) {
     const session = this.sessions.get(id);
     if (!session) throw new FileBrowserError('disconnected');
-    return session.transferFile(request, signal, progress, approval, checkpoint);
+    return session.transferFile(request, signal, progress, approval, checkpoint, resume);
   }
   get count(): number {
     return this.sessions.size;

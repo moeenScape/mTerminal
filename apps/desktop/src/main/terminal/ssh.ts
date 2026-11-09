@@ -163,6 +163,7 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
+            inspectResume: (record, signal) => files.inspectResume(record, signal),
             recoverPartial: (record, signal, expected) =>
               files.recoverPartial(record, signal, expected),
             transferPeer: {
@@ -174,8 +175,8 @@ export function openSsh(
             listDirectory: (path) => files.list(path),
             prepareRemoteEdit: (request, directory, signal) =>
               files.prepareEdit(request, directory, signal),
-            transferFile: (request, signal, progress, approval, checkpoint) =>
-              files.transfer(request, signal, progress, approval, checkpoint),
+            transferFile: (request, signal, progress, approval, checkpoint, resume) =>
+              files.transfer(request, signal, progress, approval, checkpoint, resume),
             mutateDirectory: (path, operation) => files.mutate(path, operation),
             write: (data) => {
               if (!ended) channel.write(data);

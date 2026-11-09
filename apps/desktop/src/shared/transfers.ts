@@ -10,6 +10,8 @@ export const transferChannels = {
   forget: 'transfers:forget',
   inspectPartial: 'transfers:inspect-partial',
   cleanupPartial: 'transfers:cleanup-partial',
+  inspectResume: 'transfers:inspect-resume',
+  resume: 'transfers:resume',
 } as const;
 export const TRANSFERS_CHANGED = 'transfers:changed';
 export const TRANSFER_LIMIT = 32;
@@ -77,6 +79,12 @@ export interface PartialCleanupPreview extends PartialInspection {
   side: 'local' | 'remote';
   peer: TransferPeer;
 }
+export interface ResumeInspection extends PartialInspection {
+  destination: TransferFileInfo | null;
+  total: number;
+  remaining: number;
+}
+export interface TransferResumePreview extends PartialCleanupPreview, ResumeInspection {}
 export interface TransferCheckpoint {
   staging?: TransferFileInfo;
   phase: 'queued' | 'staging' | 'backup' | 'publishing' | 'settled';
@@ -92,6 +100,8 @@ export interface TransferRecoveryRecord extends TransferRequest, TransferCheckpo
   updatedAt: string;
 }
 export interface TransfersApi {
+  inspectTransferResume: (id: string, sessionId: string) => Promise<TransferResumePreview>;
+  resumeTransfer: (token: string) => Promise<void>;
   inspectTransferPartial: (id: string, sessionId: string) => Promise<PartialCleanupPreview>;
   cleanupTransferPartial: (token: string) => Promise<void>;
   listTransferRecovery: () => Promise<TransferRecoveryRecord[]>;

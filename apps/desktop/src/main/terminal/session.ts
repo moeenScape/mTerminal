@@ -152,6 +152,13 @@ export class TerminalSession {
     if (!this.session?.pty.listDirectory) throw new FileBrowserError('disconnected');
     return this.session.pty.listDirectory(path);
   }
+  async inspectResume(
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+  ) {
+    if (!this.session?.pty.inspectResume) throw new FileBrowserError('disconnected');
+    return this.session.pty.inspectResume(record, signal);
+  }
   async recoverPartial(
     record: import('../../shared/transfers.js').TransferRecoveryRecord,
     signal: AbortSignal,
@@ -180,9 +187,10 @@ export class TerminalSession {
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
     checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
+    resume?: import('../files/transfer-file.js').TransferResume,
   ) {
     if (!this.session?.pty.transferFile) throw new FileBrowserError('disconnected');
-    return this.session.pty.transferFile(request, signal, progress, approval, checkpoint);
+    return this.session.pty.transferFile(request, signal, progress, approval, checkpoint, resume);
   }
   async mutateDirectory(path: string, operation: import('../../shared/files.js').FileOperation) {
     if (!this.session?.pty.mutateDirectory) throw new FileBrowserError('disconnected');

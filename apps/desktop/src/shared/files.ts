@@ -56,6 +56,8 @@ export const fileErrorMessages = {
   'editor-copy-unavailable':
     'The working copy is missing, changing, or unreadable. Save it in the editor and retry.',
   'editor-unchanged': 'There are no saved changes to upload.',
+  'resume-unavailable':
+    'Resume requires a verified partial, unchanged source and destination, and supported non-truncating file access. Records with retained backups or uncertain publication require manual inspection.',
   'recovery-unverified':
     'This temporary file could not be verified. Use the matching SSH host and account; the original source and recorded staging identity must still match. Inspect the paths manually if verification remains unavailable.',
   'recovery-stale':

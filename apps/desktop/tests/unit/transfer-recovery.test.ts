@@ -245,4 +245,79 @@ describe('durable transfer evidence', () => {
       }
     });
   });
+  it('durably rebinds an explicit resume, creates a fresh overwrite approval and prevents duplicate ownership', async () => {
+    await fixture(async (db) => {
+      const store = new TransferRecoveryStore(db);
+      const base = record();
+      const source = {
+        path: join(tmpdir(), 'file.txt'),
+        kind: 'file' as const,
+        size: 10,
+        modified: 1,
+        permissions: '0600',
+        version: 'source',
+      };
+      const destination = { ...source, path: '/remote/file.txt', version: 'destination' };
+      const saved = {
+        ...base,
+        state: 'failed' as const,
+        source,
+        destination,
+        staging: { ...source, path: base.partialPath!, size: 0 },
+      };
+      store.save(saved);
+      const sessionId = randomUUID();
+      const inspection = {
+        file: { ...saved.staging, size: 3 },
+        digest: 'hash',
+        destination,
+        total: 10,
+        remaining: 7,
+      };
+      const copy = vi.fn((...args: unknown[]) => {
+        expect(store.list()[0]).toMatchObject({
+          id: saved.id,
+          sessionId,
+          state: 'running',
+          partialPath: saved.partialPath,
+          staging: saved.staging,
+          source,
+        });
+        return new Promise((_resolve, reject) => {
+          (args[2] as AbortSignal).addEventListener(
+            'abort',
+            () => reject(new FileBrowserError('cancelled')),
+            { once: true },
+          );
+        });
+      });
+      const queue = new TransferQueue(
+        {
+          onSessionClosed: () => () => {},
+          canTransfer: () => true,
+          transferPeer: () => saved.peer,
+          transferFile: copy,
+        } as unknown as TerminalRegistry,
+        () => {},
+        store,
+      );
+      try {
+        expect(queue.enqueueResume(saved, sessionId, inspection)).toBe(saved.id);
+        expect(copy).toHaveBeenCalledTimes(1);
+        expect(copy.mock.calls[0]?.[4]).toMatchObject({ source, destination, replaceable: true });
+        expect(copy.mock.calls[0]?.[6]).toEqual({ record: saved, inspection });
+        expect(queue.listRecovery()).toEqual([]);
+        expect(() => queue.enqueueResume(saved, sessionId, inspection)).toThrow('recovery-stale');
+        queue.cancel(saved.id);
+        await vi.waitFor(() => expect(queue.list()[0]?.state).toBe('cancelled'));
+        expect(store.list()[0]).toMatchObject({
+          sessionId,
+          partialPath: saved.partialPath,
+          staging: saved.staging,
+        });
+      } finally {
+        queue.dispose();
+      }
+    });
+  });
 });

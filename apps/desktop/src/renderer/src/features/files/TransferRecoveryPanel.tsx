@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { TransferRecoveryRecord, PartialCleanupPreview } from '../../../../shared/transfers';
+import type {
+  TransferRecoveryRecord,
+  PartialCleanupPreview,
+  TransferResumePreview,
+} from '../../../../shared/transfers';
+import { fileSize } from './file-browser';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 export function TransferRecoveryPanel({
@@ -14,6 +19,10 @@ export function TransferRecoveryPanel({
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [cleanup, setCleanup] = useState<{
     preview: PartialCleanupPreview;
+    sessionId: string;
+  } | null>(null);
+  const [resume, setResume] = useState<{
+    preview: TransferResumePreview;
     sessionId: string;
   } | null>(null);
   const [selected, setSelected] = useState<TransferRecoveryRecord | null>(null);
@@ -64,6 +73,38 @@ export function TransferRecoveryPanel({
               <span>
                 {record.phase === 'settled' ? record.state : `Interrupted · ${record.phase}`}
               </span>
+              {record.partialPath &&
+                record.staging &&
+                record.peer &&
+                record.source &&
+                !record.backupPath &&
+                record.state !== 'uncertain' &&
+                record.state !== 'completed' &&
+                record.phase !== 'backup' &&
+                record.phase !== 'publishing' && (
+                  <button
+                    type="button"
+                    disabled={!sessionId || !!inspecting}
+                    aria-label={`Preview resume for ${record.name}`}
+                    onClick={() => {
+                      if (!sessionId) return;
+                      setInspecting(record.id);
+                      setError('');
+                      void window.mterminal
+                        .inspectTransferResume(record.id, sessionId)
+                        .then(
+                          (preview) => setResume({ preview, sessionId }),
+                          (cause: unknown) =>
+                            setError(
+                              cause instanceof Error ? cause.message : 'Unable to verify resume.',
+                            ),
+                        )
+                        .finally(() => setInspecting(null));
+                    }}
+                  >
+                    Resume…
+                  </button>
+                )}
               {record.partialPath && (
                 <button
                   type="button"
@@ -189,6 +230,53 @@ export function TransferRecoveryPanel({
           <p>
             The staged bytes match the unchanged source. Verification runs again before deletion.
             Destination files and backups are preserved.
+          </p>
+        </ConfirmDialog>
+      )}
+      {resume && resume.sessionId === sessionId && (
+        <ConfirmDialog
+          title="Resume verified transfer?"
+          confirmLabel={resume.preview.destination ? 'Resume and replace' : 'Resume transfer'}
+          danger={!!resume.preview.destination}
+          onCancel={() => setResume(null)}
+          onConfirm={async () => {
+            try {
+              await window.mterminal.resumeTransfer(resume.preview.token);
+              setResume(null);
+            } catch (cause) {
+              setResume(null);
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Unable to resume. Inspect the paths before retrying.',
+              );
+            }
+          }}
+        >
+          <p>
+            Continue this {resume.preview.side} partial: <code>{resume.preview.file.path}</code>
+          </p>
+          <p>
+            Verified: {fileSize(resume.preview.file.size)} / {fileSize(resume.preview.total)}.
+            Remaining: {fileSize(resume.preview.remaining)}.
+          </p>
+          <p>
+            {resume.preview.peer.username}@{resume.preview.peer.address}:{resume.preview.peer.port}
+          </p>
+          <p>
+            Host key: <code>{resume.preview.peer.fingerprint}</code>
+          </p>
+          {resume.preview.destination ? (
+            <p>
+              Replace <code>{resume.preview.destination.path}</code> after copying completes. Its
+              current contents will be retained in a new backup.
+            </p>
+          ) : (
+            <p>The destination must remain absent. Existing files will not be overwritten.</p>
+          )}
+          <p>
+            Files are verified again before writing. Cancellation or failure keeps the partial for
+            inspection. Follow progress in Transfers.
           </p>
         </ConfirmDialog>
       )}

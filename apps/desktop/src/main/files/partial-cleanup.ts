@@ -3,7 +3,11 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath, unlink, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, posix } from 'node:path';
 import type { SFTPWrapper, Stats } from 'ssh2';
-import type { PartialInspection, TransferRecoveryRecord } from '../../shared/transfers.js';
+import type {
+  PartialInspection,
+  TransferRecoveryRecord,
+  ResumeInspection,
+} from '../../shared/transfers.js';
 import { localFileInfo, remoteFileInfo, sameFileInfo } from './transfer-conflict.js';
 import { FileBrowserError } from './listing.js';
 import { childPath } from './operations.js';
@@ -18,7 +22,7 @@ export async function inspectPartial(
 ): Promise<PartialInspection> {
   const reject = () => new FileBrowserError('recovery-unverified');
   const rpc = <T>(invoke: (done: (error: Error | undefined, value: T) => void) => void) =>
-    sftpRequest(signal, invoke);
+    sftpRequest(signal, invoke, 30000);
   const path = record.partialPath;
   const created = record.staging;
   const upload = record.direction === 'upload';
@@ -151,4 +155,82 @@ export async function inspectPartial(
         channel.close(remote!, (error) => done(error ?? undefined, undefined)),
       ).catch(() => {});
   }
+}
+
+export function resumableRecord(record: TransferRecoveryRecord): boolean {
+  return !!(
+    record.partialPath &&
+    record.staging &&
+    record.source &&
+    !record.backupPath &&
+    record.phase !== 'backup' &&
+    record.phase !== 'publishing' &&
+    record.state !== 'uncertain' &&
+    record.state !== 'completed'
+  );
+}
+
+/** Probe non-truncating access; no bytes are written until a fresh resume is confirmed. */
+export async function inspectResume(
+  channel: SFTPWrapper,
+  signal: AbortSignal,
+  record: TransferRecoveryRecord,
+): Promise<ResumeInspection> {
+  if (!resumableRecord(record)) throw new FileBrowserError('resume-unavailable');
+  const inspection = await inspectPartial(channel, signal, record);
+  const rpc = <T>(invoke: (done: (error: Error | undefined, value: T) => void) => void) =>
+    sftpRequest(signal, invoke, 30000);
+  const upload = record.direction === 'upload';
+  const parent = upload ? posix.dirname(inspection.file.path) : dirname(inspection.file.path);
+  const target = childPath(parent, record.name, upload);
+  let destination: TransferRecoveryRecord['destination'] = null;
+  try {
+    destination = upload
+      ? remoteFileInfo(target, await rpc<Stats>((done) => channel.lstat(target, done)))
+      : localFileInfo(target, await lstat(target));
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code !== 'ENOENT' && code !== 2) throw error;
+  }
+  if (
+    destination
+      ? !record.destination ||
+        destination.kind !== 'file' ||
+        !sameFileInfo(destination, record.destination)
+      : record.destination !== null
+  )
+    throw new FileBrowserError('destination-changed');
+  let handle: Buffer | undefined;
+  let local: FileHandle | undefined;
+  try {
+    let writable;
+    if (upload) {
+      handle = await rpc<Buffer>((done) => channel.open(inspection.file.path, 'r+', done));
+      writable = remoteFileInfo(
+        inspection.file.path,
+        await rpc<Stats>((done) => channel.fstat(handle!, done)),
+      );
+    } else {
+      local = await open(
+        inspection.file.path,
+        constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      const stats = await local.stat();
+      if (stats.nlink !== 1) throw new FileBrowserError('resume-unavailable');
+      writable = localFileInfo(inspection.file.path, stats);
+    }
+    if (!sameFileInfo(writable, inspection.file)) throw new FileBrowserError('recovery-stale');
+  } finally {
+    await local?.close().catch(() => {});
+    if (handle && !signal.aborted)
+      await rpc<void>((done) =>
+        channel.close(handle!, (error) => done(error ?? undefined, undefined)),
+      ).catch(() => {});
+  }
+  return {
+    ...inspection,
+    destination,
+    total: record.source!.size,
+    remaining: record.source!.size - inspection.file.size,
+  };
 }

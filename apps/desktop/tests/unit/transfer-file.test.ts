@@ -10,6 +10,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -17,15 +18,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Client, SFTPWrapper, Stats } from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
-import { inspectPartial } from '../../src/main/files/partial-cleanup.js';
+import { inspectPartial, inspectResume } from '../../src/main/files/partial-cleanup.js';
 import { transferFile } from '../../src/main/files/transfer-file.js';
 import { FileBrowserError } from '../../src/main/files/listing.js';
 import type {
   TransferRequest,
   TransferConflictPreview,
   TransferRecoveryRecord,
+  TransferCheckpoint,
 } from '../../src/shared/transfers.js';
-import { localFileInfo, TransferConflict } from '../../src/main/files/transfer-conflict.js';
+import {
+  localFileInfo,
+  remoteFileInfo,
+  conflictPreview,
+  TransferConflict,
+} from '../../src/main/files/transfer-conflict.js';
 
 function remoteFixture(initial: Record<string, Buffer> = {}) {
   const files = new Map(Object.entries(initial));
@@ -123,7 +130,7 @@ function remoteFixture(initial: Record<string, Buffer> = {}) {
     sftp: (done: (error: undefined, channel: SFTPWrapper) => void) =>
       done(undefined, channel as unknown as SFTPWrapper),
   } as unknown as Client;
-  return { client, channel, files, handles };
+  return { client, channel, files, handles, metadata };
 }
 const request = (
   localDirectory: string,
@@ -570,7 +577,7 @@ describe('verified partial-file cleanup', () => {
       record: TransferRecoveryRecord;
     }) => Promise<void>,
   ) {
-    const directory = await mkdtemp(join(tmpdir(), 'mterminal-partial-'));
+    const directory = await realpath(await mkdtemp(join(tmpdir(), 'mterminal-partial-')));
     const bytes = Buffer.alloc(150000, 'x');
     const stageName = `.mterminal-${randomUUID()}.part`;
     const stage = direction === 'upload' ? `/remote/${stageName}` : join(directory, stageName);
@@ -747,4 +754,277 @@ describe('verified partial-file cleanup', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it.each(['upload', 'download'] as const)(
+    'resumes %s from the verified offset and publishes exact bytes',
+    async (direction) => {
+      await partialFixture(direction, async ({ directory, remote, record: original }) => {
+        const record = { ...original, backupPath: null };
+        const inspection = await inspectResume(
+          remote.channel as unknown as SFTPWrapper,
+          new AbortController().signal,
+          record,
+        );
+        expect(inspection).toMatchObject({ total: 150000, remaining: 79999, destination: null });
+        const progress = vi.fn();
+        const outcome = await transferFile(
+          remote.client,
+          request(directory, direction),
+          new AbortController().signal,
+          progress,
+          undefined,
+          undefined,
+          undefined,
+          { record, inspection },
+        );
+        expect(progress).toHaveBeenNthCalledWith(1, 70001, 150000);
+        expect(progress).toHaveBeenLastCalledWith(150000, 150000);
+        expect(outcome.partialPath).toBeNull();
+        const bytes =
+          direction === 'upload'
+            ? remote.files.get('/remote/sample.bin')
+            : await readFile(join(directory, 'sample.bin'));
+        expect(bytes).toEqual(Buffer.alloc(150000, 'x'));
+        if (direction === 'upload') {
+          expect(remote.channel.write.mock.calls[0]?.[4]).toBe(70001);
+          expect(remote.files.has(record.partialPath!)).toBe(false);
+        } else await expect(lstat(record.partialPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(remote.handles.size).toBe(0);
+      });
+    },
+  );
+
+  it.each(['upload', 'download'] as const)(
+    'preserves the old destination when a resumed %s is explicitly approved for replacement',
+    async (direction) => {
+      await partialFixture(direction, async ({ directory, remote, record: original }) => {
+        let destination;
+        if (direction === 'upload') {
+          remote.files.set('/remote/sample.bin', Buffer.from('old destination'));
+          destination = remoteFileInfo('/remote/sample.bin', remote.metadata('/remote/sample.bin'));
+        } else {
+          await writeFile(join(directory, 'sample.bin'), 'old destination');
+          destination = localFileInfo(
+            join(directory, 'sample.bin'),
+            await lstat(join(directory, 'sample.bin')),
+          );
+        }
+        const record = { ...original, backupPath: null, destination };
+        const inspection = await inspectResume(
+          remote.channel as unknown as SFTPWrapper,
+          new AbortController().signal,
+          record,
+        );
+        const approval = conflictPreview(record.source!, destination);
+        const outcome = await transferFile(
+          remote.client,
+          request(directory, direction),
+          new AbortController().signal,
+          () => {},
+          approval,
+          undefined,
+          undefined,
+          { record, inspection },
+        );
+        expect(outcome.backupPath).toMatch(/\.bak$/);
+        const backup =
+          direction === 'upload'
+            ? remote.files.get(outcome.backupPath!)
+            : await readFile(outcome.backupPath!);
+        expect(backup?.toString()).toBe('old destination');
+        const final =
+          direction === 'upload'
+            ? remote.files.get('/remote/sample.bin')
+            : await readFile(join(directory, 'sample.bin'));
+        expect(final).toEqual(Buffer.alloc(150000, 'x'));
+      });
+    },
+  );
+
+  it.each(['upload', 'download'] as const)(
+    'keeps the adopted %s partial on cancellation, and permits a fresh verification',
+    async (direction) => {
+      await partialFixture(direction, async ({ directory, remote, record: original }) => {
+        const record = { ...original, backupPath: null };
+        const inspection = await inspectResume(
+          remote.channel as unknown as SFTPWrapper,
+          new AbortController().signal,
+          record,
+        );
+        const controller = new AbortController();
+        await expect(
+          transferFile(
+            remote.client,
+            request(directory, direction),
+            controller.signal,
+            (count) => {
+              if (count > inspection.file.size) controller.abort(new FileBrowserError('cancelled'));
+            },
+            undefined,
+            undefined,
+            undefined,
+            { record, inspection },
+          ),
+        ).rejects.toMatchObject({ code: 'cancelled', partialPath: record.partialPath });
+        const next = await inspectResume(
+          remote.channel as unknown as SFTPWrapper,
+          new AbortController().signal,
+          record,
+        );
+        expect(next.file.size).toBeGreaterThan(inspection.file.size);
+        expect(next.remaining).toBeLessThan(inspection.remaining);
+        expect(remote.files.has('/remote/sample.bin')).toBe(direction === 'download');
+        if (direction === 'download')
+          await expect(lstat(join(directory, 'sample.bin'))).rejects.toMatchObject({
+            code: 'ENOENT',
+          });
+      });
+    },
+  );
+
+  it('refuses stale bytes, changed destinations, unsupported access and uncertain publication without discarding the partial', async () => {
+    await partialFixture('upload', async ({ directory, remote, record: original }) => {
+      const record = { ...original, backupPath: null };
+      const channel = remote.channel as unknown as SFTPWrapper;
+      const inspection = await inspectResume(channel, new AbortController().signal, record);
+      remote.files.set('/remote/sample.bin', Buffer.from('other destination'));
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory),
+          new AbortController().signal,
+          () => {},
+          undefined,
+          undefined,
+          undefined,
+          { record, inspection },
+        ),
+      ).rejects.toMatchObject({ code: 'destination-changed' });
+      expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('other destination');
+      remote.files.delete('/remote/sample.bin');
+      remote.files.set(record.partialPath!, Buffer.alloc(70002, 'x'));
+      await expect(
+        transferFile(
+          remote.client,
+          request(directory),
+          new AbortController().signal,
+          () => {},
+          undefined,
+          undefined,
+          undefined,
+          { record, inspection },
+        ),
+      ).rejects.toMatchObject({ code: 'recovery-stale' });
+      for (const unsafe of [
+        { ...record, state: 'uncertain' as const },
+        { ...record, phase: 'publishing' as const },
+        { ...record, backupPath: '/remote/retained.bak' },
+      ])
+        await expect(
+          inspectResume(channel, new AbortController().signal, unsafe),
+        ).rejects.toMatchObject({ code: 'resume-unavailable' });
+      const openFile = remote.channel.open;
+      vi.spyOn(remote.channel, 'open').mockImplementation((path, flags, mode, callback) => {
+        const done = typeof mode === 'function' ? mode : callback!;
+        if (flags === 'r+') done(Object.assign(new Error('Unsupported'), { code: 8 }));
+        else openFile(path, flags, mode, callback);
+      });
+      await expect(inspectResume(channel, new AbortController().signal, record)).rejects.toThrow(
+        'Unsupported',
+      );
+      expect(remote.files.get(record.partialPath!)?.length).toBe(70002);
+      expect(remote.channel.write).not.toHaveBeenCalled();
+      expect(remote.channel.unlink).not.toHaveBeenCalled();
+    });
+  });
+
+  it('can finish a fully copied partial without writing more bytes', async () => {
+    await partialFixture('upload', async ({ directory, remote, record: original }) => {
+      const record = { ...original, backupPath: null };
+      remote.files.set(record.partialPath!, Buffer.alloc(150000, 'x'));
+      const inspection = await inspectResume(
+        remote.channel as unknown as SFTPWrapper,
+        new AbortController().signal,
+        record,
+      );
+      expect(inspection.remaining).toBe(0);
+      await transferFile(
+        remote.client,
+        request(directory),
+        new AbortController().signal,
+        () => {},
+        undefined,
+        undefined,
+        undefined,
+        { record, inspection },
+      );
+      expect(remote.channel.write).not.toHaveBeenCalled();
+      expect(remote.files.get('/remote/sample.bin')?.length).toBe(150000);
+    });
+  });
+
+  it.each(['upload', 'download'] as const)(
+    'retains a journaled first-attempt %s after connection loss and resumes it',
+    async (direction) => {
+      const directory = await realpath(await mkdtemp(join(tmpdir(), 'mterminal-interrupted-')));
+      const bytes = Buffer.alloc(150000, 'i');
+      const remote = remoteFixture(direction === 'download' ? { '/remote/sample.bin': bytes } : {});
+      const controller = new AbortController();
+      let saved: TransferCheckpoint | undefined;
+      try {
+        if (direction === 'upload') await writeFile(join(directory, 'sample.bin'), bytes);
+        await expect(
+          transferFile(
+            remote.client,
+            request(directory, direction),
+            controller.signal,
+            (count) => {
+              if (count) controller.abort(new FileBrowserError('disconnected'));
+            },
+            undefined,
+            undefined,
+            (value) => {
+              saved = structuredClone(value);
+            },
+          ),
+        ).rejects.toMatchObject({
+          code: 'disconnected',
+          partialPath: expect.stringMatching(/\.part$/),
+        });
+        expect(saved?.staging?.size).toBe(0);
+        const record: TransferRecoveryRecord = {
+          ...request(directory, direction),
+          ...saved!,
+          id: randomUUID(),
+          state: 'failed',
+          peer: null,
+          updatedAt: new Date().toISOString(),
+        };
+        const inspection = await inspectResume(
+          remote.channel as unknown as SFTPWrapper,
+          new AbortController().signal,
+          record,
+        );
+        expect(inspection.file.size).toBeGreaterThan(0);
+        expect(inspection.remaining).toBeGreaterThan(0);
+        await transferFile(
+          remote.client,
+          request(directory, direction),
+          new AbortController().signal,
+          () => {},
+          undefined,
+          undefined,
+          undefined,
+          { record, inspection },
+        );
+        const final =
+          direction === 'upload'
+            ? remote.files.get('/remote/sample.bin')
+            : await readFile(join(directory, 'sample.bin'));
+        expect(final).toEqual(bytes);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });

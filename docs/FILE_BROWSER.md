@@ -77,8 +77,8 @@ There is no automatic retry, reconnect, resume or recursive transfer.
 Transfers continue while you return to the terminal or switch views. Closing the SSH tab,
 disconnecting its session, reloading the renderer or closing the window cancels associated work.
 Queued jobs stay bound to their original SSH session; reconnecting does not replay them. Queue
-records live only in memory and disappear on restart. A job captures the folder paths at enqueue
-time; the filesystem and source contents are checked when it starts, not copied at enqueue time.
+records live only in memory and disappear on restart; durable recovery evidence remains in the
+separate SQLite journal. A job captures the folder paths at enqueue time; the filesystem and source contents are checked when it starts, not copied at enqueue time.
 
 Copies use one 64 KiB buffer and a separate SFTP channel on the existing verified connection, so
 folder listing remains available. File mutations through the browser are refused while a transfer
@@ -86,7 +86,7 @@ is active. Progress notifications are throttled to about five per second. Each S
 a 30-second deadline; cleanup requests have a separate five-second deadline. Cancellation of
 local filesystem I/O waits for the OS operation to return.
 
-Data is copied into an exclusive `.mterminal-<uuid>.part` file in the destination folder, with
+New transfers copy into an exclusive `.mterminal-<uuid>.part` file in the destination folder, with
 mode `0600` where supported. Byte counts and source size/mtime are checked before publication.
 This detects common source changes but is not a checksum or an immutable source snapshot;
 SFTP v3 modification times have second precision. Files that are being modified should be copied
@@ -100,8 +100,10 @@ also detected at publication and requires a conflict decision.
 After settlement, the visible folders refresh. If a remote rename response is lost, the queue
 shows **uncertain** because the complete final file may already exist. Failed cleanup reports
 the possible temporary path, including an unacknowledged remote staging-file creation. Inspect
-that path before manually removing it. Crashes or forced shutdown can also leave temporary files;
-automatic recovery and verified resume are deferred to F37.
+that path before removing it. Journaled pre-publication disconnects/timeouts and cancelled/failed
+resumes retain the partial for explicit recovery. Crashes or forced shutdown can also leave
+temporary files. Use **Inspect temporary file…** or **Resume…** in saved recovery records;
+[Transfer recovery](TRANSFER_RECOVERY.md) describes verification, confirmation and refusal rules.
 
 ## Existing destinations: Replace, Skip, or Cancel
 
@@ -178,5 +180,7 @@ records needing inspection below the queue, including after restart or **Clear f
 **Forget record…** removes metadata only. F37-B adds **Inspect temporary file…** in a matching
 SSH tab, followed by explicit confirmation and repeated identity/prefix checks before deleting
 only the verified `.part` name. Older records without creation evidence require manual inspection.
-No transfer resumes automatically. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
-planned-path caveats, cleanup limitations, remaining resume work and validation status.
+F37-C adds **Resume…** with matching connection ownership, source-prefix and destination checks,
+remaining-byte preview and a fresh confirmation. Resumed cancellation/failure retains the partial;
+replacement still preserves the old destination in a new backup. No transfer resumes automatically. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
+planned-path caveats, cleanup limitations, resume restrictions and validation status.

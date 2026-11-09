@@ -8,6 +8,8 @@ import type {
   TransferCheckpoint,
   TransferConflictPreview,
   TransferFileInfo,
+  TransferRecoveryRecord,
+  ResumeInspection,
 } from '../../shared/transfers.js';
 import {
   localFileInfo,
@@ -16,6 +18,7 @@ import {
   conflictPreview,
   TransferConflict,
 } from './transfer-conflict.js';
+import { inspectResume } from './partial-cleanup.js';
 import { childPath } from './operations.js';
 import { FileBrowserError, fileErrorCode, fileKind } from './listing.js';
 import { sftpRequest } from './sftp-request.js';
@@ -28,6 +31,10 @@ export class TransferFailure extends FileBrowserError {
   ) {
     super(code);
   }
+}
+export interface TransferResume {
+  record: TransferRecoveryRecord;
+  inspection: ResumeInspection;
 }
 export interface TransferOutcome {
   partialPath: string | null;
@@ -45,6 +52,7 @@ export async function transferFile(
   approval?: TransferConflictPreview,
   limits?: { maxBytes: number },
   checkpoint?: (value: TransferCheckpoint) => void,
+  resume?: TransferResume,
 ): Promise<TransferOutcome> {
   let channel: SFTPWrapper | undefined;
   let local: FileHandle | undefined;
@@ -55,7 +63,7 @@ export async function transferFile(
   let publishing = false;
   let published = false;
   let failure: unknown;
-  let partialPath: string | null = null;
+  let partialPath: string | null = resume?.record.partialPath ?? null;
   let backupPath: string | null = null;
   let rollback: (() => Promise<void>) | undefined;
   let restored = false;
@@ -85,6 +93,13 @@ export async function transferFile(
       }),
     );
     const sftp = channel;
+    if (
+      resume &&
+      (['direction', 'name', 'localDirectory', 'remoteDirectory'] as const).some(
+        (key) => job[key] !== resume.record[key],
+      )
+    )
+      throw new FileBrowserError('recovery-stale');
     const localParent = await realpath(job.localDirectory);
     const remoteParent = await rpc<string>((done) => sftp.realpath(job.remoteDirectory, done));
     const localPath = childPath(localParent, job.name, false);
@@ -112,6 +127,14 @@ export async function transferFile(
       }
     };
     const destination = await readDestination();
+    if (
+      resume &&
+      (destination
+        ? !resume.inspection.destination ||
+          !sameFileInfo(destination, resume.inspection.destination)
+        : resume.inspection.destination !== null)
+    )
+      throw new FileBrowserError('destination-changed');
     const replacing = !!(
       approval &&
       destination &&
@@ -122,7 +145,15 @@ export async function transferFile(
     );
     if (destination && !replacing) throw new TransferConflict(conflictPreview(source, destination));
     if (approval && !destination) throw new FileBrowserError('destination-changed');
-    let staging: TransferFileInfo | undefined;
+    const verified = resume ? await inspectResume(sftp, combined, resume.record) : undefined;
+    if (
+      resume &&
+      (!verified ||
+        !sameFileInfo(verified.file, resume.inspection.file) ||
+        verified.digest !== resume.inspection.digest)
+    )
+      throw new FileBrowserError('recovery-stale');
+    let staging: TransferFileInfo | undefined = resume?.record.staging;
     const record = (phase: TransferCheckpoint['phase'], plannedBackup = backupPath) =>
       checkpoint?.({
         phase,
@@ -151,11 +182,22 @@ export async function transferFile(
         throw new FileBrowserError('source-changed');
       size = stats.size;
       modified = stats.mtimeMs;
-      stage = childPath(remoteParent, `.mterminal-${randomUUID()}.part`, true);
+      stage = resume
+        ? resume.record.partialPath
+        : childPath(remoteParent, `.mterminal-${randomUUID()}.part`, true);
+      if (resume) partialPath = stage;
       record('staging');
-      remoteHandle = await rpc<Buffer>((done) => sftp.open(stage!, 'wx', 0o600, done));
-      stageCreated = true;
-      staging = remoteFileInfo(stage, await rpc<Stats>((done) => sftp.fstat(remoteHandle!, done)));
+      remoteHandle = await rpc<Buffer>((done) =>
+        sftp.open(stage!, resume ? 'r+' : 'wx', 0o600, done),
+      );
+      stageCreated = !resume;
+      const opened = remoteFileInfo(
+        stage!,
+        await rpc<Stats>((done) => sftp.fstat(remoteHandle!, done)),
+      );
+      if (resume && !sameFileInfo(opened, resume.inspection.file))
+        throw new FileBrowserError('recovery-stale');
+      staging ??= opened;
       record('staging');
     } else {
       const expected = await rpc<Stats>((done) => sftp.lstat(remotePath, done));
@@ -171,18 +213,28 @@ export async function transferFile(
         throw new FileBrowserError('source-changed');
       size = stats.size;
       modified = stats.mtime;
-      stage = childPath(localParent, `.mterminal-${randomUUID()}.part`, false);
+      stage = resume
+        ? resume.record.partialPath
+        : childPath(localParent, `.mterminal-${randomUUID()}.part`, false);
+      if (resume) partialPath = stage;
       record('staging');
-      local = await open(stage, 'wx', 0o600);
-      stageCreated = true;
-      staging = localFileInfo(stage, await local.stat());
+      local = resume
+        ? await open(stage!, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+        : await open(stage!, 'wx', 0o600);
+      stageCreated = !resume;
+      const stageStats = await local.stat();
+      const opened = localFileInfo(stage!, stageStats);
+      if (resume && (stageStats.nlink !== 1 || !sameFileInfo(opened, resume.inspection.file)))
+        throw new FileBrowserError('recovery-stale');
+      staging ??= opened;
       record('staging');
     }
     if (!Number.isSafeInteger(size) || size < 0) throw new FileBrowserError('unsupported');
-    progress(0, size);
+    const offset = verified?.file.size ?? 0;
+    progress(offset, size);
     // shortcut: one chunk in flight bounds memory and cancellation; tune after measuring throughput.
     const buffer = Buffer.alloc(64 * 1024);
-    let position = 0;
+    let position = offset;
     while (position < size) {
       if (combined.aborted) throw combined.reason;
       const length = Math.min(buffer.length, size - position);
@@ -289,6 +341,7 @@ export async function transferFile(
       stageCreated = false;
     } else await link(stage!, localPath);
     published = true;
+    partialPath = null;
   } catch (error) {
     failure = error;
     if (
@@ -314,7 +367,18 @@ export async function transferFile(
       await cleanup<void>((done) =>
         channel!.close(remoteHandle!, (error) => done(error ?? undefined, undefined)),
       ).catch(() => {});
-    if (stageCreated && stage) {
+    const retainInterrupted =
+      !!checkpoint &&
+      !publishing &&
+      stageCreated &&
+      failure &&
+      (fileErrorCode(failure) === 'disconnected' || fileErrorCode(failure) === 'transfer-timeout');
+    if (retainInterrupted) partialPath = stage;
+    if (
+      !retainInterrupted &&
+      (stageCreated || (resume && published && job.direction === 'download')) &&
+      stage
+    ) {
       try {
         if (job.direction === 'upload' && channel)
           await cleanup<void>((done) =>

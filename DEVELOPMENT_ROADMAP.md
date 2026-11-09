@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F37-B implemented — Verified partial-file inspection and confirmed cleanup; F37 remains in progress |
-| Next feature | F37-C — Verified transfer resume; Phase 4 tests and desktop/platform acceptance remain outstanding |
+| Active feature | F37-C implemented — Explicit verified transfer resume; Phase 4 implementation complete, acceptance pending |
+| Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -165,10 +165,10 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F35 — Overwrites (implementation):** Source/destination metadata preview, token-bound Replace/Skip/Cancel decisions with Skip as default, canonical path/version checks, staged replacement with retained original backups, guarded restore, and uncertain-outcome reporting. Non-file destinations are refused. Tests written; Phase 4 execution and desktop/platform acceptance remain pending. See `docs/FILE_BROWSER.md`.
 - [x] **F36 — Remote editing (implementation):** One regular UTF-8 file up to 1 MiB per window; private `.txt` working copy in the OS default text editor, saved-byte change detection, explicit immutable-snapshot uploads through existing version/conflict/backup checks, and confirmed scoped discard or retained copies. No auto-upload or connection rebinding. Tests written; execution and native/visual/platform acceptance deferred. See `docs/REMOTE_EDITING.md`.
-- [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support. In progress; see `docs/TRANSFER_RECOVERY.md`.
+- [x] **F37 — Recovery (implementation):** Interrupted-transfer evidence, confirmed partial-file cleanup, and explicit verified resume. Phase 4 tests and live/platform acceptance pending; see `docs/TRANSFER_RECOVERY.md`.
   - [x] **F37-A — Durable evidence (implementation):** SQLite-backed queue acceptance and pre-mutation staging/backup/publication checkpoints; verified connection metadata; restart-visible records; confirmed metadata-only forgetting. No automatic replay. Regression tests written, execution deferred at the user's request.
   - [x] **F37-B — Partial-file cleanup (implementation):** Opened-stage creation evidence, fresh SSH host/account/key checks, canonical-path/regular-file/ownership checks and streamed source-prefix verification, single-use expiring previews, repeated checks on confirmation, and one-file cleanup preserving sources, destinations and backups. Older/unverifiable records require manual inspection. Tests written, execution deferred. See `docs/TRANSFER_RECOVERY.md` for concurrent-writer limits.
-  - [ ] **F37-C — Verified resume:** Fresh connection binding, source/destination/partial-content verification, supported server operations, and explicit resume decisions.
+  - [x] **F37-C — Verified resume (implementation):** Matching verified connection, unchanged source/destination, exact staged-prefix checks and non-truncating access probe; remaining-byte preview, purpose-bound expiring confirmation, main-owned queue rebinding, offset copying and fresh Replace approval with retained backup. Failed/cancelled resume keeps the partial. Unsafe/uncertain records are refused. Regression code written; tests unrun at the user's request.
 
 Completion criteria: Test permissions, interruptions, large files, symlinks, unusual filenames, overwrites, and partial transfers. Preserve originals during replacement where supported. SFTP does not automatically provide elevated permissions.
 
@@ -1033,3 +1033,43 @@ Standard SFTP cannot provide a portable inode identity or conditional unlink; lo
 has a final pathname race. Repeated metadata/content checks reduce stale decisions but do not
 guarantee atomic deletion against concurrent writers. See `docs/TRANSFER_RECOVERY.md`.
 F37 remains unchecked until F37-C verified resume is implemented. Commit locally; do not push.
+
+
+### F37-C implementation — 2026-11-09
+
+Added Resume previews and explicit confirmation to saved recovery records. The current SSH
+address/port/account/host key must match. Inspection verifies the created staging identity,
+canonical paths, private mode, source version and exact prefix bytes; the destination must still
+match its recorded version or remain absent. Non-truncating local/SFTP access is probed before
+showing verified/total/remaining byte counts. Local download stages with extra hard links are
+refused. Missing creation evidence, retained backups and uncertain backup/publication states
+remain manual-only. Fully copied stages can be published after verification without new writes.
+
+Confirmation is single-use, expires after 60 seconds and is purpose-bound; cleanup tokens cannot
+resume a transfer. Record changes, disconnects and renderer reset invalidate approval. Resume
+reuses the original recovery ID with a fresh explicitly selected connection, journaling before
+execution and preventing duplicate ownership. The queue revalidates on its own SFTP channel,
+opens the existing stage without truncation and writes from the verified offset. Existing source,
+destination, close/sync, backup and staged-publication safeguards remain. Replacing a recorded
+unchanged destination requires a fresh Resume and replace confirmation and creates a new backup.
+
+Resumed failures/cancellation retain the adopted partial for inspection or a fresh preview.
+Journaled first attempts also retain staging after pre-publication disconnect/timeout, so ordinary
+network interruptions can actually be resumed. Explicit cancellation of a new transfer and
+untracked editor preparation keep their previous cleanup policy. Publication clears/removes the staging
+name where possible and reports leftovers or uncertain acknowledgement/persistence normally.
+The original source snapshot is still required, including for editor-upload recovery. Storage
+continues using the existing schema-6 journal without persisting approval tokens or byte contents.
+
+Regression code covers upload/download offsets and exact final bytes, replacement backup
+retention, cancellation and renewed inspection, stale records/files/destinations, unsupported
+access, unsafe publication refusal, fully copied stages, durable rebinding and duplicate-ownership
+refusal, first-attempt interruption-to-resume, purpose-separated IPC tokens and Cancel-first UI. Tests remain unrun at the user's
+explicit request. `npm run check`, `npm run build`, and `git diff --check` passed on Linux x64;
+no test cases were executed. Live SFTP,
+crash/restart, visual, concurrent-writer and Windows/macOS acceptance remain pending.
+
+F37 and Phase 4 implementation are marked complete; acceptance is not claimed. Prefix verification
+rereads data, server probes do not establish vendor compatibility, and SFTP metadata/path races
+retain the limits documented in `docs/TRANSFER_RECOVERY.md`. Next: Phase 4 verification gate when
+test execution is requested, then F38 split panes. Commit locally with phase/step; do not push.

@@ -23,6 +23,7 @@ import {
   type TransferJob,
   type TransferRecoveryRecord,
   type PartialCleanupPreview,
+  type TransferResumePreview,
 } from '../../shared/transfers.js';
 import { validTerminalId } from '../../shared/terminal.js';
 import { TransferQueue, validTransferRequest } from './transfer-queue.js';
@@ -68,7 +69,13 @@ export function attachFiles(
   let cleanup: AbortController | undefined;
   let cleanupSession: string | undefined;
   let preview:
-    | { value: PartialCleanupPreview; sessionId: string; record: string; expires: number }
+    | {
+        value: PartialCleanupPreview | TransferResumePreview;
+        purpose: 'cleanup' | 'resume';
+        sessionId: string;
+        record: string;
+        expires: number;
+      }
     | undefined;
   const stopCleanup = () => {
     cleanup?.abort();
@@ -140,7 +147,11 @@ export function attachFiles(
         ...args: unknown[]
       ): Promise<
         TransferResponse<
-          TransferJob[] | TransferRecoveryRecord[] | PartialCleanupPreview | undefined
+          | TransferJob[]
+          | TransferRecoveryRecord[]
+          | PartialCleanupPreview
+          | TransferResumePreview
+          | undefined
         >
       > => {
         validateAppInfoRequest(event, window.webContents, rendererUrl, []);
@@ -148,9 +159,16 @@ export function attachFiles(
         try {
           if (
             channel === transferChannels.inspectPartial ||
-            channel === transferChannels.cleanupPartial
+            channel === transferChannels.cleanupPartial ||
+            channel === transferChannels.inspectResume ||
+            channel === transferChannels.resume
           ) {
-            const inspecting = channel === transferChannels.inspectPartial;
+            const inspecting =
+              channel === transferChannels.inspectPartial ||
+              channel === transferChannels.inspectResume;
+            const resuming =
+              channel === transferChannels.inspectResume || channel === transferChannels.resume;
+            const purpose = resuming ? 'resume' : 'cleanup';
             if (
               inspecting
                 ? args.length !== 2 || !validTerminalId(args[0]) || !validTerminalId(args[1])
@@ -163,7 +181,10 @@ export function attachFiles(
             preview = undefined;
             if (
               !inspecting &&
-              (!approved || approved.value.token !== args[0] || approved.expires < Date.now())
+              (!approved ||
+                approved.purpose !== purpose ||
+                approved.value.token !== args[0] ||
+                approved.expires < Date.now())
             )
               throw new FileBrowserError('recovery-stale');
             const id = inspecting ? (args[0] as string) : approved!.value.recordId;
@@ -171,6 +192,11 @@ export function attachFiles(
             const record = recoveryRecord(id, sessionId);
             if (!inspecting && JSON.stringify(record) !== approved!.record)
               throw new FileBrowserError('recovery-stale');
+            if (resuming && !inspecting) {
+              if (!('remaining' in approved!.value)) throw new FileBrowserError('recovery-stale');
+              transfers.enqueueResume(record, sessionId, approved!.value);
+              return { ok: true, value: undefined };
+            }
             mutating = true;
             const controller = new AbortController();
             cleanup = controller;
@@ -178,12 +204,14 @@ export function attachFiles(
             try {
               // Check writable storage before deletion; the last evidence remains if final persistence fails.
               if (!inspecting) recovery.save(record);
-              const inspection = await terminals.recoverPartial(
-                sessionId,
-                record,
-                controller.signal,
-                inspecting ? undefined : approved!.value,
-              );
+              const inspection = resuming
+                ? await terminals.inspectResume(sessionId, record, controller.signal)
+                : await terminals.recoverPartial(
+                    sessionId,
+                    record,
+                    controller.signal,
+                    inspecting ? undefined : approved!.value,
+                  );
               if (controller.signal.aborted)
                 throw new FileBrowserError(inspecting ? 'disconnected' : 'uncertain');
               if (inspecting) recoveryRecord(id, sessionId);
@@ -197,6 +225,7 @@ export function attachFiles(
                 };
                 preview = {
                   value,
+                  purpose,
                   sessionId,
                   record: JSON.stringify(record),
                   expires: Date.now() + 60000,

@@ -14,8 +14,8 @@ request. See [Remote editing](docs/REMOTE_EDITING.md) for limits, editor setup a
 Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
 [File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.
-F37-A/B add persistent transfer recovery records and confirmed, verified temporary-file cleanup in Files. See [Transfer recovery](docs/TRANSFER_RECOVERY.md)
-for cleanup requirements, older-record limits and metadata-only forgetting. Verified resume is still pending.
+F37 adds persistent transfer recovery records, confirmed temporary-file cleanup and verified transfer resume in Files. See [Transfer recovery](docs/TRANSFER_RECOVERY.md)
+for cleanup/resume requirements, older-record limits, overwrite confirmation and metadata-only forgetting. Phase 4 tests and live/platform acceptance remain pending.
 
 - Electron and TypeScript for desktop lifecycle, process management, and application logic.
 - React for the interface and xterm.js for terminal display/input.

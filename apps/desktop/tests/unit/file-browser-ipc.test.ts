@@ -6,6 +6,7 @@ import { FILES_LIST, FILES_MUTATE } from '../../src/shared/files.js';
 import {
   transferChannels,
   type PartialCleanupPreview,
+  type TransferResumePreview,
   type TransferRecoveryRecord,
 } from '../../src/shared/transfers.js';
 import { remoteEditChannels } from '../../src/shared/remote-edit.js';
@@ -243,6 +244,14 @@ describe('file browser IPC', () => {
     };
     let connectedPeer = { ...peer };
     const recoverPartial = vi.fn(async () => ({ file, digest: 'hash' }));
+    const inspectResume = vi.fn(async () => ({
+      file,
+      digest: 'hash',
+      destination: null,
+      total: 10,
+      remaining: 7,
+    }));
+    const copy = vi.fn(async () => ({ partialPath: null }));
     const save = vi.fn((value: TransferRecoveryRecord) => {
       record = value;
     });
@@ -254,6 +263,8 @@ describe('file browser IPC', () => {
         canTransfer: () => true,
         transferPeer: () => connectedPeer,
         recoverPartial,
+        inspectResume,
+        transferFile: copy,
       } as unknown as TerminalRegistry,
       join(tmpdir(), 'unused-edit-root'),
       { list: () => [record], save, forget: vi.fn() },
@@ -261,6 +272,16 @@ describe('file browser IPC', () => {
     const event = { sender: contents, senderFrame: frame };
     const inspect = fixture.handlers.get(transferChannels.inspectPartial)!;
     const clean = fixture.handlers.get(transferChannels.cleanupPartial)!;
+    const inspectContinuation = fixture.handlers.get(transferChannels.inspectResume)!;
+    const continueTransfer = fixture.handlers.get(transferChannels.resume)!;
+    await expect(inspectContinuation({ ...event, sender: {} }, id, sessionId)).rejects.toThrow(
+      'Unauthorized',
+    );
+    await expect(continueTransfer({ ...event, sender: {} }, id)).rejects.toThrow('Unauthorized');
+    await expect(continueTransfer(event, id, { offset: 0, path: '/' })).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
     await expect(inspect({ ...event, sender: {} }, id, sessionId)).rejects.toThrow('Unauthorized');
     await expect(clean({ ...event, sender: {} }, id)).rejects.toThrow('Unauthorized');
     await expect(inspect(event, { id, path: '/' }, sessionId)).resolves.toEqual({
@@ -287,6 +308,30 @@ describe('file browser IPC', () => {
     connectedPeer = { ...peer };
     const start = async () =>
       ((await inspect(event, id, sessionId)) as { ok: true; value: PartialCleanupPreview }).value;
+    const startResume = async () =>
+      (
+        (await inspectContinuation(event, id, sessionId)) as {
+          ok: true;
+          value: TransferResumePreview;
+        }
+      ).value;
+    let continuation = await startResume();
+    await expect(clean(event, continuation.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
+    const cleanupOnly = await start();
+    await expect(continueTransfer(event, cleanupOnly.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
+    continuation = await startResume();
+    record = { ...record, updatedAt: '2026-11-09T00:00:00.500Z' };
+    await expect(continueTransfer(event, continuation.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
+    expect(copy).not.toHaveBeenCalled();
     let preview = await start();
     record = { ...record, updatedAt: '2026-11-09T00:00:01.000Z' };
     await expect(clean(event, preview.token)).resolves.toEqual({
@@ -322,6 +367,22 @@ describe('file browser IPC', () => {
     );
     expect(record.partialPath).toBeNull();
     expect(record.backupPath).toBe('/remote/original.bak');
+    record = {
+      ...record,
+      partialPath: file.path,
+      backupPath: null,
+      source: { ...file, path: join(tmpdir(), 'file.txt'), size: 10, version: 'source' },
+    };
+    continuation = await startResume();
+    await expect(continueTransfer(event, continuation.token)).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(copy).toHaveBeenCalledTimes(1);
+    await expect(continueTransfer(event, continuation.token)).resolves.toEqual({
+      ok: false,
+      code: 'recovery-stale',
+    });
     await expect(clean(event, preview.token)).resolves.toEqual({
       ok: false,
       code: 'recovery-stale',

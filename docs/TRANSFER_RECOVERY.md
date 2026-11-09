@@ -1,4 +1,4 @@
-# Transfer recovery — F37-A/B
+# Transfer recovery — F37
 
 ## Find saved records
 
@@ -67,6 +67,54 @@ another process can still replace a name in the final check-to-unlink interval. 
 exists for local unlink. Avoid concurrent edits to the staging path; this is not an atomic deletion
 guarantee against a hostile server or another process with the same account's write access.
 
+## Resume a verified transfer — F37-C
+
+1. Open **Files** in a connected SSH tab matching the recorded address, port, username and
+   host-key fingerprint. Find the specific saved record and choose **Resume…**.
+2. The preview checks the same creation evidence, canonical paths, private mode, source version
+   and exact source-prefix bytes used for cleanup. It also checks that the final destination
+   matches its recorded version, or remains absent if originally absent. A changed destination
+   requires manual review/new transfer rather than silently adopting it.
+3. Inspection probes non-truncating read/write access (`r+` over SFTP, `O_RDWR` locally), verifies
+   the opened staging metadata, and reports verified bytes, total size and remaining bytes.
+   Local download staging files with multiple hard links are refused for resume.
+4. Review the path, account, fingerprint and byte counts. **Cancel** is focused by default.
+   Choose **Resume transfer**, or **Resume and replace** when the unchanged destination exists.
+   Replacement is explicitly approved again and retains the old destination in a new backup.
+5. Follow progress and cancellation in **Transfers**. The main-owned queue rebinds the original
+   recovery ID to this connection and journals acceptance before starting. It repeats verification
+   on its own SFTP channel and rechecks opened handles before appending at the verified offset.
+
+Resume never truncates/recreates the partial, accepts a renderer-supplied offset, automatically
+replays an old overwrite approval, or starts merely because the app was reopened. The existing
+source-change, destination-race, close/sync, staging-publication and backup checks still apply.
+A completely copied partial can be verified and published with zero remaining payload bytes.
+Journaled first attempts interrupted by connection loss or timeout before publication also retain
+their staging file; explicit cancellation of a new transfer still attempts cleanup. Cancellation
+or a copy failure during resume retains the adopted partial, including acknowledged new bytes,
+for a fresh preview. Successful publication removes the staging name where possible; cleanup
+failures keep reporting its path. A resolved entry without leftover paths is removed normally.
+
+Records with missing creation evidence, retained backups, a backup/publication checkpoint, a
+completed state or an uncertain publication are not eligible for automatic resume. Neither are
+missing sources, changed metadata/content, symlinks, replacement local inodes or unsupported
+file access. They remain available for cleanup/manual review. New server/file errors during
+copying also stop resume; the read/write probe is not a claim of vendor compatibility testing.
+
+Resume and cleanup approvals expire after 60 seconds, are single-use and purpose-bound, and
+are invalidated by record changes, renderer reset or connection closure. No byte payloads,
+credentials or reusable approvals are added to persistent storage. Resume uses schema 6's
+existing record format; no new database migration is required.
+
+Prefix verification reads the staged bytes again in bounded chunks; resume avoids rewriting
+that prefix, but does not promise reduced verification/network traffic. Preview inspection has
+the existing 15-second overall operation deadline. Queue-side verification/copying uses bounded
+30-second SFTP requests and remains cancellable. Standard SFTP does not expose portable inode
+or link counts or conditional publication; source identity uses size/time/mode/ownership metadata
+plus prefix bytes. Concurrent writers, deliberately preserved metadata and server violations of
+standard read/write/rename behavior remain outside an atomic integrity guarantee. Avoid editing
+these paths during recovery; live-server and platform acceptance are still required.
+
 ## Storage and failure handling
 
 SQLite schema 6 adds a separate `transfer_recovery` table through the existing backed-up
@@ -85,14 +133,15 @@ full SQLite backup/recovery includes it and may restore older, unverified eviden
 
 ## Remaining work and validation
 
-F37-C will add verified resume with fresh connection ownership, source/destination/partial
-verification, supported server operations and explicit decisions. Copying does not resume and
-old overwrite decisions are not replayed. Remote-editor preparation downloads and retained
-working-copy discovery are not indexed here; explicit editor uploads use the journaled queue.
+F37 implementation is complete; Phase 4 acceptance remains outstanding. Remote-editor
+preparation downloads and retained working-copy discovery are not indexed here; explicit editor
+uploads use the journaled queue and require the original immutable source snapshot for recovery.
 
 Regression code covers persistence without replay, migration, storage corruption/capacity,
-creation checkpoint ordering, local/remote cleanup and retained originals, invalid ownership,
-source/prefix changes, symlinks, replaced inodes, hard links, stale/expired previews, connection
-matching, IPC validation, and cancellation/confirmation UI. Test execution remains deferred at
-the user's request. Static/build results are recorded in `DEVELOPMENT_ROADMAP.md`; live SFTP,
-actual crash/restart, visual and Windows/macOS acceptance remain pending.
+creation checkpoint ordering, cleanup and retained originals, invalid ownership, changed
+source/prefix/destination, symlinks, replaced inodes, hard links, stale/expired/purpose-bound
+previews, connection matching, IPC validation, explicit resume ownership, offset copying,
+replacement backups, unsupported access, cancellation retention, zero-remaining-byte publication,
+and Cancel-first confirmation UI. Tests remain unrun at the user's request. Static/build results
+are recorded in `DEVELOPMENT_ROADMAP.md`; live SFTP, crash/restart, visual and Windows/macOS
+acceptance remain pending.

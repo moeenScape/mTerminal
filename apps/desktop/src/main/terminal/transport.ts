@@ -3,6 +3,10 @@ export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
 > & {
+  inspectResume?: (
+    record: import('../../shared/transfers.js').TransferRecoveryRecord,
+    signal: AbortSignal,
+  ) => Promise<import('../../shared/transfers.js').ResumeInspection>;
   recoverPartial?: (
     record: import('../../shared/transfers.js').TransferRecoveryRecord,
     signal: AbortSignal,
@@ -22,6 +26,7 @@ export type TerminalTransport = Pick<
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
     checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
+    resume?: import('../files/transfer-file.js').TransferResume,
   ) => Promise<import('../files/transfer-file.js').TransferOutcome>;
   mutateDirectory?: (
     path: string,

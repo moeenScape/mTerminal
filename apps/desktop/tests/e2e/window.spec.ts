@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import type { TransferRecoveryRecord } from '../../src/shared/transfers.js';
 import type { RemoteEditState } from '../../src/shared/remote-edit.js';
 
 const desktopDirectory = fileURLToPath(new URL('../../', import.meta.url));
@@ -126,6 +127,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'importSshKey',
       'importWorkspace',
       'inspectTransferPartial',
+      'inspectTransferResume',
       'installSshPublicKey',
       'listDirectory',
       'listHostGroups',
@@ -148,6 +150,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'resetVault',
       'resizeTerminal',
       'resolveTransferConflict',
+      'resumeTransfer',
       'saveHost',
       'saveHostGroup',
       'savePreferences',
@@ -283,7 +286,7 @@ test('shows saved recovery evidence and confirms forgetting only the record', as
   await expect(recovery).toHaveCount(0);
 });
 
-test('inspects a recovery item before confirmed temporary-file deletion', async () => {
+test('previews recovery cleanup and resume with explicit Cancel-first confirmations', async () => {
   await application.evaluate(({ ipcMain, BrowserWindow }) => {
     const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
     const peer = {
@@ -294,13 +297,13 @@ test('inspects a recovery item before confirmed temporary-file deletion', async 
     };
     const file = {
       path: `/remote/.mterminal-${id}.part`,
-      kind: 'file',
+      kind: 'file' as const,
       size: 3,
       modified: 1,
       permissions: '0600',
       version: 'partial',
     };
-    let records = [
+    let records: TransferRecoveryRecord[] = [
       {
         id,
         sessionId: id,
@@ -320,6 +323,39 @@ test('inspects a recovery item before confirmed temporary-file deletion', async 
         updatedAt: '2026-11-09T00:00:00.000Z',
       },
     ];
+    const resumeId = '14e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+    const resumeFile = { ...file, path: `/remote/.mterminal-${resumeId}.part` };
+    records.push({
+      ...records[0]!,
+      id: resumeId,
+      name: 'continue.txt',
+      partialPath: resumeFile.path,
+      backupPath: null,
+      staging: { ...resumeFile, size: 0 },
+      source: { ...file, path: '/local/continue.txt', size: 10 },
+      destination: { ...file, path: '/remote/continue.txt', size: 2 },
+    });
+    ipcMain.removeHandler('transfers:inspect-resume');
+    ipcMain.handle('transfers:inspect-resume', () => ({
+      ok: true,
+      value: {
+        file: resumeFile,
+        digest: 'hash',
+        token: resumeId,
+        recordId: resumeId,
+        side: 'remote',
+        peer,
+        destination: records.find((record) => record.id === resumeId)!.destination,
+        total: 10,
+        remaining: 7,
+      },
+    }));
+    ipcMain.removeHandler('transfers:resume');
+    ipcMain.handle('transfers:resume', () => {
+      records = records.filter((record) => record.id !== resumeId);
+      BrowserWindow.getAllWindows()[0]!.webContents.send('transfers:changed');
+      return { ok: true, value: undefined };
+    });
     ipcMain.removeHandler('terminal:ssh');
     ipcMain.handle('terminal:ssh', (event, id: string) => {
       event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
@@ -366,6 +402,19 @@ test('inspects a recovery item before confirmed temporary-file deletion', async 
   await inspect.click();
   await dialog.getByRole('button', { name: 'Delete temporary file', exact: true }).click();
   await expect(inspect).toHaveCount(0);
+  await expect(recovery).toContainText('/remote/retained.bak');
+  const resume = recovery.getByRole('button', { name: 'Preview resume for continue.txt' });
+  await resume.click();
+  const continuation = page.getByRole('dialog', { name: 'Resume verified transfer?' });
+  await expect(continuation).toContainText('Remaining:');
+  await expect(continuation).toContainText('/remote/continue.txt');
+  await expect(continuation).toContainText('new backup');
+  await expect(continuation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await continuation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(resume).toBeVisible();
+  await resume.click();
+  await continuation.getByRole('button', { name: 'Resume and replace', exact: true }).click();
+  await expect(resume).toHaveCount(0);
   await expect(recovery).toContainText('/remote/retained.bak');
 });
 

@@ -29,6 +29,7 @@ import {
   type TransferJob,
   type TransferRecoveryRecord,
   type PartialCleanupPreview,
+  type TransferResumePreview,
 } from '../shared/transfers.js';
 import {
   remoteEditChannels,
@@ -67,6 +68,9 @@ const api: DesktopApi = {
   },
   resolveTransferConflict: (id, token, choice) =>
     transferRequest<void>(transferChannels.resolve, id, token, choice),
+  inspectTransferResume: (id, sessionId) =>
+    transferRequest<TransferResumePreview>(transferChannels.inspectResume, id, sessionId),
+  resumeTransfer: (token) => transferRequest<void>(transferChannels.resume, token),
   inspectTransferPartial: (id, sessionId) =>
     transferRequest<PartialCleanupPreview>(transferChannels.inspectPartial, id, sessionId),
   cleanupTransferPartial: (token) => transferRequest<void>(transferChannels.cleanupPartial, token),
