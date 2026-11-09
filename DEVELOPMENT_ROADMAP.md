@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F40 implemented — Encrypted snippets with folders/tags, search, insertion and confirmed execution; acceptance pending |
-| Next feature | F41 — Startup snippets; Phase 4/5 runtime verification remains deferred |
+| Active feature | F41 implemented — Encrypted startup assignments with connection-bound review and at-most-once submission; acceptance pending |
+| Next feature | F42 — Multiple-host execution; Phase 4/5 runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -185,7 +185,7 @@ Dependencies: Stable sessions, storage, and credential handling.
   - [x] **F38-B — Resize and shortcuts (implementation):** Accessible pointer-captured dividers, Escape cancellation, balance/reset, keyboard limits/resizing, spatial focus shortcuts and recursive minimum sizes. Regression code written/type-checked; test execution, visual and platform acceptance deferred.
 - [x] **F39 — Workspace templates (implementation):** SQLite-backed named layouts, pane/tab order and split ratios; review/open adds fresh idle panes without replacing current sessions or replaying commands. Explicit per-pane startup, missing-host/limit checks and confirmed deletion. Regression code written; execution and runtime/platform acceptance deferred.
 - [x] **F40 — Snippets (implementation):** Shared encrypted local library with create/edit/delete, nested folders/tags and search; single-line Insert and target-bound, confirmed multiline Run. Vault lifecycle, quotas and regression code included; execution/runtime/platform acceptance deferred.
-- [ ] **F41 — Startup snippets:** Assigned connection-time actions with visible execution.
+- [x] **F41 — Startup snippets (implementation):** Encrypted local/per-host assignment, post-connect Review/Skip notice, current-command confirmation and at-most-once submission per session. No unattended execution or completion claim; regression code written, execution/runtime acceptance deferred.
 - [ ] **F42 — Multiple-host execution:** Destination selection and per-host results/failures.
 - [ ] **F43 — Broadcast input:** Explicit mode, visible recipients, and immediate stop.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
@@ -1312,3 +1312,34 @@ split-pane targeting and changed-session refusal. Test execution remains deferre
 request. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64.
 Live SSH, real keychain restart, native/visual and Windows/macOS acceptance remain unverified. See `docs/SNIPPETS.md`. Preserve unrelated local
 storage documentation edits and the reference image.
+
+
+### F41 connection-time startup snippets — 2026-11-09
+
+Added one encrypted assignment per saved SSH host and a shared local-terminal assignment in
+Terminal tools → Snippets. Assigning/clearing affects new successful connections, including
+explicitly started template panes and splits. The optional startup catalog field preserves
+compatibility with existing version-1 snippet files; CRUD retains assignments, snippet deletion
+removes references atomically, and host validation prevents assigning to missing hosts. No
+SQLite migration, dependency, plaintext binding or default-export change.
+
+Each successful connection checks its assignment once and displays Review startup / Skip.
+Review uses the existing full-command confirmation, refetches current content and binds it to
+the session/terminal/generation. Confirmation revalidates the assignment, vault, selected visible
+pane, readiness and supported prompt state. Skip/Cancel consumes the startup action; recording
+an attempt before sending prevents replay after an uncertain partial send. The notice explicitly
+does not report command completion. Reconnect creates a fresh review offer, not automatic input.
+
+Disconnect/unmount invalidates late lookup results; lock clears decrypted notices/previews.
+A manual Check startup snippets action handles lookup failures after unlock without repeating
+consumed actions. Existing manual snippets remain separate. Unsupported shell/SSH prompt state
+requires the user to confirm readiness. See `docs/SNIPPETS.md#startup-assignments`.
+
+Regression code covers old catalog compatibility, target/reference/count validation, encrypted
+host/local persistence, edits/deletion, failed assignment writes, IPC target ownership, UI
+assignment, zero input before approval, cancel/skip, one submission across focus changes,
+explicit reconnect, changed assignment refusal and late lookup disposal after exit. Tests
+remain unrun at the user's request. `npm run check`, `npm run build` and `git diff --check`
+passed on Linux x64. Visual/accessibility, real keychain, live SSH and Windows/macOS acceptance
+remain unverified. Preserve unrelated
+local-storage documentation edits and the reference image. F42 is next.

@@ -383,3 +383,36 @@ describe('encrypted snippet storage', () => {
     }
   });
 });
+
+describe('encrypted startup snippet assignments', () => {
+  it('keeps host/local bindings across restart and updates, and removes bindings with deleted snippets', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-startup-'));
+    try {
+      const provider = fakeStorage();
+      const store = new SshSecretStore(directory, provider, 'linux');
+      await store.setupVault(vaultPassphrase);
+      const draft = { name: 'Startup', command: 'echo STARTUP_PRIVATE', folder: '', tags: [] };
+      const snippet = await store.saveSnippet(draft);
+      await store.setStartupSnippet('local', snippet.id);
+      await store.setStartupSnippet(identityId, snippet.id);
+      const ciphertext = await readFile(join(directory, 'snippets.enc'));
+      expect(ciphertext.toString()).not.toContain('STARTUP_PRIVATE');
+      expect(ciphertext.toString()).not.toContain(identityId);
+      const reopened = new SshSecretStore(directory, provider, 'linux');
+      await reopened.unlockVault(vaultPassphrase);
+      expect(await reopened.getStartupSnippet('local')).toEqual(snippet);
+      expect(await reopened.getStartupSnippet(identityId)).toEqual(snippet);
+      await reopened.saveSnippet({ ...draft, command: 'echo updated' }, snippet.id);
+      expect((await reopened.getStartupSnippet(identityId))?.command).toBe('echo updated');
+      vi.spyOn(provider, 'encryptStringAsync').mockRejectedValueOnce(new Error('failed write'));
+      await expect(reopened.setStartupSnippet('local', null)).rejects.toThrow();
+      expect((await reopened.getStartupSnippet('local'))?.id).toBe(snippet.id);
+      await reopened.setStartupSnippet('local', null);
+      expect(await reopened.getStartupSnippet('local')).toBeNull();
+      await reopened.deleteSnippet(snippet.id);
+      expect(await reopened.getStartupSnippet(identityId)).toBeNull();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});

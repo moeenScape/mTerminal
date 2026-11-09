@@ -125,6 +125,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'getShells',
       'getSshKeyStatus',
       'getSshPasswordStatus',
+      'getStartupSnippet',
       'getVaultState',
       'importSshKey',
       'importWorkspace',
@@ -165,6 +166,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveSshPassword',
       'saveWorkspaceTemplate',
       'searchHistory',
+      'setStartupSnippet',
       'setupVault',
       'startRemoteEdit',
       'unlockVault',
@@ -1701,12 +1703,25 @@ async function snippetFixture() {
       string,
       { id: string; name: string; command: string; folder: string; tags: string[] }
     >();
+    const startup = new Map<string, string>();
     const writes: { id: string; data: string }[] = [];
     ipcMain.removeHandler('vault:state');
     ipcMain.handle('vault:state', () => ({
       ok: true,
       value: { configured: true, locked: false, available: true },
     }));
+    ipcMain.removeHandler('snippets:startup');
+    ipcMain.handle('snippets:startup', (_event, target: string) => ({
+      ok: true,
+      value: snippets.get(startup.get(target) ?? '') ?? null,
+    }));
+    ipcMain.removeHandler('snippets:set-startup');
+    ipcMain.handle('snippets:set-startup', (event, target: string, id: string | null) => {
+      if (id) startup.set(target, id);
+      else startup.delete(target);
+      event.sender.send('snippets:changed');
+      return { ok: true, value: undefined };
+    });
     ipcMain.removeHandler('snippets:list');
     ipcMain.handle('snippets:list', () => ({ ok: true, value: [...snippets.values()] }));
     ipcMain.removeHandler('snippets:save');
@@ -1720,6 +1735,7 @@ async function snippetFixture() {
     ipcMain.removeHandler('snippets:delete');
     ipcMain.handle('snippets:delete', (event, id: string) => {
       snippets.delete(id);
+      for (const [target, snippetId] of startup) if (snippetId === id) startup.delete(target);
       event.sender.send('snippets:changed');
       return { ok: true, value: undefined };
     });
@@ -1851,6 +1867,179 @@ test('confirms multiline snippet execution in one split pane and rejects a chang
   expect(
     (await snippetWrites()).filter((write) => write.data.includes('SNIPPET_FIRST_LINE')),
   ).toHaveLength(1);
+});
+
+test('assigns a local startup action, skips/cancels without sending and submits once on a new connection', async () => {
+  await snippetFixture();
+  const snippet = await page.evaluate(() =>
+    window.mterminal.saveSnippet({
+      name: 'Startup check',
+      command: 'echo STARTUP_APPROVED_VALUE',
+      folder: '',
+      tags: [],
+    }),
+  );
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const tools = await openTools('Snippets');
+  const assignment = tools.getByRole('region', { name: 'Startup snippet assignment' });
+  await assignment.getByRole('combobox').selectOption(snippet.id);
+  await assignment.getByRole('button', { name: 'Save startup assignment' }).click();
+  await expect(assignment.getByRole('status')).toContainText('saved for new connections');
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(second.getByRole('button', { name: 'Review startup' })).toBeVisible();
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_APPROVED_VALUE')),
+  ).toHaveLength(0);
+  await expect(async () => {
+    await second.getByRole('button', { name: 'Review startup' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Run “Startup check” in “Terminal 2”?' }),
+    ).toBeVisible({ timeout: 300 });
+  }).toPass({ timeout: 5000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(
+    second.getByRole('status').filter({ hasText: 'skipped for this session' }),
+  ).toBeVisible();
+  await expect(second.getByRole('button', { name: 'Review startup' })).toHaveCount(0);
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_APPROVED_VALUE')),
+  ).toHaveLength(0);
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const third = page.getByRole('tabpanel', { name: 'Terminal 3', exact: true });
+  await expect(third.getByRole('button', { name: 'Review startup' })).toBeVisible();
+  await expect(async () => {
+    await third.getByRole('button', { name: 'Review startup' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Run “Startup check” in “Terminal 3”?' }),
+    ).toBeVisible({ timeout: 300 });
+  }).toPass({ timeout: 5000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'Run snippet', exact: true }).click();
+  await expect(
+    third.getByRole('status').filter({ hasText: 'Completion is not verified' }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: 'Terminal 2', exact: true }).click();
+  await page.getByRole('tab', { name: 'Terminal 3', exact: true }).click();
+  await expect(third.getByRole('button', { name: 'Review startup' })).toHaveCount(0);
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_APPROVED_VALUE')),
+  ).toHaveLength(1);
+  await third.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(third.getByRole('status').filter({ hasText: 'Shell exited' })).toBeVisible();
+  await third.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await expect(third.getByRole('button', { name: 'Review startup' })).toBeVisible();
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_APPROVED_VALUE')),
+  ).toHaveLength(1);
+  await third.getByRole('button', { name: 'Skip startup' }).click();
+  await expect(third.getByRole('button', { name: 'Review startup' })).toHaveCount(0);
+});
+
+test('reviews a host startup action and refuses an assignment removed while confirmation is open', async () => {
+  await snippetFixture();
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', (event, id: string) => {
+      event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+      return { ok: true };
+    });
+  });
+  const hostId = await page.evaluate(async () => {
+    const host = await window.mterminal.saveHost({
+      name: 'Startup host',
+      address: 'example.internal',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+    const snippet = await window.mterminal.saveSnippet({
+      name: 'Remote startup',
+      command: 'echo STARTUP_REMOTE_VALUE',
+      folder: '',
+      tags: [],
+    });
+    await window.mterminal.setStartupSnippet(host.id, snippet.id);
+    return host.id;
+  });
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Startup host', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill('fixture-password');
+  await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Review startup' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review startup' }).click();
+  const confirmation = page.getByRole('dialog', {
+    name: 'Run “Remote startup” in “Startup host”?',
+  });
+  await expect(confirmation.locator('pre')).toHaveText('echo STARTUP_REMOTE_VALUE');
+  await page.evaluate((id) => window.mterminal.setStartupSnippet(id, null), hostId);
+  await confirmation.getByRole('button', { name: 'Run snippet', exact: true }).click();
+  await expect(confirmation.getByRole('alert')).toContainText('assignment or command changed');
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_REMOTE_VALUE')),
+  ).toHaveLength(0);
+});
+
+test('discards a startup lookup that finishes after the session has exited', async () => {
+  await snippetFixture();
+  const snippet = await page.evaluate(() =>
+    window.mterminal.saveSnippet({
+      name: 'Late startup',
+      command: 'echo STARTUP_LATE_VALUE',
+      folder: '',
+      tags: [],
+    }),
+  );
+  await application.evaluate(({ ipcMain }, snippet) => {
+    let release: (() => void) | undefined;
+    ipcMain.removeHandler('snippets:startup');
+    ipcMain.handle(
+      'snippets:startup',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, value: snippet });
+        }),
+    );
+    ipcMain.on('fixture:startup-pending', (_event, respond: (value: boolean) => void) =>
+      respond(!!release),
+    );
+    ipcMain.on('fixture:release-startup', (_event, respond: () => void) => {
+      release?.();
+      respond();
+    });
+  }, snippet);
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const pane = page.getByRole('tabpanel', { name: 'Terminal 1', exact: true });
+  await expect
+    .poll(() =>
+      application.evaluate(
+        ({ ipcMain }) =>
+          new Promise<boolean>((resolve) => ipcMain.emit('fixture:startup-pending', null, resolve)),
+      ),
+    )
+    .toBe(true);
+  await pane.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(pane.getByRole('status').filter({ hasText: 'Shell exited' })).toBeVisible();
+  await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<void>((resolve) => ipcMain.emit('fixture:release-startup', null, resolve)),
+  );
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(pane.locator('.startup-notice')).toHaveCount(0);
+  expect(
+    (await snippetWrites()).filter((write) => write.data.includes('STARTUP_LATE_VALUE')),
+  ).toHaveLength(0);
 });
 
 test('keeps terminal appearance settings independent between tabs', async () => {

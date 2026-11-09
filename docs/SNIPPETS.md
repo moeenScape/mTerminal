@@ -34,8 +34,37 @@ determine whether another program or a password prompt will receive the input.
 
 A snippet uses the current shell environment and working directory. Saving, opening a tools
 panel, loading a workspace template or reconnecting never runs a snippet automatically.
-Startup assignment is a separate F41 feature. Snippet autocomplete sources remain F47 work;
+Startup assignments are described below. Snippet autocomplete sources remain F47 work;
 the existing history suggestions are unchanged.
+
+## Startup assignments
+
+In Terminal tools → Snippets, select a **Startup snippet for local terminals** or **this SSH
+host**, then click **Save startup assignment**. Select **None** to remove it. Local terminals
+share one assignment; each saved SSH host has its own. These changes apply to new connections,
+including explicitly started template panes and split sessions. Existing sessions are unaffected.
+
+After a connection opens successfully, its pane offers **Review startup** and **Skip startup**.
+Review fetches the current assignment and shows the full command in the existing confirmation
+dialog. No startup command is sent automatically. Check that the terminal is at an empty prompt,
+then choose Run snippet. A changed assignment/command is rejected at confirmation.
+
+Skip or Cancel dismisses the startup action for that connection. Once a submission is attempted,
+it cannot be repeated through the startup notice, even if the send fails partway through. The
+notice reports an attempt, not command completion or exit status. Watch the terminal output.
+A deliberate reconnect creates a new connection with a fresh review offer; focus changes and
+network failures never replay commands. Manual Run from the snippets library remains available.
+
+Vault lock clears pending commands. After unlocking, **Check startup snippets** can retry a failed
+lookup, but cannot repeat a consumed action. Late lookup results after disconnect/close are
+ignored. Startup snippets are not run while a template is merely opened or a connection is
+still authenticating. SSH/unsupported shells cannot detect prompt readiness automatically.
+
+Assignments are encrypted in `snippets.enc`, not stored in host metadata or exports. Old
+version-1 snippet files without assignments remain readable. There are at most 500 targets,
+within the existing collection byte limit. Editing a snippet preserves its assignments; deleting
+it removes those references in the same atomic write. Deleted host IDs never transfer their
+assignment to a newly created host, and cannot receive new non-empty assignments.
 
 ## Storage and verification
 

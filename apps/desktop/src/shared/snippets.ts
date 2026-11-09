@@ -5,6 +5,8 @@ export const snippetChannels = {
   list: 'snippets:list',
   save: 'snippets:save',
   delete: 'snippets:delete',
+  startup: 'snippets:startup',
+  setStartup: 'snippets:set-startup',
 } as const;
 export const SNIPPETS_CHANGED = 'snippets:changed';
 export interface SnippetDraft {
@@ -20,6 +22,8 @@ export interface SnippetsApi {
   listSnippets: () => Promise<Snippet[]>;
   saveSnippet: (draft: SnippetDraft, id?: string) => Promise<Snippet>;
   deleteSnippet: (id: string) => Promise<void>;
+  getStartupSnippet: (target: string) => Promise<Snippet | null>;
+  setStartupSnippet: (target: string, snippetId: string | null) => Promise<void>;
   onSnippetsChanged: (listener: () => void) => () => void;
 }
 function label(value: unknown, max: number): string {
@@ -93,4 +97,54 @@ export function matchingSnippets(entries: Snippet[], query: string, folder: stri
         a.name.localeCompare(b.name) ||
         a.id.localeCompare(b.id),
     );
+}
+
+export const MAX_STARTUP_ASSIGNMENTS = 500;
+export interface StartupAssignment {
+  target: string;
+  snippetId: string;
+}
+export interface SnippetCatalog {
+  version: 1;
+  snippets: Snippet[];
+  startup: StartupAssignment[];
+}
+export function validStartupTarget(value: unknown): value is string {
+  return value === 'local' || validHostId(value);
+}
+/** Version 1 files written before startup assignments omit `startup`. */
+export function validateSnippetCatalog(value: unknown): SnippetCatalog {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid snippet catalog.');
+  const data = value as Record<string, unknown>;
+  if (
+    Object.keys(data).some((key) => !['version', 'snippets', 'startup'].includes(key)) ||
+    data.version !== 1 ||
+    !Array.isArray(data.snippets) ||
+    data.snippets.length > MAX_SNIPPETS ||
+    (data.startup !== undefined &&
+      (!Array.isArray(data.startup) || data.startup.length > MAX_STARTUP_ASSIGNMENTS))
+  )
+    throw new Error('Invalid snippet catalog.');
+  const snippets = Array.from(data.snippets).map(validateSavedSnippet);
+  const ids = new Set(snippets.map((snippet) => snippet.id));
+  if (ids.size !== snippets.length) throw new Error('Duplicate snippet IDs.');
+  const targets = new Set<string>();
+  const startup = Array.from((data.startup ?? []) as unknown[]).map((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('Invalid startup assignment.');
+    const item = value as Record<string, unknown>;
+    if (
+      Object.keys(item).length !== 2 ||
+      Object.keys(item).some((key) => !['target', 'snippetId'].includes(key)) ||
+      !validStartupTarget(item.target) ||
+      targets.has(item.target) ||
+      typeof item.snippetId !== 'string' ||
+      !ids.has(item.snippetId)
+    )
+      throw new Error('Invalid startup assignment.');
+    targets.add(item.target);
+    return { target: item.target, snippetId: item.snippetId };
+  });
+  return { version: 1, snippets, startup };
 }

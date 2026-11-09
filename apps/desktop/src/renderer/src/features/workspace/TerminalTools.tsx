@@ -45,6 +45,7 @@ export function TerminalTools({
   onRunSnippet,
   onOpenVault,
   ready,
+  startupTarget,
   preferences,
   onPreferenceChange,
   appearance,
@@ -63,6 +64,7 @@ export function TerminalTools({
   onRunSnippet: (snippet: Snippet) => string | undefined;
   onOpenVault: () => Promise<void>;
   ready: boolean;
+  startupTarget: string;
   preferences: ToolsPreferences;
   onPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
   appearance: TerminalAppearance;
@@ -181,6 +183,7 @@ export function TerminalTools({
             onInsert={onInsert}
             onRun={onRunSnippet}
             ready={ready}
+            startupTarget={startupTarget}
           />
         )}
         {tab === 'themes' && (

@@ -240,6 +240,12 @@ or review and confirm **Run…** for the selected session. Multiline snippets re
 a changed session cannot receive a pending command. The local vault must be open.
 See [snippets](docs/SNIPPETS.md) for storage, limits and shell-prompt requirements.
 
+F41 adds a startup assignment in **Terminal tools → Snippets** for local terminals or the
+current SSH host. New connections show **Review startup / Skip startup**. The full command
+requires confirmation; cancel/skip or an attempted submission consumes the action for that
+connection. Reconnect offers a fresh review and never silently replays commands. Assignments
+stay in the encrypted vault; see [startup assignments](docs/SNIPPETS.md#startup-assignments).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

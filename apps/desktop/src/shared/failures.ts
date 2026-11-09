@@ -1,4 +1,6 @@
 export const failureMessages = {
+  'startup-limit':
+    'Startup assignment storage is full. Remove unused assignments before adding more (500 targets).',
   'snippet-limit':
     'Snippet storage is full. Delete unused snippets before saving more (200 snippets or 512 KiB).',
   'snippet-conflict':

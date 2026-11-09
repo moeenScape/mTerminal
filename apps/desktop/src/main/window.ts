@@ -132,7 +132,7 @@ export async function createMainWindow(
     for (const channel of Object.values(hostChannels)) ipcMain.removeHandler(channel);
   });
 
-  attachSnippets(window, rendererUrl, secrets);
+  attachSnippets(window, rendererUrl, secrets, database);
 
   for (const channel of Object.values(templateChannels)) {
     ipcMain.handle(channel, (event, ...args: unknown[]) => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { validateSnippet, matchingSnippets, type Snippet } from '../../src/shared/snippets.js';
+import {
+  validateSnippetCatalog,
+  validateSnippet,
+  matchingSnippets,
+  type Snippet,
+} from '../../src/shared/snippets.js';
 const draft = {
   name: 'Deploy',
   command: '  echo ready\r\necho done\r',
@@ -47,5 +52,39 @@ describe('snippet validation and search', () => {
     expect(matchingSnippets(snippets, '', 'Work/Production')).toEqual([snippets[0]]);
     expect(matchingSnippets(snippets, 'debug', 'Work/Production')).toEqual([]);
     expect(matchingSnippets(snippets, 'logs journalctl', '')).toEqual([snippets[1]]);
+  });
+});
+
+describe('startup assignment catalog compatibility', () => {
+  const id = '04e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+  const snippet = { ...validateSnippet(draft), id };
+  it('reads existing version-1 files without assignments', () => {
+    expect(validateSnippetCatalog({ version: 1, snippets: [snippet] })).toEqual({
+      version: 1,
+      snippets: [snippet],
+      startup: [],
+    });
+    expect(
+      validateSnippetCatalog({
+        version: 1,
+        snippets: [snippet],
+        startup: [{ target: 'local', snippetId: id }],
+      }).startup,
+    ).toHaveLength(1);
+  });
+  it('refuses orphaned, duplicate, malformed and excessive startup assignments', () => {
+    const catalog = { version: 1, snippets: [snippet] };
+    for (const startup of [
+      [{ target: 'local', snippetId: 'missing' }],
+      [{ target: '../host', snippetId: id }],
+      [
+        { target: 'local', snippetId: id },
+        { target: 'local', snippetId: id },
+      ],
+      [{ target: 'local', snippetId: id, command: 'not-stored' }],
+      Array(501).fill({ target: 'local', snippetId: id }),
+      Array(1),
+    ])
+      expect(() => validateSnippetCatalog({ ...catalog, startup })).toThrow();
   });
 });

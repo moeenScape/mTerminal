@@ -42,6 +42,13 @@ import { mirrorTerminalStyles } from './xterm-styles';
 import { useCommandHistory } from './useCommandHistory';
 import { FileBrowser } from '../files/FileBrowser';
 
+type StartupNotice = {
+  sessionId: string;
+  kind: 'loading' | 'ready' | 'unavailable' | 'done';
+  snippet?: Snippet;
+  message?: string;
+};
+
 export function TerminalPane({
   id,
   title,
@@ -125,20 +132,36 @@ export function TerminalPane({
     onSessionStatus: historyStatus,
   } = history;
   const [tools, setTools] = useState<ToolTab | null>(null);
+  const startupGeneration = useRef(0);
+  const startupConsumed = useRef<{ sessionId: string; message: string } | null>(null);
+  const [startup, setStartup] = useState<StartupNotice | null>(null);
   const snippetGeneration = useRef(0);
   const [snippetRun, setSnippetRun] = useState<{
     snippet: Snippet;
     generation: number;
+    startup: boolean;
     sessionId: string;
     term: Terminal;
   } | null>(null);
   useEffect(() => {
     const invalidate = () => {
       snippetGeneration.current++;
+      startupGeneration.current++;
     };
     const unsubscribe = window.mterminal.onVaultLocked(() => {
       invalidate();
       setSnippetRun(null);
+      const current = session.current;
+      if (current)
+        setStartup(
+          startupConsumed.current?.sessionId === current
+            ? { ...startupConsumed.current, kind: 'done' }
+            : {
+                sessionId: current,
+                kind: 'unavailable',
+                message: 'Unlock the vault, then check startup snippets.',
+              },
+        );
     });
     return () => {
       invalidate();
@@ -270,6 +293,8 @@ export function TerminalPane({
       } else {
         setSshChallenge(null);
         inputReady.current = false;
+        startupGeneration.current++;
+        setStartup(null);
         session.current = null;
         setRunning(false);
         setStarting(false);
@@ -372,6 +397,37 @@ export function TerminalPane({
     if (container.current?.clientWidth) terminal.current?.focus();
   }
 
+  const loadStartup = useCallback(
+    async (sessionId: string) => {
+      if (startupConsumed.current?.sessionId === sessionId) {
+        setStartup({ ...startupConsumed.current, kind: 'done' });
+        return;
+      }
+      const generation = ++startupGeneration.current;
+      setStartup({ sessionId, kind: 'loading' });
+      try {
+        const vault = await window.mterminal.getVaultState();
+        if (!vault.configured) {
+          if (generation === startupGeneration.current && session.current === sessionId)
+            setStartup(null);
+          return;
+        }
+        const snippet = await window.mterminal.getStartupSnippet(hostId ?? 'local');
+        if (generation !== startupGeneration.current || session.current !== sessionId) return;
+        setStartup(snippet ? { sessionId, kind: 'ready', snippet } : null);
+      } catch {
+        if (generation === startupGeneration.current && session.current === sessionId)
+          setStartup({
+            sessionId,
+            kind: 'unavailable',
+            message:
+              'Startup snippets could not be checked. Unlock the vault or check snippet storage, then retry.',
+          });
+      }
+    },
+    [hostId],
+  );
+
   const start = useCallback(
     async (credentials?: SshCredentials) => {
       const term = terminal.current;
@@ -412,6 +468,8 @@ export function TerminalPane({
         return;
       }
       inputReady.current = false;
+      startupGeneration.current++;
+      setStartup(null);
       setSearchOpen(false);
       setQuery('');
       search.current?.close();
@@ -433,6 +491,7 @@ export function TerminalPane({
         setStarting(false);
         onPhaseChange(id, hostId ? 'connected' : 'running');
         setStatus(hostId ? 'SSH connected' : 'Local shell running');
+        void loadStartup(sessionId);
         const panel = document.getElementById(`terminal-panel-${id}`);
         if (
           panel?.clientWidth &&
@@ -476,7 +535,7 @@ export function TerminalPane({
         }
       }
     },
-    [id, onPhaseChange, hostId, logConnection],
+    [id, onPhaseChange, hostId, logConnection, loadStartup],
   );
   useEffect(() => {
     if (!autoStart || !active || autoStarted.current) return;
@@ -511,7 +570,7 @@ export function TerminalPane({
     }
     return history.insert(command);
   }
-  function requestSnippetRun(snippet: Snippet): string | undefined {
+  function requestSnippetRun(snippet: Snippet, startupRun = false): string | undefined {
     const term = terminal.current;
     if (!active || filesOpen || !inputReady.current || !session.current || !term)
       return 'Select a running terminal before running a snippet.';
@@ -520,10 +579,38 @@ export function TerminalPane({
     setSnippetRun({
       snippet,
       generation: ++snippetGeneration.current,
+      startup: startupRun,
       sessionId: session.current,
       term,
     });
     return undefined;
+  }
+  function skipStartup(sessionId: string) {
+    if (session.current !== sessionId) return;
+    startupGeneration.current++;
+    startupConsumed.current = { sessionId, message: 'Startup snippet skipped for this session.' };
+    setStartup(session.current === sessionId ? { ...startupConsumed.current, kind: 'done' } : null);
+  }
+  async function reviewStartup(sessionId: string) {
+    if (session.current !== sessionId || startupConsumed.current?.sessionId === sessionId) return;
+    const generation = ++startupGeneration.current;
+    try {
+      const snippet = await window.mterminal.getStartupSnippet(hostId ?? 'local');
+      if (generation !== startupGeneration.current || session.current !== sessionId) return;
+      if (!snippet) {
+        setStartup(null);
+        return;
+      }
+      const error = requestSnippetRun(snippet, true);
+      setStartup({ sessionId, kind: 'ready', snippet, ...(error ? { message: error } : {}) });
+    } catch {
+      if (generation === startupGeneration.current && session.current === sessionId)
+        setStartup({
+          sessionId,
+          kind: 'unavailable',
+          message: 'Unable to review the startup snippet. Unlock the vault and retry.',
+        });
+    }
   }
   const menuItems: MenuItem[] = [
     {
@@ -722,6 +809,43 @@ export function TerminalPane({
           <Icon name="more" />
         </button>
       </header>
+      {startup && (
+        <section className="startup-notice" aria-label="Startup snippet" role="status">
+          <span>
+            {startup.kind === 'loading'
+              ? 'Checking startup snippets…'
+              : startup.kind === 'ready'
+                ? `Startup snippet: ${startup.snippet?.name}`
+                : startup.message}
+          </span>
+          {startup.kind === 'ready' && (
+            <>
+              <button
+                type="button"
+                disabled={!running || !active || filesOpen}
+                onClick={() => void reviewStartup(startup.sessionId)}
+              >
+                Review startup
+              </button>
+              <button type="button" onClick={() => skipStartup(startup.sessionId)}>
+                Skip startup
+              </button>
+              {startup.message && <span>{startup.message}</span>}
+            </>
+          )}
+          {startup.kind === 'unavailable' && (
+            <button
+              type="button"
+              disabled={!running || !active}
+              onClick={() => {
+                if (session.current) void loadStartup(session.current);
+              }}
+            >
+              Check startup snippets
+            </button>
+          )}
+        </section>
+      )}
       {searchOpen && (
         <form
           className="terminal-search"
@@ -855,6 +979,7 @@ export function TerminalPane({
             onRunSnippet={requestSnippetRun}
             onOpenVault={onOpenVault}
             ready={running && active && !filesOpen}
+            startupTarget={hostId ?? 'local'}
             preferences={toolsPreferences}
             onPreferenceChange={onToolsPreferenceChange}
             appearance={terminalAppearance}
@@ -869,6 +994,7 @@ export function TerminalPane({
           confirmLabel="Run snippet"
           onCancel={() => {
             snippetGeneration.current++;
+            if (snippetRun.startup) skipStartup(snippetRun.sessionId);
             setSnippetRun(null);
           }}
           onConfirm={async () => {
@@ -876,6 +1002,21 @@ export function TerminalPane({
             const vault = await window.mterminal.getVaultState();
             if (!vault.configured || vault.locked || !vault.available)
               throw new Error('Unlock the vault before running a saved snippet.');
+            if (target.startup) {
+              const current = await window.mterminal.getStartupSnippet(hostId ?? 'local');
+              if (
+                !current ||
+                current.id !== target.snippet.id ||
+                current.command !== target.snippet.command
+              )
+                throw new Error(
+                  'The startup assignment or command changed. Cancel to skip it for this session; use Snippets to review the current command.',
+                );
+              if (startupConsumed.current?.sessionId === target.sessionId)
+                throw new Error(
+                  'The startup action was already attempted or skipped for this session. It will not be repeated.',
+                );
+            }
             const panel = document.getElementById(`terminal-panel-${id}`);
             if (
               snippetGeneration.current !== target.generation ||
@@ -892,6 +1033,13 @@ export function TerminalPane({
             const error = history.insertionError();
             if (error) throw new Error(error);
             const command = validateSavedSnippet(target.snippet).command;
+            if (target.startup) {
+              startupConsumed.current = {
+                sessionId: target.sessionId,
+                message: 'Startup snippet submission attempted. Completion is not verified.',
+              };
+              setStartup({ ...startupConsumed.current, kind: 'done' });
+            }
             target.term.paste(command);
             target.term.input('\r', true);
             snippetGeneration.current++;
@@ -904,6 +1052,12 @@ export function TerminalPane({
             Send this command to this terminal and press Enter. Ensure it is at an empty shell
             prompt; SSH and unsupported shells cannot verify the current program or prompt.
           </p>
+          {snippetRun.startup && (
+            <p>
+              This is the assigned startup action. Cancel skips it for this session; a submission
+              attempt will not be repeated automatically.
+            </p>
+          )}
           <pre className="snippet-preview">{snippetRun.snippet.command}</pre>
         </ConfirmDialog>
       )}

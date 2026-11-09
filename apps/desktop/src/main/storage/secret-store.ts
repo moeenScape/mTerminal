@@ -1,7 +1,10 @@
 import {
   MAX_SNIPPETS,
   validateSnippet,
-  validateSavedSnippet,
+  validateSnippetCatalog,
+  validStartupTarget,
+  MAX_STARTUP_ASSIGNMENTS,
+  type SnippetCatalog,
   type Snippet,
 } from '../../shared/snippets.js';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto';
@@ -409,7 +412,7 @@ export class SshSecretStore {
     });
   }
 
-  private async readSnippets(): Promise<Snippet[]> {
+  private async readSnippetCatalog(): Promise<SnippetCatalog> {
     this.requireUnlocked();
     await this.requireSecureStorage();
     try {
@@ -420,29 +423,19 @@ export class SshSecretStore {
       const decrypted = await this.storage.decryptStringAsync(await readFile(path));
       const plaintext = await this.reveal(decrypted.result);
       if (Buffer.byteLength(plaintext) > 512 * 1024) throw new AppFailure('vault-corrupt');
-      const data = JSON.parse(plaintext) as { version?: unknown; snippets?: unknown };
-      if (
-        !data ||
-        Object.keys(data).length !== 2 ||
-        data.version !== 1 ||
-        !Array.isArray(data.snippets) ||
-        data.snippets.length > MAX_SNIPPETS
-      )
-        throw new AppFailure('vault-corrupt');
-      const snippets = Array.from(data.snippets).map(validateSavedSnippet);
-      if (new Set(snippets.map((item) => item.id)).size !== snippets.length)
-        throw new AppFailure('vault-corrupt');
+      const catalog = validateSnippetCatalog(JSON.parse(plaintext));
       if (decrypted.shouldReEncrypt)
         await this.writeEncrypted(path, await this.storage.encryptStringAsync(decrypted.result));
-      return snippets;
+      return catalog;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { version: 1, snippets: [], startup: [] };
       if (error instanceof AppFailure) throw error;
       throw new AppFailure('vault-corrupt');
     }
   }
-  private async writeSnippets(snippets: Snippet[]): Promise<void> {
-    const plaintext = JSON.stringify({ version: 1, snippets });
+  private async writeSnippetCatalog(catalog: SnippetCatalog): Promise<void> {
+    const plaintext = JSON.stringify(catalog);
     if (Buffer.byteLength(plaintext) > 512 * 1024) throw new AppFailure('snippet-limit');
     await this.writeEncrypted(
       join(this.directory, 'snippets.enc'),
@@ -450,13 +443,14 @@ export class SshSecretStore {
     );
   }
   listSnippets(): Promise<Snippet[]> {
-    return this.serialize(() => this.readSnippets());
+    return this.serialize(async () => (await this.readSnippetCatalog()).snippets);
   }
   saveSnippet(value: unknown, id?: string): Promise<Snippet> {
     const draft = validateSnippet(value);
     if (id !== undefined && !validHostId(id)) throw new Error('Invalid snippet ID.');
     return this.serialize(async () => {
-      const snippets = await this.readSnippets();
+      const catalog = await this.readSnippetCatalog();
+      const snippets = catalog.snippets;
       const existing = snippets.find((item) => item.id === id);
       if (id && !existing) throw new AppFailure('snippet-missing');
       if (!id && snippets.length >= MAX_SNIPPETS) throw new AppFailure('snippet-limit');
@@ -470,17 +464,47 @@ export class SshSecretStore {
       )
         throw new AppFailure('snippet-conflict');
       const saved = { ...draft, id: id ?? randomUUID() };
-      await this.writeSnippets(
-        existing ? snippets.map((item) => (item.id === id ? saved : item)) : [...snippets, saved],
-      );
+      await this.writeSnippetCatalog({
+        ...catalog,
+        snippets: existing
+          ? snippets.map((item) => (item.id === id ? saved : item))
+          : [...snippets, saved],
+      });
       return saved;
     });
   }
   deleteSnippet(id: string): Promise<void> {
     if (!validHostId(id)) throw new Error('Invalid snippet ID.');
     return this.serialize(async () => {
-      const snippets = await this.readSnippets();
-      await this.writeSnippets(snippets.filter((item) => item.id !== id));
+      const catalog = await this.readSnippetCatalog();
+      const snippets = catalog.snippets;
+      await this.writeSnippetCatalog({
+        ...catalog,
+        snippets: snippets.filter((item) => item.id !== id),
+        startup: catalog.startup.filter((item) => item.snippetId !== id),
+      });
+    });
+  }
+
+  getStartupSnippet(target: string): Promise<Snippet | null> {
+    if (!validStartupTarget(target)) throw new Error('Invalid startup target.');
+    return this.serialize(async () => {
+      const catalog = await this.readSnippetCatalog();
+      const assignment = catalog.startup.find((item) => item.target === target);
+      return catalog.snippets.find((snippet) => snippet.id === assignment?.snippetId) ?? null;
+    });
+  }
+  setStartupSnippet(target: string, snippetId: string | null): Promise<void> {
+    if (!validStartupTarget(target) || (snippetId !== null && !validHostId(snippetId)))
+      throw new Error('Invalid startup assignment.');
+    return this.serialize(async () => {
+      const catalog = await this.readSnippetCatalog();
+      if (snippetId && !catalog.snippets.some((snippet) => snippet.id === snippetId))
+        throw new AppFailure('snippet-missing');
+      const startup = catalog.startup.filter((item) => item.target !== target);
+      if (snippetId) startup.push({ target, snippetId });
+      if (startup.length > MAX_STARTUP_ASSIGNMENTS) throw new AppFailure('startup-limit');
+      await this.writeSnippetCatalog({ ...catalog, startup });
     });
   }
 

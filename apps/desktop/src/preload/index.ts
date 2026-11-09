@@ -59,6 +59,9 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  getStartupSnippet: (target) => historyRequest<Snippet | null>(snippetChannels.startup, target),
+  setStartupSnippet: (target, snippetId) =>
+    historyRequest<void>(snippetChannels.setStartup, target, snippetId),
   listSnippets: () => historyRequest<Snippet[]>(snippetChannels.list),
   saveSnippet: (draft, id) => historyRequest<Snippet>(snippetChannels.save, draft, id),
   deleteSnippet: (id) => historyRequest<void>(snippetChannels.delete, id),

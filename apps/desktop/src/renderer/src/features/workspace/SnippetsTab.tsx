@@ -124,14 +124,19 @@ export function SnippetsTab({
   onInsert,
   onRun,
   ready,
+  startupTarget,
 }: {
   vaultOpen: boolean;
   onOpenVault: () => Promise<void>;
   onInsert: (command: string) => string | undefined;
   onRun: (snippet: Snippet) => string | undefined;
   ready: boolean;
+  startupTarget: string;
 }) {
   const [entries, setEntries] = useState<Snippet[]>([]);
+  const [startupId, setStartupId] = useState('');
+  const [startupSaving, setStartupSaving] = useState(false);
+  const [startupMessage, setStartupMessage] = useState('');
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState('');
   const [loading, setLoading] = useState(true);
@@ -145,6 +150,8 @@ export function SnippetsTab({
     const locked = window.mterminal.onVaultLocked(() => {
       generation.current++;
       setEntries([]);
+      setStartupId('');
+      setStartupMessage('');
       setEditing(null);
       setDeleting(null);
       setMessage('Unlock the local vault to use snippets.');
@@ -157,10 +164,18 @@ export function SnippetsTab({
   useEffect(() => {
     const token = ++generation.current;
     let cancelled = false;
-    void (vaultOpen ? window.mterminal.listSnippets() : Promise.resolve([]))
-      .then((items) => {
+    void (
+      vaultOpen
+        ? Promise.all([
+            window.mterminal.listSnippets(),
+            window.mterminal.getStartupSnippet(startupTarget),
+          ])
+        : Promise.resolve<[Snippet[], Snippet | null]>([[], null])
+    )
+      .then(([items, assigned]) => {
         if (!cancelled && token === generation.current) {
           setEntries(items);
+          setStartupId(assigned?.id ?? '');
           setFolder((current) =>
             current &&
             !items.some((item) => item.folder === current || item.folder.startsWith(current + '/'))
@@ -181,7 +196,7 @@ export function SnippetsTab({
     return () => {
       cancelled = true;
     };
-  }, [vaultOpen, revision]);
+  }, [vaultOpen, revision, startupTarget]);
   const folders = [
     ...new Set(
       entries.flatMap((entry) =>
@@ -231,6 +246,56 @@ export function SnippetsTab({
           Reload
         </button>
       </div>
+      <section className="startup-assignment" aria-label="Startup snippet assignment">
+        <label>
+          Startup snippet for {startupTarget === 'local' ? 'local terminals' : 'this SSH host'}
+          <select
+            value={startupId}
+            disabled={loading || startupSaving}
+            onChange={(event) => {
+              setStartupId(event.target.value);
+              setStartupMessage('');
+            }}
+          >
+            <option value="">None</option>
+            {entries.map((snippet) => (
+              <option key={snippet.id} value={snippet.id}>
+                {snippet.name}
+                {snippet.folder ? ` · ${snippet.folder}` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={loading || startupSaving}
+          onClick={async () => {
+            if (startupSaving) return;
+            setStartupSaving(true);
+            setStartupMessage('');
+            try {
+              await window.mterminal.setStartupSnippet(startupTarget, startupId || null);
+              setStartupMessage('Startup assignment saved for new connections.');
+            } catch (cause) {
+              setStartupMessage(errorMessage(cause, 'Unable to save the startup assignment.'));
+            } finally {
+              setStartupSaving(false);
+            }
+          }}
+        >
+          Save startup assignment
+        </button>
+        <p className="tool-note">
+          New connections offer Review startup or Skip. Commands require confirmation before
+          submission.
+        </p>
+        {startupMessage && (
+          <p role="status" className="tool-note">
+            {startupMessage}
+          </p>
+        )}
+      </section>
       <label className="tools-search">
         <input
           type="search"
