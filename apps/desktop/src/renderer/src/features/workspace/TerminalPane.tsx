@@ -541,6 +541,7 @@ export function TerminalPane({
       )}
       {sshPrompt && (
         <SshPrompt
+          key={`${hostId}:${sshNotice}`}
           title={title}
           reconnect={attempted}
           hostId={hostId!}

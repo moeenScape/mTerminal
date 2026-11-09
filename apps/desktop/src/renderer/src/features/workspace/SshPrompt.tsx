@@ -1,3 +1,4 @@
+import { rememberMissingUsername } from './saved-credentials';
 import { resolveHost } from '../../../../shared/hosts';
 import { useEffect, useRef, useState } from 'react';
 import { validateSshCredentials, type SshCredentials } from '../../../../shared/ssh';
@@ -20,7 +21,17 @@ export function SshPrompt({
   onCancel: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const active = useRef(true);
+  const pendingSubmit = useRef(false);
+  const [loadingCredentials, setLoadingCredentials] = useState(true);
+  const cancel = () => {
+    active.current = false;
+    onCancel();
+  };
   const [username, setUsername] = useState('');
+  const [missingUsername, setMissingUsername] = useState(false);
+  const [rememberUsername, setRememberUsername] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [method, setMethod] = useState<'password' | 'privateKey' | 'keyboard-interactive'>(
     'password',
@@ -40,6 +51,7 @@ export function SshPrompt({
   const selectedFile = useRef<File | null>(null);
   useEffect(() => {
     let cancelled = false;
+    active.current = true;
     const dialog = ref.current;
     dialog?.showModal();
     void Promise.all([
@@ -54,6 +66,7 @@ export function SshPrompt({
           const identity = identities.find((item) => item.id === resolved.identityId);
           setIdentityId(identity?.id ?? null);
           setUsername((current) => current || identity?.username || resolved.username);
+          setMissingUsername(!(identity?.username || resolved.username));
           setMethod(identity?.method ?? 'password');
           if (identity) {
             void window.mterminal
@@ -87,22 +100,37 @@ export function SshPrompt({
               setUseSavedPassword(status.available && status.saved && !notice);
             } catch {
               if (!cancelled) setVaultAvailable(false);
+            } finally {
+              if (!cancelled) setLoadingCredentials(false);
             }
           })();
+        } else if (!cancelled) {
+          setLoadingCredentials(false);
+          setError('This saved host no longer exists.');
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setLoadingCredentials(false);
+          setError('Unable to load saved connection details. Close this dialog and retry.');
+        }
+      });
     return () => {
       cancelled = true;
+      active.current = false;
       selectedFile.current = null;
       dialog?.close();
     };
   }, [hostId, notice]);
   return (
-    <dialog ref={ref} className="terminal-dialog" aria-labelledby="ssh-title" onCancel={onCancel}>
+    <dialog ref={ref} className="terminal-dialog" aria-labelledby="ssh-title" onCancel={cancel}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
+          if (pendingSubmit.current || loadingCredentials || !active.current) return;
+          pendingSubmit.current = true;
+          setSubmitting(true);
+          setError('');
           const form = event.currentTarget;
           const data = new FormData(form);
           try {
@@ -110,7 +138,7 @@ export function SshPrompt({
               username: data.get('username'),
               method,
               ...(method === 'password' && useSavedPassword
-                ? { useSavedPassword: true, savedPasswordIdentityId: identityId }
+                ? { useSavedPassword: true, savedPasswordIdentityId: passwordOwner }
                 : { password: data.get('password') }),
               ...(method === 'privateKey' && useSavedKey
                 ? { useSavedPrivateKey: true, savedPrivateKeyIdentityId: identityId }
@@ -118,8 +146,12 @@ export function SshPrompt({
               keyboardInteractive: data.get('keyboardInteractive') === 'on',
               fingerprint: data.get('fingerprint'),
             });
+            if (rememberUsername && missingUsername)
+              await rememberMissingUsername(hostId, credentials.username);
+            if (!active.current) return;
             if (rememberPassword && vaultAvailable && credentials.password)
               await window.mterminal.saveSshPassword(passwordOwner, credentials.password);
+            if (!active.current) return;
             selectedFile.current = null;
             setPrivateKey('');
             form.reset();
@@ -130,12 +162,16 @@ export function SshPrompt({
                 ? error.message
                 : 'Check the username, authentication fields and SHA256 fingerprint.',
             );
+          } finally {
+            pendingSubmit.current = false;
+            if (active.current) setSubmitting(false);
           }
         }}
       >
         <h2 id="ssh-title">
           {reconnect ? 'Reconnect' : 'Connect'} to “{title}”
         </h2>
+        {loadingCredentials && <p role="status">Checking saved connection details…</p>}
         {notice && (
           <p className="dialog-error" role="alert">
             {notice}
@@ -158,6 +194,17 @@ export function SshPrompt({
             autoComplete="off"
           />
         </label>
+        {missingUsername && (
+          <label>
+            <input
+              type="checkbox"
+              checked={rememberUsername}
+              disabled={submitting}
+              onChange={(event) => setRememberUsername(event.target.checked)}
+            />
+            Remember this username for this host on this device
+          </label>
+        )}
         <label>
           Authentication method
           <select
@@ -210,13 +257,20 @@ export function SshPrompt({
               checked={rememberPassword}
               onChange={(event) => setRememberPassword(event.target.checked)}
             />
-            Save password, so next time this host connects in one click
+            Save password on this device for one-click connections
           </label>
         )}
-        {method === 'password' && !vaultAvailable && (
+        {method === 'password' && vaultAvailable && (
+          <p className="field-hint">
+            Saved passwords stay in the encrypted vault when a terminal closes. Unlock the vault
+            after restarting the app to use them again.
+          </p>
+        )}
+        {method === 'password' && !vaultAvailable && !loadingCredentials && (
           <p role="status">
-            Set up or unlock the vault (status bar) to save passwords. This password is used only
-            for this connection.
+            This password will not be saved. Cancel this dialog, set up or unlock the vault in the
+            status bar, then connect with Save password selected. Otherwise it is used only for this
+            connection.
           </p>
         )}
         {savedPassword && (
@@ -334,12 +388,17 @@ export function SshPrompt({
         </p>
         {error && <p role="alert">{error}</p>}
         <div className="dialog-actions">
-          <button type="button" onClick={onCancel}>
+          <button type="button" onClick={cancel}>
             Cancel
           </button>
           <button
             type="submit"
-            disabled={keyLoading || (method === 'privateKey' && !useSavedKey && !privateKey)}
+            disabled={
+              loadingCredentials ||
+              submitting ||
+              keyLoading ||
+              (method === 'privateKey' && !useSavedKey && !privateKey)
+            }
           >
             {reconnect ? 'Reconnect' : 'Connect'}
           </button>

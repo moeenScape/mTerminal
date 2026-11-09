@@ -24,7 +24,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F32-A implemented — Compact SFTP layout, selection, filtering, history and collapsible activity panels; Phase 4 acceptance pending |
+| Active feature | F26-A fixed — Remember missing SSH usernames and correctly reuse host-owned saved passwords; verification pending |
 | Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
@@ -117,6 +117,7 @@ Dependencies: Phase 2. Required before releasing persistent passwords or private
 
 - [x] **F25 — Reusable identities (implementation):** Reusable local SSH identity profiles hold a display name, username and preferred authentication method. Hosts can override group identity defaults; nested groups inherit the nearest assignment. Deleting an identity clears references safely. Profiles contain no secret material. Tests written; Phase 3 gate deferred.
 - [x] **F26 — Secret storage (implementation):** Opt-in SSH passwords are encrypted through Electron safeStorage and stored as separate, permission-restricted ciphertext files. Passwords are decrypted only in the main process for authentication. Linux `basic_text` and unavailable keychain backends are refused. Tests written; Phase 3 gate deferred.
+  - [x] **F26-A — Remembered host login (fix):** First-prompt missing usernames can be saved to the same host without replacing configured defaults; saved-password references use the resolved password owner. Credential lookup/submission/cancel guards added. Existing encrypted vault and one-click lookup reused. Regression code written; tests unrun at the user's request.
 - [x] **F27 — SSH keys (implementation):** Import supported OpenSSH/RFC4716/PPK private keys, generate Ed25519 keys or passphrase-protected RSA 2048 keys, store key/passphrase ciphertext through OS secure storage, and use a managed key only with its assigned identity. The identity manager exposes the public key for copying. Tests written; Phase 3 gate deferred.
 - [x] **F28 — Public-key installation (implementation):** Install the assigned identity's managed public key to a confirmed host/account using SFTP, after the host fingerprint has been trusted. Preserve existing `authorized_keys` entries, avoid duplicates, and enforce `.ssh`/file permissions. Authentication uses the identity's saved password or a one-time password. Tests written; Phase 3 gate deferred.
 - [x] **F29 — Lock and unlock (implementation):** Add a vault passphrase that wraps the vault key, migrate existing encrypted credential files, lock on restart and after five idle minutes, and gate saved-credential access while locked. Tests written; Phase 3 gate deferred.
@@ -1141,3 +1142,36 @@ Live SFTP, actual pointer/keyboard behavior and Windows/macOS acceptance remain 
 Preserve unrelated local-storage documentation edits and the supplied reference image outside
 this commit. Next remains the Phase 4 verification gate when test execution is requested, then
 F38 split panes. Commit locally with phase/step; do not push.
+
+
+### F26-A remembered SSH login fixes — 2026-11-09
+
+Investigated repeated username/password prompts after closing an SSH tab. A username typed only
+in SshPrompt was not persisted to an empty profile, so one-click lookup could not construct a
+saved login even when a password existed. Also, the prompt's Use saved password option supplied
+the optional assigned identity ID instead of the actual resolved host/password owner, breaking
+host-owned saved-password selection when no identity was assigned.
+
+Added an opt-out username checkbox only when the effective default is empty. Before connecting,
+a fresh host/group/identity lookup fills that missing username in the same host and disables its
+empty username inheritance. Existing effective host/group/shared-identity usernames are not
+rewritten, shared identities are not mutated, and unrelated host metadata is retained. Saved
+password selection now uses passwordOwner; private-key ownership remains unchanged.
+
+Connect waits for credential-status lookup and blocks duplicate submits during saving. Cancelling
+or unmounting the prompt prevents a pending save from starting SSH afterward. The prompt is keyed
+by host/notice so a new context starts with fresh credential state. Password saving remains in the
+existing passphrase/OS-protected vault; no plaintext fallback, auto-unlock, new storage schema or
+privileged bridge method was introduced. The UI explains session-only passwords and unlocking
+once after app restart. Local saves already submitted may complete even if the dialog is cancelled.
+
+Unit regression code covers missing-username persistence, configured/inherited/shared defaults,
+removed hosts, locked/unavailable vault lookup and reference-only automatic credentials. Isolated
+IPC desktop regressions cover first-save/close/reopen, host-owned password selection and cancel
+during a pending password save. Tests remain unrun at the user's request. `npm run check`,
+`npm run build`, and `git diff --check` passed on Linux x64; no test cases were executed. No real SSH connection or OS-keychain/visual/platform pass is
+claimed. See `docs/SSH_SESSIONS.md` for usage and boundaries.
+
+Keep unrelated local-storage edits/reference image outside this commit. Continue with the Phase 4
+verification gate when test execution is requested, then F38. Commit locally with phase/step;
+do not push.

@@ -221,8 +221,10 @@ F14 adds per-tab terminal appearance controls for theme, font, size, zoom, curso
 
 ## SSH sessions
 
-Save an SSH profile in Hosts, then choose Connect. Supply a username and session-only
-authentication details. Unknown server keys require confirmation after comparing
+Save an SSH profile in Hosts, then choose Connect. Enter a username and authentication details
+when no saved login is available. A missing username can be remembered from that dialog; save
+the password in the unlocked local vault to reconnect without retyping it after closing a tab.
+Unlock the vault again after restarting the app. Unknown server keys require confirmation after comparing
 the fingerprint through a trusted channel. Approved keys are saved by address
 and port; changed keys refuse the current connection. An optional expected
 fingerprint adds an explicit pin. Passwords and private keys can be saved securely

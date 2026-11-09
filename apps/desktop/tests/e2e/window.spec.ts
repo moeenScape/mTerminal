@@ -1564,6 +1564,232 @@ test('opens an SSH credential prompt and cancels without starting a session', as
   await expect(page.getByRole('status').filter({ hasText: 'No active session' })).toBeVisible();
 });
 
+test('remembers a first prompt username and password after closing and reopening the host', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    const passwords = new Map<string, string>();
+    const calls: { username: string; saved: boolean; owner?: string }[] = [];
+    ipcMain.removeHandler('vault:state');
+    ipcMain.handle('vault:state', () => ({
+      ok: true,
+      value: { configured: true, locked: false, available: true },
+    }));
+    ipcMain.removeHandler('vault:password-status');
+    ipcMain.handle('vault:password-status', (_event, owner: string) => ({
+      ok: true,
+      value: { available: true, saved: passwords.has(owner) },
+    }));
+    ipcMain.removeHandler('vault:save-password');
+    ipcMain.handle('vault:save-password', (_event, owner: string, password: string) => {
+      passwords.set(owner, password);
+      return { ok: true, value: undefined };
+    });
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle(
+      'terminal:ssh',
+      (
+        event,
+        id: string,
+        _size,
+        _host,
+        credentials: {
+          username: string;
+          useSavedPassword?: boolean;
+          savedPasswordIdentityId?: string;
+        },
+      ) => {
+        calls.push({
+          username: credentials.username,
+          saved: !!credentials.useSavedPassword,
+          ...(credentials.savedPasswordIdentityId
+            ? { owner: credentials.savedPasswordIdentityId }
+            : {}),
+        });
+        event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+        return { ok: true };
+      },
+    );
+    ipcMain.on('fixture:remembered-calls', (_event, respond: (value: typeof calls) => void) =>
+      respond(calls),
+    );
+  });
+  const id = await page.evaluate(
+    async () =>
+      (
+        await window.mterminal.saveHost({
+          name: 'Remember login',
+          address: 'example.internal',
+          port: 22037,
+          username: '',
+          protocol: 'ssh',
+        })
+      ).id,
+  );
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Remember login', exact: true }).click();
+  const prompt = page.getByRole('dialog');
+  await expect(prompt.getByRole('checkbox', { name: /Remember this username/ })).toBeChecked();
+  await prompt.getByLabel('SSH username').fill('root');
+  await prompt.getByLabel('Password', { exact: true }).fill('fixture-secret');
+  await expect(
+    prompt.getByRole('checkbox', { name: /Save password on this device/ }),
+  ).toBeChecked();
+  await prompt.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  expect(
+    await page.evaluate(
+      async () =>
+        (await window.mterminal.listHosts()).find((host) => host.name === 'Remember login')
+          ?.username,
+    ),
+  ).toBe('root');
+  await page.getByRole('button', { name: 'Close Remember login', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Remember login', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const calls = await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<{ username: string; saved: boolean; owner?: string }[]>((resolve) =>
+        ipcMain.emit('fixture:remembered-calls', null, resolve),
+      ),
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual({ username: 'root', saved: true, owner: id });
+});
+
+test('uses the host-owned saved password when the dialog still needs a username', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('vault:state');
+    ipcMain.handle('vault:state', () => ({
+      ok: true,
+      value: { configured: true, locked: false, available: true },
+    }));
+    ipcMain.removeHandler('vault:password-status');
+    ipcMain.handle('vault:password-status', () => ({
+      ok: true,
+      value: { available: true, saved: true },
+    }));
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle(
+      'terminal:ssh',
+      (
+        event,
+        id: string,
+        _size,
+        hostId: string,
+        credentials: {
+          useSavedPassword?: boolean;
+          savedPasswordIdentityId?: string;
+          password?: string;
+        },
+      ) => {
+        if (
+          !credentials.useSavedPassword ||
+          credentials.savedPasswordIdentityId !== hostId ||
+          credentials.password !== undefined
+        )
+          return { ok: false, code: 'vault-secret-missing' };
+        event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+        return { ok: true };
+      },
+    );
+  });
+  await page.evaluate(async () =>
+    window.mterminal.saveHost({
+      name: 'Own password',
+      address: 'example.internal',
+      port: 22,
+      username: '',
+      protocol: 'ssh',
+    }),
+  );
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Own password', exact: true }).click();
+  const prompt = page.getByRole('dialog');
+  await expect(
+    prompt.getByRole('checkbox', { name: 'Use the saved password', exact: true }),
+  ).toBeChecked();
+  await expect(prompt.getByLabel('Password', { exact: true })).toHaveCount(0);
+  await prompt.getByLabel('SSH username').fill('root');
+  await prompt.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+});
+
+test('does not start SSH after cancelling a pending password save', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    let release: (() => void) | undefined;
+    let opened = 0;
+    ipcMain.removeHandler('vault:state');
+    ipcMain.handle('vault:state', () => ({
+      ok: true,
+      value: { configured: true, locked: false, available: true },
+    }));
+    ipcMain.removeHandler('vault:password-status');
+    ipcMain.handle('vault:password-status', () => ({
+      ok: true,
+      value: { available: true, saved: false },
+    }));
+    ipcMain.removeHandler('vault:save-password');
+    ipcMain.handle(
+      'vault:save-password',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, value: undefined });
+        }),
+    );
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', () => {
+      opened++;
+      return { ok: true };
+    });
+    ipcMain.on('fixture:finish-save', (_event, respond: () => void) => {
+      release?.();
+      respond();
+    });
+    ipcMain.on('fixture:opened-count', (_event, respond: (value: number) => void) =>
+      respond(opened),
+    );
+  });
+  await page.evaluate(async () =>
+    window.mterminal.saveHost({
+      name: 'Cancel saved login',
+      address: 'example.internal',
+      port: 22,
+      username: 'root',
+      protocol: 'ssh',
+    }),
+  );
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Cancel saved login', exact: true }).click();
+  const prompt = page.getByRole('dialog');
+  await prompt.getByLabel('Password', { exact: true }).fill('fixture-secret');
+  await expect(
+    prompt.getByRole('checkbox', { name: /Save password on this device/ }),
+  ).toBeChecked();
+  await prompt.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(prompt.getByRole('button', { name: 'Connect', exact: true })).toBeDisabled();
+  await prompt.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<void>((resolve) => {
+        ipcMain.emit('fixture:finish-save', null, resolve);
+      }),
+  );
+  await page.evaluate(() => window.mterminal.getVaultState());
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const opened = await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<number>((resolve) => {
+        ipcMain.emit('fixture:opened-count', null, resolve);
+      }),
+  );
+  expect(opened).toBe(0);
+});
+
 test('connects a host with its saved password in one click, and asks again if rejected', async () => {
   const vault = await page.evaluate(() => window.mterminal.getVaultState());
   test.skip(!vault.available, 'OS secure storage is unavailable on this machine.');

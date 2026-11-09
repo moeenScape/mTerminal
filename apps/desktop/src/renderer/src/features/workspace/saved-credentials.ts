@@ -1,5 +1,5 @@
-import { resolveHost } from '../../../../shared/hosts';
-import { validateSshCredentials, type SshCredentials } from '../../../../shared/ssh';
+import { resolveHost } from '../../../../shared/hosts.js';
+import { validateSshCredentials, type SshCredentials } from '../../../../shared/ssh.js';
 
 /**
  * Credentials for a one-click connection, when nothing needs typing: the identity's managed
@@ -45,4 +45,20 @@ export async function findSavedCredentials(hostId: string): Promise<SshCredentia
       });
   }
   return undefined;
+}
+
+/** Fill only a missing default; never rewrite an existing host, group or shared-identity username. */
+export async function rememberMissingUsername(hostId: string, username: string): Promise<void> {
+  const [hosts, groups, identities] = await Promise.all([
+    window.mterminal.listHosts(),
+    window.mterminal.listHostGroups(),
+    window.mterminal.listSshIdentities(),
+  ]);
+  const host = hosts.find((item) => item.id === hostId);
+  if (!host)
+    throw new Error('This host no longer exists. Close the dialog and choose another host.');
+  const resolved = resolveHost(host, groups);
+  const identity = identities.find((item) => item.id === resolved.identityId);
+  if (identity?.username || resolved.username) return;
+  await window.mterminal.saveHost({ ...host, username, inheritUsername: false }, hostId);
 }

@@ -2,13 +2,38 @@
 
 Create a saved SSH profile in Hosts. Group defaults supply port and username only
 when the corresponding inheritance flags are enabled. Choose **Connect** to open
-a terminal tab, then provide the SSH username and authentication details. The
+a terminal tab. An available saved login can connect directly; otherwise provide the SSH
+username and authentication details. The
 expected fingerprint field is optional; supplying it requires an exact match even for a saved key.
 Choose Password, Private key or Keyboard-interactive. Private key mode reads a
 file you explicitly select (at most 256 KiB); enter its passphrase if encrypted.
 The key is not copied into application storage. Supported key formats depend on
 ssh2; invalid keys or incorrect passphrases fail with a fixed connection error.
 Agents and hardware-backed keys are not yet supported.
+
+## Remember a login on this device
+
+1. Set up or unlock the local vault using the status bar. A secure OS credential backend must
+   be available; passwords are not saved as plaintext when it is unavailable.
+2. Connect from **Hosts**. If the host has no default username, enter it and leave **Remember
+   this username for this host on this device** checked. This fills only an empty effective
+   default; existing host, group and shared-identity usernames are preserved.
+3. For password authentication, leave **Save password on this device for one-click connections**
+   checked. The password goes to the encrypted vault, separately from the username/host metadata.
+4. Close the terminal and connect to the saved host again. With a saved username, an unlocked
+   available vault and valid saved credentials, the app uses the saved reference without asking
+   for the server username/password again. The secret is read in the main process.
+
+After restarting the app, unlock the vault once to use saved secrets. A missing, locked or
+unavailable vault, a rejected password, an unsaved login or interactive server challenges can
+still require input. The dialog clearly states when a typed password will be session-only.
+Saving occurs when Connect is submitted, before the SSH attempt; a failed connection does not
+automatically erase or validate a saved password. Host-key checks remain in effect.
+
+The dialog waits for stored-credential lookup before enabling Connect, and binds a host's own
+saved password to that host ID, rather than an optional shared-identity ID. Duplicate submits
+are prevented. Cancelling a pending save prevents a later SSH attempt, although a local save
+already submitted may finish. Unchecking the username option leaves the host profile unchanged.
 
 Password and key modes can optionally continue with keyboard-interactive
 challenges, for example an OTP required after primary authentication. Each round
@@ -97,9 +122,9 @@ the server stopped responding, marks the session Failed, disables input/paste
 and keeps the displayed output. Probes use ssh2 protocol requests, not shell
 commands. Ordinary remote shell exit still reports Disconnected.
 
-Reconnect SSH is available only after an attempt ends. It opens a fresh
-authentication dialog with no retained password, private key, passphrase or
-challenge answers, and uses the current saved profile/group defaults. Saved
+Reconnect SSH is available only after an attempt ends. It uses the current saved profile/group
+defaults and attempts an available saved login. Otherwise it opens a fresh authentication dialog
+without restoring earlier typed passwords, private-key files, passphrases or challenge answers. Saved
 endpoint trust and any newly supplied pin are verified again. Confirming the
 dialog clears displayed output and starts a new session with a new ID; it does
 not resume the old shell or replay input. Cancelling the dialog preserves output
@@ -180,3 +205,12 @@ Workspace JSON backups contain host profiles, groups, identity metadata, and tru
 fingerprints. They never contain saved passwords or private-key material. Imports require
 confirmation, add only non-conflicting records, and apply as one SQLite transaction; conflicts
 leave the workspace unchanged.
+
+
+## Remembered-login regression coverage — F26-A
+
+Regression code covers first-prompt username persistence and close/reopen with a host-owned
+saved password, correct host/identity ownership, metadata-only username updates, preservation
+of configured defaults, missing hosts, locked/unavailable vault lookup, and cancellation while
+saving. Tests remain unrun at the user's request. Static/build results are recorded in the
+roadmap; live SSH, real OS-keychain persistence, visual and platform acceptance remain pending.
