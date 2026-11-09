@@ -1,4 +1,6 @@
 export const failureMessages = {
+  'batch-failed':
+    'Command batch could not be started or updated. Refresh destinations and review the command again. Nothing is retried automatically.',
   'startup-limit':
     'Startup assignment storage is full. Remove unused assignments before adding more (500 targets).',
   'snippet-limit':

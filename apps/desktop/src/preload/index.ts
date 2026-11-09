@@ -1,3 +1,10 @@
+import {
+  batchChannels,
+  BATCH_CHANGED,
+  type BatchTarget,
+  type BatchPreview,
+  type BatchState,
+} from '../shared/batch.js';
 import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import type { SshChallenge } from '../shared/ssh.js';
@@ -59,6 +66,16 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  listBatchTargets: () => historyRequest<BatchTarget[]>(batchChannels.targets),
+  prepareBatch: (request) => historyRequest<BatchPreview>(batchChannels.prepare, request),
+  startBatch: (token) => historyRequest<BatchState>(batchChannels.start, token),
+  getBatchState: () => historyRequest<BatchState | null>(batchChannels.state),
+  cancelBatch: (id) => historyRequest<void>(batchChannels.cancel, id),
+  onBatchChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(BATCH_CHANGED, handler);
+    return () => ipcRenderer.removeListener(BATCH_CHANGED, handler);
+  },
   getStartupSnippet: (target) => historyRequest<Snippet | null>(snippetChannels.startup, target),
   setStartupSnippet: (target, snippetId) =>
     historyRequest<void>(snippetChannels.setStartup, target, snippetId),

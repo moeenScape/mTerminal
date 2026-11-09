@@ -1,3 +1,4 @@
+import { executeSshCommand } from './ssh-exec.js';
 import { createHash } from 'node:crypto';
 import { Client, type ClientChannel } from '../ssh2-module.js';
 import type { TerminalTransport, TerminalExit } from './transport.js';
@@ -163,6 +164,7 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
+            executeCommand: (command, signal) => executeSshCommand(client, command, signal),
             inspectResume: (record, signal) => files.inspectResume(record, signal),
             recoverPartial: (record, signal, expected) =>
               files.recoverPartial(record, signal, expected),

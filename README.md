@@ -246,6 +246,12 @@ requires confirmation; cancel/skip or an attempted submission consumes the actio
 connection. Reconnect offers a fresh review and never silently replays commands. Assignments
 stay in the encrypted vault; see [startup assignments](docs/SNIPPETS.md#startup-assignments).
 
+F42 adds **Run on hosts** beside Workspace templates. Select connected SSH accounts, review
+the command and destinations, then run once through separate exec channels. Per-host results
+include stdout/stderr and exit status; concurrency, timeout and output limits are bounded.
+Cancellation closes channels and may leave remote processes running. See
+[multiple-host execution](docs/MULTI_HOST_EXECUTION.md) for environment and lifecycle details.
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

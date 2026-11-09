@@ -1,3 +1,4 @@
+import { BatchCommands } from './BatchCommands';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../../components/Icon';
@@ -121,6 +122,8 @@ export function WorkspaceView({
 }) {
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], layouts: [], activeId: null });
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showBatch, setShowBatch] = useState(false);
+  useEffect(() => window.mterminal.onVaultLocked(() => setShowBatch(false)), []);
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
   const panels = useRef<HTMLDivElement>(null);
@@ -402,6 +405,18 @@ export function WorkspaceView({
       <button
         type="button"
         className="session-new"
+        aria-label="Run on hosts"
+        title="Review a command for connected SSH hosts"
+        onClick={() => {
+          onActivate();
+          setShowBatch(true);
+        }}
+      >
+        <Icon name="hosts" />
+      </button>
+      <button
+        type="button"
+        className="session-new"
         aria-label="Workspace templates"
         title="Save or open a workspace layout"
         onClick={() => {
@@ -498,6 +513,7 @@ export function WorkspaceView({
           </div>
         </>
       )}
+      {showBatch && <BatchCommands onClose={() => setShowBatch(false)} />}
       {showTemplates && (
         <WorkspaceTemplates
           state={state}

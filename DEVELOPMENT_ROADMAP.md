@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F41 implemented — Encrypted startup assignments with connection-bound review and at-most-once submission; acceptance pending |
-| Next feature | F42 — Multiple-host execution; Phase 4/5 runtime verification remains deferred |
+| Active feature | F42 implemented — Reviewed execution on connected SSH accounts with bounded per-host results; acceptance pending |
+| Next feature | F43 — Broadcast input; Phase 4/5 runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -186,7 +186,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F39 — Workspace templates (implementation):** SQLite-backed named layouts, pane/tab order and split ratios; review/open adds fresh idle panes without replacing current sessions or replaying commands. Explicit per-pane startup, missing-host/limit checks and confirmed deletion. Regression code written; execution and runtime/platform acceptance deferred.
 - [x] **F40 — Snippets (implementation):** Shared encrypted local library with create/edit/delete, nested folders/tags and search; single-line Insert and target-bound, confirmed multiline Run. Vault lifecycle, quotas and regression code included; execution/runtime/platform acceptance deferred.
 - [x] **F41 — Startup snippets (implementation):** Encrypted local/per-host assignment, post-connect Review/Skip notice, current-command confirmation and at-most-once submission per session. No unattended execution or completion claim; regression code written, execution/runtime acceptance deferred.
-- [ ] **F42 — Multiple-host execution:** Destination selection and per-host results/failures.
+- [x] **F42 — Multiple-host execution (implementation):** Select connected verified SSH accounts, review full command/destinations, execute via independent channels and inspect per-host output/exit status. One-use previews, bounded concurrency/output/time and cancellation included; regression execution/runtime acceptance deferred.
 - [ ] **F43 — Broadcast input:** Explicit mode, visible recipients, and immediate stop.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [ ] **F45 — Environment variables:** Host/group values and server-support requirements.
@@ -1343,3 +1343,36 @@ remain unrun at the user's request. `npm run check`, `npm run build` and `git di
 passed on Linux x64. Visual/accessibility, real keychain, live SSH and Windows/macOS acceptance
 remain unverified. Preserve unrelated
 local-storage documentation edits and the reference image. F42 is next.
+
+
+### F42 reviewed multiple-host command batches — 2026-11-09
+
+Added Run on hosts in the session strip. Select connected verified SSH accounts, enter a
+command, review exact normalized text and destination usernames/addresses/ports/fingerprints,
+then explicitly start. Identical connected accounts are deduplicated. Existing authenticated
+clients are reused; no new login, host-key bypass, startup-snippet invocation, interactive
+input broadcasting or local shell execution is introduced.
+
+Main-owned one-use reviews expire after 60 seconds and validate every session/peer before
+sending anything. Queued destinations are rechecked, never replaced/reconnected. Separate
+non-interactive exec channels provide stdout/stderr, exit code/signal and independent success,
+failure, cancellation, timeout, output-limit and disconnect states. Zero exit plus closed
+channel is required for success. Concurrency is three, destinations are capped at sixteen,
+and each command has a 60-second/64-KiB combined-output bound. Unicode decoding is incremental.
+Exec cancellation/cleanup never destroys the shared SSH client; parent disconnect still ends
+its channels. Channel closure cannot guarantee remote process termination or rollback.
+
+The panel can close/reopen around an approved running batch; only latest results are retained
+in memory. Window close includes active batches; reload/crash/disposal cancels queued/local
+channels and clears previews/results. Vault lock closes the panel without cancelling approved
+remote work. Narrow sender-validated IPC exposes no credentials or arbitrary process API.
+No dependencies, SQLite migrations, persistent commands/output or logging changes.
+
+Regression code covers side-effect-free review, one-use/expired tokens, identity changes,
+deduplication, concurrency, per-host failures, cancellation, reset, IPC ownership/arity,
+UTF-8 and output limits, timeout, absent exit status, shared-client preservation, late-channel
+cleanup, UI review/cancel, independent host results and retained partial output. Tests remain
+unrun at the user's request. `npm run check`, `npm run build` and `git diff --check` passed
+on Linux x64. Real SSH, remote-process lifetime, visual/accessibility and Windows/macOS
+acceptance remain unverified. See
+`docs/MULTI_HOST_EXECUTION.md`. Preserve unrelated local-storage documentation edits/image.

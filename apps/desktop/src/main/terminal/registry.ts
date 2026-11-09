@@ -24,6 +24,18 @@ export class TerminalRegistry {
   private notifyClosed(id: string): void {
     for (const listener of this.closedListeners) listener(id);
   }
+  executionTargets(): import('../../shared/batch.js').BatchTarget[] {
+    if (this.disposed || this.suspended) return [];
+    return [...this.sessions.entries()].flatMap(([sessionId, session]) =>
+      session.canExecute && session.transferPeer ? [{ sessionId, ...session.transferPeer }] : [],
+    );
+  }
+  executeCommand(id: string, command: string, signal: AbortSignal) {
+    const session = this.sessions.get(id);
+    if (this.disposed || this.suspended || !session?.canExecute)
+      throw new Error('SSH session unavailable.');
+    return session.executeCommand(command, signal);
+  }
   canTransfer(id: string): boolean {
     return !this.disposed && !!this.sessions.get(id)?.canTransfer;
   }

@@ -101,6 +101,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
     methods: [
       'ackTerminal',
       'answerSshChallenge',
+      'cancelBatch',
       'cancelTransfer',
       'cleanupTransferPartial',
       'clearFinishedTransfers',
@@ -120,6 +121,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'forgetTransferRecovery',
       'generateSshKey',
       'getAppInfo',
+      'getBatchState',
       'getPreferences',
       'getRemoteEdit',
       'getShells',
@@ -132,6 +134,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'inspectTransferPartial',
       'inspectTransferResume',
       'installSshPublicKey',
+      'listBatchTargets',
       'listDirectory',
       'listHostGroups',
       'listHosts',
@@ -142,6 +145,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listWorkspaceTemplates',
       'lockVault',
       'mutateDirectory',
+      'onBatchChanged',
       'onHistoryChanged',
       'onRemoteEditChanged',
       'onSnippetsChanged',
@@ -151,6 +155,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'onVaultLocked',
       'openSshTerminal',
       'openTerminal',
+      'prepareBatch',
       'readClipboardText',
       'reopenRemoteEdit',
       'resetVault',
@@ -168,6 +173,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'searchHistory',
       'setStartupSnippet',
       'setupVault',
+      'startBatch',
       'startRemoteEdit',
       'unlockVault',
       'uploadRemoteEdit',
@@ -1545,6 +1551,166 @@ test('refuses missing-host templates and malformed template IPC without starting
   });
   expect(rejected).toEqual([true, true, true]);
   expect(await page.evaluate(() => window.mterminal.listWorkspaceTemplates())).toHaveLength(1);
+});
+
+test('reviews exact batch destinations, cancels without execution and retains distinct host results', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    const targets = [
+      {
+        sessionId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        username: 'deploy',
+        address: 'alpha.internal',
+        port: 22,
+        fingerprint: `SHA256:${'a'.repeat(43)}`,
+      },
+      {
+        sessionId: '14e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        username: 'root',
+        address: 'beta.internal',
+        port: 2222,
+        fingerprint: `SHA256:${'b'.repeat(43)}`,
+      },
+    ];
+    let starts = 0;
+    let job: unknown = null;
+    let reviewed = '';
+    for (const channel of ['batch:targets', 'batch:prepare', 'batch:start', 'batch:state'])
+      ipcMain.removeHandler(channel);
+    ipcMain.handle('batch:targets', () => ({ ok: true, value: targets }));
+    ipcMain.handle('batch:state', () => ({ ok: true, value: job }));
+    ipcMain.handle(
+      'batch:prepare',
+      (_event, request: { command: string; sessionIds: string[] }) => {
+        reviewed = request.command;
+        return {
+          ok: true,
+          value: {
+            token: '24e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+            command: reviewed,
+            expiresAt: Date.now() + 60000,
+            targets: targets.filter((target) => request.sessionIds.includes(target.sessionId)),
+          },
+        };
+      },
+    );
+    ipcMain.handle('batch:start', (event) => {
+      starts++;
+      job = {
+        id: '34e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        command: reviewed,
+        finished: true,
+        cancelRequested: false,
+        results: [
+          {
+            target: targets[0],
+            status: 'succeeded',
+            stdout: 'ALPHA_OUTPUT',
+            stderr: '',
+            exitCode: 0,
+            exitSignal: null,
+          },
+          {
+            target: targets[1],
+            status: 'failed',
+            stdout: '',
+            stderr: 'BETA_ERROR',
+            exitCode: 17,
+            exitSignal: null,
+          },
+        ],
+      };
+      event.sender.send('batch:changed');
+      return { ok: true, value: job };
+    });
+    ipcMain.on('fixture:batch-starts', (_event, respond: (value: number) => void) =>
+      respond(starts),
+    );
+  });
+  const count = () =>
+    application.evaluate(
+      ({ ipcMain }) =>
+        new Promise<number>((resolve) => ipcMain.emit('fixture:batch-starts', null, resolve)),
+    );
+  await page.getByRole('button', { name: 'Run on hosts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Run on multiple hosts', exact: true });
+  await dialog.getByRole('button', { name: 'Select all connected' }).click();
+  await dialog.getByLabel('Command for selected hosts').fill('printf REVIEWED_BATCH_COMMAND');
+  await dialog.getByRole('button', { name: 'Review batch', exact: true }).click();
+  let review = page.getByRole('dialog', { name: 'Run command on selected hosts?', exact: true });
+  await expect(review.locator('pre')).toHaveText('printf REVIEWED_BATCH_COMMAND');
+  await expect(review).toContainText('deploy@alpha.internal:22');
+  await expect(review).toContainText('root@beta.internal:2222');
+  expect(await count()).toBe(0);
+  await review.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await count()).toBe(0);
+  await dialog.getByRole('button', { name: 'Review batch', exact: true }).click();
+  review = page.getByRole('dialog', { name: 'Run command on selected hosts?', exact: true });
+  await review.getByRole('button', { name: 'Run batch', exact: true }).click();
+  const results = dialog.getByRole('region', { name: 'Command batch results' });
+  await expect(results).toContainText('Succeeded · Exit 0');
+  await expect(results).toContainText('Failed · Exit 17');
+  const alpha = results.getByRole('listitem').filter({ hasText: 'deploy@alpha.internal' });
+  const beta = results.getByRole('listitem').filter({ hasText: 'root@beta.internal' });
+  await alpha.getByText('Output', { exact: true }).click();
+  await beta.getByText('Output', { exact: true }).click();
+  await expect(alpha).toContainText('ALPHA_OUTPUT');
+  await expect(beta).toContainText('BETA_ERROR');
+  expect(await count()).toBe(1);
+  await dialog.getByRole('button', { name: 'Close panel' }).click();
+  await page.getByRole('button', { name: 'Run on hosts', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Run on multiple hosts' })).toContainText(
+    'Batch finished',
+  );
+  expect(await count()).toBe(1);
+});
+
+test('cancels an active batch while keeping partial host output visible', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    const target = {
+      sessionId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+      username: 'deploy',
+      address: 'active.internal',
+      port: 22,
+      fingerprint: `SHA256:${'a'.repeat(43)}`,
+    };
+    const job = {
+      id: '34e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+      command: 'long-command',
+      finished: false,
+      cancelRequested: false,
+      results: [
+        {
+          target,
+          status: 'running',
+          stdout: 'PARTIAL_BATCH_OUTPUT',
+          stderr: '',
+          exitCode: null,
+          exitSignal: null,
+        },
+      ],
+    };
+    for (const channel of ['batch:targets', 'batch:state', 'batch:cancel'])
+      ipcMain.removeHandler(channel);
+    ipcMain.handle('batch:targets', () => ({ ok: true, value: [target] }));
+    ipcMain.handle('batch:state', () => ({ ok: true, value: job }));
+    ipcMain.handle('batch:cancel', (event, id: string) => {
+      if (id !== job.id) return { ok: false, code: 'batch-failed' };
+      job.cancelRequested = true;
+      job.finished = true;
+      job.results[0]!.status = 'cancelled';
+      event.sender.send('batch:changed');
+      return { ok: true, value: undefined };
+    });
+  });
+  await page.getByRole('button', { name: 'Run on hosts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Run on multiple hosts' });
+  await expect(dialog).toContainText('Batch running');
+  await dialog.getByRole('button', { name: 'Cancel batch', exact: true }).click();
+  const results = dialog.getByRole('region', { name: 'Command batch results' });
+  await expect(results.getByRole('status')).toHaveText('Cancelled');
+  await results.getByText('Output', { exact: true }).click();
+  await expect(results).toContainText('PARTIAL_BATCH_OUTPUT');
+  await expect(results).toContainText('remote processes may continue');
 });
 
 test('supports terminal tab keyboard navigation, rename, and reorder', async () => {

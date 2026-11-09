@@ -3,6 +3,10 @@ export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
 > & {
+  executeCommand?: (
+    command: string,
+    signal: AbortSignal,
+  ) => Promise<import('../../shared/batch.js').CommandResult>;
   inspectResume?: (
     record: import('../../shared/transfers.js').TransferRecoveryRecord,
     signal: AbortSignal,

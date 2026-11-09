@@ -1,3 +1,4 @@
+import type { BatchApi } from './batch.js';
 import type { SnippetsApi } from './snippets.js';
 import type { TemplatesApi } from './workspace-templates.js';
 import type { HostsApi } from './hosts.js';
@@ -27,7 +28,8 @@ export interface DesktopApi
     TransfersApi,
     RemoteEditApi,
     TemplatesApi,
-    SnippetsApi {
+    SnippetsApi,
+    BatchApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;

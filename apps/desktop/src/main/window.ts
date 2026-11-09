@@ -1,3 +1,4 @@
+import { attachBatch } from './terminal/batch-ipc.js';
 import { attachSnippets } from './snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import { hostChannels, validHostId } from '../shared/hosts.js';
@@ -338,6 +339,7 @@ export async function createMainWindow(
     secrets,
     () => store.preferences.recordHistory,
   );
+  const batches = attachBatch(window, rendererUrl, terminals);
   attachFiles(
     window,
     rendererUrl,
@@ -393,7 +395,7 @@ export async function createMainWindow(
   let confirming = false;
   window.on('close', (event) => {
     if (closing) return;
-    if (!confirmed && terminals.count > 0) {
+    if (!confirmed && (terminals.count > 0 || batches.running)) {
       event.preventDefault();
       if (confirming) return;
       confirming = true;
@@ -404,9 +406,12 @@ export async function createMainWindow(
           defaultId: 0,
           cancelId: 0,
           noLink: true,
-          message: `Close ${terminals.count} active terminal session${terminals.count === 1 ? '' : 's'}?`,
-          detail:
-            'Running commands and file transfers may be interrupted. Terminal output will be discarded.',
+          message: batches.running
+            ? 'Close the window with an active command batch?'
+            : `Close ${terminals.count} active terminal session${terminals.count === 1 ? '' : 's'}?`,
+          detail: batches.running
+            ? 'Queued commands will be cancelled and exec channels closed. Remote processes may continue. Active terminals and file transfers may be interrupted; terminal output and batch results will be discarded.'
+            : 'Running commands and file transfers may be interrupted. Terminal output will be discarded.',
         })
         .then(({ response }) => {
           confirming = false;

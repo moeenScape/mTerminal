@@ -167,6 +167,14 @@ export class TerminalSession {
     if (!this.session?.pty.recoverPartial) throw new FileBrowserError('disconnected');
     return this.session.pty.recoverPartial(record, signal, expected);
   }
+  get canExecute(): boolean {
+    return !this.disposed && !!this.session?.pty.executeCommand && !!this.session.pty.transferPeer;
+  }
+  executeCommand(command: string, signal: AbortSignal) {
+    const execute = this.session?.pty.executeCommand;
+    if (!this.canExecute || !execute) throw new Error('SSH session disconnected.');
+    return execute(command, signal);
+  }
   get transferPeer() {
     return this.session?.pty.transferPeer ?? null;
   }

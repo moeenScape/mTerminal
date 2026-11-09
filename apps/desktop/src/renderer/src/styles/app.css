@@ -2811,3 +2811,80 @@ p.field-hint {
   padding: 6px;
   border-radius: 5px;
 }
+
+.batch-dialog {
+  width: min(760px, calc(100vw - 48px));
+}
+.batch-dialog form {
+  display: grid;
+  gap: 12px;
+}
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.batch-destinations {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.batch-destinations label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 8px;
+}
+.batch-destinations small,
+.batch-review-targets small {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--terminal-font);
+  font-size: 11px;
+}
+.batch-dialog textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--raised);
+  font-family: var(--terminal-font);
+}
+.batch-results {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.batch-results ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.batch-results li {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.batch-results pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--terminal-font);
+  background: var(--raised);
+  padding: 10px;
+  border-radius: 6px;
+}
+.batch-destinations label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.batch-destinations input[type='checkbox'] {
+  flex-shrink: 0;
+}
+.batch-results li > strong,
+.batch-review-targets strong {
+  overflow-wrap: anywhere;
+}
