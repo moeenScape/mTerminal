@@ -169,3 +169,12 @@ source/destination metadata, blocked directory replacements, cancellation/restor
 destination creation, uncertain backup capture, and the dialog's default Skip/Replace/Cancel flow.
 Run them with the Phase 4 test gate. Static checks and a production build are the step-level
 validation; interactive visual checks and Windows/macOS acceptance remain pending.
+
+
+## Saved recovery records
+
+F37-A persists transfer checkpoints before staging, backup moves and publication. Files shows
+records needing inspection below the queue, including after restart or **Clear finished**.
+**Forget record…** removes metadata only. No transfer resumes automatically and no journal
+path is deleted by this action. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
+planned-path caveats, remaining cleanup/resume work and validation status.

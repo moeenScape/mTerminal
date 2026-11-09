@@ -30,6 +30,7 @@ export function openSsh(
     let settled = false;
     let ended = false;
     let exitCode = 255;
+    let fingerprint = '';
     let mismatch = false;
     let authRejected = false;
     let failed = false;
@@ -162,11 +163,17 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
+            transferPeer: {
+              address: host.address,
+              port: host.port,
+              username: credentials.username,
+              fingerprint,
+            },
             listDirectory: (path) => files.list(path),
             prepareRemoteEdit: (request, directory, signal) =>
               files.prepareEdit(request, directory, signal),
-            transferFile: (request, signal, progress, approval) =>
-              files.transfer(request, signal, progress, approval),
+            transferFile: (request, signal, progress, approval, checkpoint) =>
+              files.transfer(request, signal, progress, approval, checkpoint),
             mutateDirectory: (path, operation) => files.mutate(path, operation),
             write: (data) => {
               if (!ended) channel.write(data);
@@ -241,7 +248,10 @@ export function openSsh(
               .then((accepted) => {
                 if (!ended) {
                   mismatch = !accepted;
-                  if (accepted) progress('authenticating');
+                  if (accepted) {
+                    fingerprint = keyFingerprint(key);
+                    progress('authenticating');
+                  }
                   verify(accepted);
                 }
               })
@@ -254,7 +264,10 @@ export function openSsh(
           } else {
             const match = fingerprintMatches(key, credentials.fingerprint);
             if (!match) mismatch = true;
-            else progress('authenticating');
+            else {
+              fingerprint = keyFingerprint(key);
+              progress('authenticating');
+            }
             verify(match);
           }
         },

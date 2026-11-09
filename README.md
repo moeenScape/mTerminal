@@ -14,6 +14,8 @@ request. See [Remote editing](docs/REMOTE_EDITING.md) for limits, editor setup a
 Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
 [File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.
+F37-A adds persistent transfer recovery records in Files. See [Transfer recovery](docs/TRANSFER_RECOVERY.md)
+for inspection and metadata-only forgetting; verified cleanup and resume are still pending.
 
 - Electron and TypeScript for desktop lifecycle, process management, and application logic.
 - React for the interface and xterm.js for terminal display/input.

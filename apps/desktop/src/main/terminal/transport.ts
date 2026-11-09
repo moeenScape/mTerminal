@@ -3,6 +3,7 @@ export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
 > & {
+  transferPeer?: import('../../shared/transfers.js').TransferPeer;
   onExit: (listener: (event: TerminalExit) => void) => IDisposable;
   listDirectory?: (path: string) => Promise<import('../../shared/files.js').DirectoryListing>;
   prepareRemoteEdit?: (
@@ -15,6 +16,7 @@ export type TerminalTransport = Pick<
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
+    checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
   ) => Promise<import('../files/transfer-file.js').TransferOutcome>;
   mutateDirectory?: (
     path: string,

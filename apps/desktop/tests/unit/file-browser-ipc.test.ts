@@ -41,6 +41,7 @@ describe('file browser IPC', () => {
         canTransfer: () => false,
       } as unknown as TerminalRegistry,
       join(tmpdir(), 'unused-remote-edit-root'),
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     const handler = fixture.handlers.get(transferChannels.enqueue)!;
     const event = { sender: contents, senderFrame: frame };
@@ -76,6 +77,24 @@ describe('file browser IPC', () => {
     await expect(handler({ ...event, sender: {} }, request)).rejects.toThrow('Unauthorized');
     await expect(handler(event, request)).resolves.toEqual({ ok: false, code: 'disconnected' });
     await expect(handler(event, { ...request, name: '../escape' })).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
+    const recovery = fixture.handlers.get(transferChannels.recovery)!;
+    const forget = fixture.handlers.get(transferChannels.forget)!;
+    await expect(recovery({ ...event, sender: {} })).rejects.toThrow('Unauthorized');
+    await expect(recovery(event, '/forged/path')).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
+    await expect(forget({ ...event, sender: {} }, request.sessionId)).rejects.toThrow(
+      'Unauthorized',
+    );
+    await expect(forget(event, '/forged/path')).resolves.toEqual({
+      ok: false,
+      code: 'unavailable',
+    });
+    await expect(forget(event, request.sessionId, { deleteFiles: true })).resolves.toEqual({
       ok: false,
       code: 'unavailable',
     });
@@ -115,6 +134,7 @@ describe('file browser IPC', () => {
         onSessionClosed: () => () => {},
       } as unknown as TerminalRegistry,
       join(tmpdir(), 'unused-remote-edit-root'),
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     const handler = fixture.handlers.get(FILES_MUTATE)!;
     const event = { sender: contents, senderFrame: frame };
@@ -155,6 +175,7 @@ describe('file browser IPC', () => {
         onSessionClosed: () => () => {},
       } as unknown as TerminalRegistry,
       join(tmpdir(), 'unused-remote-edit-root'),
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     const handler = fixture.handlers.get(FILES_LIST)!;
     const event = { sender: contents, senderFrame: frame };

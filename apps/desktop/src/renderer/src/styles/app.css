@@ -2291,6 +2291,9 @@ button.file-name svg {
   background: var(--sidebar);
   font-size: 12px;
 }
+.transfer-recovery {
+  max-height: min(160px, 20vh);
+}
 .transfer-queue > header,
 .transfer-job-heading,
 .transfer-progress {

@@ -27,6 +27,7 @@ import {
   TRANSFERS_CHANGED,
   type TransferResponse,
   type TransferJob,
+  type TransferRecoveryRecord,
 } from '../shared/transfers.js';
 import {
   remoteEditChannels,
@@ -65,6 +66,8 @@ const api: DesktopApi = {
   },
   resolveTransferConflict: (id, token, choice) =>
     transferRequest<void>(transferChannels.resolve, id, token, choice),
+  listTransferRecovery: () => transferRequest<TransferRecoveryRecord[]>(transferChannels.recovery),
+  forgetTransferRecovery: (id) => transferRequest<void>(transferChannels.forget, id),
   listTransfers: () => transferRequest<TransferJob[]>(transferChannels.list),
   enqueueTransfer: (request) => transferRequest<void>(transferChannels.enqueue, request),
   cancelTransfer: (id) => transferRequest<void>(transferChannels.cancel, id),

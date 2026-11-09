@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F36 implemented — Local-editor remote text workflow; Phase 4 tests deferred |
-| Next feature | F37 — Recovery; earlier desktop/platform acceptance remains outstanding |
+| Active feature | F37-A implemented — Durable transfer recovery records and saved-records view; F37 remains in progress |
+| Next feature | F37-B — Verified, explicitly selected partial-file cleanup; F37-C verified resume follows |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-02 |
+| Last roadmap update | 2026-11-09 |
 
 ## Selected technology stack
 
@@ -165,7 +165,10 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F35 — Overwrites (implementation):** Source/destination metadata preview, token-bound Replace/Skip/Cancel decisions with Skip as default, canonical path/version checks, staged replacement with retained original backups, guarded restore, and uncertain-outcome reporting. Non-file destinations are refused. Tests written; Phase 4 execution and desktop/platform acceptance remain pending. See `docs/FILE_BROWSER.md`.
 - [x] **F36 — Remote editing (implementation):** One regular UTF-8 file up to 1 MiB per window; private `.txt` working copy in the OS default text editor, saved-byte change detection, explicit immutable-snapshot uploads through existing version/conflict/backup checks, and confirmed scoped discard or retained copies. No auto-upload or connection rebinding. Tests written; execution and native/visual/platform acceptance deferred. See `docs/REMOTE_EDITING.md`.
-- [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support.
+- [ ] **F37 — Recovery:** Interrupted transfers, partial-file cleanup, and verified resume support. In progress; see `docs/TRANSFER_RECOVERY.md`.
+  - [x] **F37-A — Durable evidence (implementation):** SQLite-backed queue acceptance and pre-mutation staging/backup/publication checkpoints; verified connection metadata; restart-visible records; confirmed metadata-only forgetting. No automatic replay. Regression tests written, execution deferred at the user's request.
+  - [ ] **F37-B — Partial-file cleanup:** Fresh identity/ownership checks, explicit selection and confirmation, and safe cleanup of verified leftover staging files.
+  - [ ] **F37-C — Verified resume:** Fresh connection binding, source/destination/partial-content verification, supported server operations, and explicit resume decisions.
 
 Completion criteria: Test permissions, interruptions, large files, symlinks, unusual filenames, overwrites, and partial transfers. Preserve originals during replacement where supported. SFTP does not automatically provide elevated permissions.
 
@@ -968,3 +971,31 @@ retention, launch failure, keep/scoped discard, symlink refusal, IPC boundaries 
 Execution remains deferred to the Phase 4 gate. Actual default-editor launch, live SSH/SFTP,
 interactive visual and Windows/macOS verification remain pending. See `docs/REMOTE_EDITING.md`.
 Next: F37; commit without pushing.
+
+
+### F37-A implementation — 2026-11-09
+
+Persisted bounded transfer evidence in SQLite schema 6 using the existing migration/backup
+process. Queue acceptance and planned staging, backup and publication paths commit before
+file mutations. Records include the earlier verified address, port, username and host-key
+fingerprint plus available original file metadata; credentials, contents and conflict approval
+tokens are excluded. An unreadable/full journal refuses new work without evicting evidence.
+Failed final journal writes preserve the earlier checkpoint and report an uncertain outcome.
+
+Files now shows a compact Saved transfer recovery panel independent of the current queue.
+Records survive restart, disconnect, renderer reset and Clear finished. Interrupted records
+are evidence for inspection, never executable jobs; old session IDs do not rebind to new SSH
+connections. Forget record asks for confirmation and removes metadata only; active jobs cannot
+be forgotten. Successful transfers with no remaining staging/backup paths remove their journal
+entry automatically. Workspace JSON exports exclude the journal; SQLite snapshots include it.
+
+Regression code covers restart/no replay, migration from schema 5, capacity without eviction,
+malformed-record preservation, final-save failures, pre-mutation checkpoint failures, IPC guards,
+and the renderer confirmation flow. Test cases remain unrun at the user's explicit request.
+`npm run check` (including test-source type checking), `npm run build`, and
+`git diff --check` passed on Linux x64; no test cases were executed. Live SFTP, actual crash/restart,
+visual, native editor and Windows/macOS acceptance remain pending.
+
+F37 remains unchecked: next is F37-B cleanup, then F37-C verified resume. Editor preparation
+copies and retained working-copy discovery are outside this transfer-journal substep. See
+`docs/TRANSFER_RECOVERY.md`. Commit locally with the phase and step; do not push.

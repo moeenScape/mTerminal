@@ -152,6 +152,9 @@ export class TerminalSession {
     if (!this.session?.pty.listDirectory) throw new FileBrowserError('disconnected');
     return this.session.pty.listDirectory(path);
   }
+  get transferPeer() {
+    return this.session?.pty.transferPeer ?? null;
+  }
   get canTransfer(): boolean {
     return !!this.session?.pty.transferFile;
   }
@@ -168,9 +171,10 @@ export class TerminalSession {
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
+    checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
   ) {
     if (!this.session?.pty.transferFile) throw new FileBrowserError('disconnected');
-    return this.session.pty.transferFile(request, signal, progress, approval);
+    return this.session.pty.transferFile(request, signal, progress, approval, checkpoint);
   }
   async mutateDirectory(path: string, operation: import('../../shared/files.js').FileOperation) {
     if (!this.session?.pty.mutateDirectory) throw new FileBrowserError('disconnected');

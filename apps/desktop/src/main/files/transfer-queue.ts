@@ -8,11 +8,14 @@ import {
   type TransferJob,
   type TransferRequest,
   type TransferConflictPreview,
+  type TransferCheckpoint,
+  type TransferRecoveryRecord,
 } from '../../shared/transfers.js';
 import type { TerminalRegistry } from '../terminal/registry.js';
 import { FileBrowserError, fileErrorCode } from './listing.js';
 import { TransferFailure } from './transfer-file.js';
 import { TransferConflict } from './transfer-conflict.js';
+import type { TransferRecoveryStore } from './transfer-recovery.js';
 
 export function validTransferRequest(value: unknown): value is TransferRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -45,6 +48,7 @@ export class TransferQueue {
   private jobs: TransferJob[] = [];
   private active: { job: TransferJob; controller: AbortController } | undefined;
   private disposed = false;
+  private readonly records = new Map<string, TransferRecoveryRecord>();
   private readonly approvals = new Map<string, TransferConflictPreview>();
   private readonly unsubscribe: () => void;
   get running(): boolean {
@@ -53,6 +57,7 @@ export class TransferQueue {
   constructor(
     private readonly terminals: TerminalRegistry,
     private readonly changed: () => void,
+    private readonly recovery: Pick<TransferRecoveryStore, 'list' | 'save' | 'forget'>,
   ) {
     this.unsubscribe = terminals.onSessionClosed((id) => {
       for (const job of this.jobs)
@@ -61,6 +66,43 @@ export class TransferQueue {
   }
   list(): TransferJob[] {
     return structuredClone(this.jobs);
+  }
+  listRecovery(): TransferRecoveryRecord[] {
+    return this.recovery
+      .list()
+      .filter(
+        (record) => !this.jobs.some((job) => job.id === record.id && transferActive(job.state)),
+      );
+  }
+  forgetRecovery(id: string): void {
+    if (this.jobs.some((job) => job.id === id && transferActive(job.state)))
+      throw new FileBrowserError('busy');
+    this.recovery.forget(id);
+    this.records.delete(id);
+    this.changed();
+  }
+  private record(job: TransferJob, checkpoint?: TransferCheckpoint): void {
+    const previous = this.records.get(job.id);
+    const record: TransferRecoveryRecord = {
+      id: job.id,
+      sessionId: job.sessionId,
+      title: job.title,
+      direction: job.direction,
+      localDirectory: job.localDirectory,
+      remoteDirectory: job.remoteDirectory,
+      name: job.name,
+      state: job.state,
+      peer: previous?.peer ?? this.terminals.transferPeer?.(job.sessionId) ?? null,
+      updatedAt: new Date().toISOString(),
+      phase: job.state === 'queued' ? 'queued' : 'settled',
+      partialPath: job.partialPath,
+      backupPath: job.backupPath,
+      source: job.source ?? job.conflict?.source ?? previous?.source ?? null,
+      destination: job.conflict?.destination ?? previous?.destination ?? null,
+      ...checkpoint,
+    };
+    this.recovery.save(record);
+    this.records.set(job.id, record);
   }
   enqueue(request: TransferRequest, approval?: TransferConflictPreview): string {
     if (this.disposed || !this.terminals.canTransfer(request.sessionId))
@@ -79,6 +121,7 @@ export class TransferQueue {
       source: null,
       destination: null,
     };
+    this.record(job);
     this.jobs.push(job);
     if (approval) this.approvals.set(job.id, structuredClone(approval));
     this.changed();
@@ -96,6 +139,13 @@ export class TransferQueue {
       this.active?.controller.abort(new FileBrowserError(reason));
     }
     this.approvals.delete(id);
+    if (job.state === 'cancelled') {
+      try {
+        this.record(job);
+      } catch {
+        job.error = 'recovery-unavailable';
+      }
+    }
     this.changed();
   }
   clearFinished(): void {
@@ -121,6 +171,15 @@ export class TransferQueue {
       job.transferred = 0;
       job.total = null;
     }
+    try {
+      this.record(job);
+    } catch (error) {
+      job.state = 'failed';
+      job.error = fileErrorCode(error);
+      this.approvals.delete(id);
+      this.changed();
+      throw error;
+    }
     this.changed();
     void this.run();
   }
@@ -136,6 +195,14 @@ export class TransferQueue {
     const approval = this.approvals.get(job.id);
     this.approvals.delete(job.id);
     try {
+      this.record(job, {
+        phase: 'queued',
+        partialPath: null,
+        backupPath: null,
+        source: null,
+        destination: null,
+      });
+      if (controller.signal.aborted) throw controller.signal.reason;
       const outcome = await this.terminals.transferFile(
         job.sessionId,
         job,
@@ -149,6 +216,7 @@ export class TransferQueue {
           }
         },
         approval,
+        (checkpoint) => this.record(job, checkpoint),
       );
       job.partialPath = outcome.partialPath;
       job.backupPath = outcome.backupPath ?? null;
@@ -171,6 +239,16 @@ export class TransferQueue {
               ? 'cancelled'
               : 'failed';
     } finally {
+      try {
+        if (job.state === 'completed' && !job.partialPath && !job.backupPath) {
+          this.recovery.forget(job.id);
+          this.records.delete(job.id);
+        } else this.record(job);
+      } catch {
+        // Keep the last durable checkpoint when recording the final outcome fails.
+        job.state = 'uncertain';
+        job.error = 'recovery-unavailable';
+      }
       this.active = undefined;
       this.changed();
       void this.run();

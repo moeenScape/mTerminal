@@ -12,6 +12,7 @@ import { ContextMenu, menuPositionFor, type MenuPosition } from '../../component
 import { FileOperationDialog, type FileAction } from './FileOperationDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { TransferRequest } from '../../../../shared/transfers';
+import { TransferRecoveryPanel } from './TransferRecoveryPanel';
 import { TransferQueueView, useTransfers } from './TransferQueueView';
 import { RemoteEditorPanel, useRemoteEdit } from './RemoteEditorPanel';
 import { REMOTE_EDIT_MAX_BYTES, type RemoteEditRequest } from '../../../../shared/remote-edit';
@@ -83,6 +84,7 @@ export function FileBrowser({
         )}
       </div>
       <TransferQueueView jobs={transfers.jobs} error={transfers.error} />
+      <TransferRecoveryPanel />
       <RemoteEditorPanel edit={editor.edit} error={editor.error} />
     </section>
   );

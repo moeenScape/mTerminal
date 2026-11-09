@@ -6,6 +6,8 @@ export const transferChannels = {
   cancel: 'transfers:cancel',
   clear: 'transfers:clear',
   resolve: 'transfers:resolve',
+  recovery: 'transfers:recovery',
+  forget: 'transfers:forget',
 } as const;
 export const TRANSFERS_CHANGED = 'transfers:changed';
 export const TRANSFER_LIMIT = 32;
@@ -57,7 +59,28 @@ export function transferActive(state: TransferState) {
   );
 }
 export type TransferResponse<T> = { ok: true; value: T } | { ok: false; code: FileErrorCode };
+export interface TransferPeer {
+  address: string;
+  port: number;
+  username: string;
+  fingerprint: string;
+}
+export interface TransferCheckpoint {
+  phase: 'queued' | 'staging' | 'backup' | 'publishing' | 'settled';
+  partialPath: string | null;
+  backupPath: string | null;
+  source: TransferFileInfo | null;
+  destination: TransferFileInfo | null;
+}
+export interface TransferRecoveryRecord extends TransferRequest, TransferCheckpoint {
+  id: string;
+  state: TransferState;
+  peer: TransferPeer | null;
+  updatedAt: string;
+}
 export interface TransfersApi {
+  listTransferRecovery: () => Promise<TransferRecoveryRecord[]>;
+  forgetTransferRecovery: (id: string) => Promise<void>;
   listTransfers: () => Promise<TransferJob[]>;
   enqueueTransfer: (request: TransferRequest) => Promise<void>;
   cancelTransfer: (id: string) => Promise<void>;

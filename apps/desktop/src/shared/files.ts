@@ -56,6 +56,10 @@ export const fileErrorMessages = {
   'editor-copy-unavailable':
     'The working copy is missing, changing, or unreadable. Save it in the editor and retry.',
   'editor-unchanged': 'There are no saved changes to upload.',
+  'recovery-unavailable':
+    'Recovery records could not be saved or read. No new transfer will start until storage is available.',
+  'recovery-full':
+    'Recovery storage is full. Inspect saved recovery records and forget resolved records before adding transfers.',
   'queue-full': 'The transfer queue is full. Clear finished transfers before adding more.',
   'source-changed':
     'The source file changed or ended early. It was not published at the destination.',

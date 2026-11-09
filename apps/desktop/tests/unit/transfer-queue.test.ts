@@ -47,6 +47,7 @@ describe('window-owned transfer queue', () => {
         transferFile,
       } as unknown as TerminalRegistry,
       () => {},
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     try {
       queue.enqueue(request);
@@ -100,6 +101,7 @@ describe('window-owned transfer queue', () => {
         transferFile,
       } as unknown as TerminalRegistry,
       () => {},
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     try {
       queue.enqueue(request);
@@ -129,6 +131,7 @@ describe('window-owned transfer queue', () => {
     const queue = new TransferQueue(
       { onSessionClosed: () => () => {}, canTransfer: () => false } as unknown as TerminalRegistry,
       () => {},
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     expect(() => queue.enqueue(request)).toThrow('disconnected');
     queue.dispose();
@@ -153,6 +156,7 @@ describe('window-owned transfer queue', () => {
         transferFile,
       } as unknown as TerminalRegistry,
       vi.fn(),
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     try {
       queue.enqueue(request);
@@ -188,6 +192,7 @@ describe('window-owned transfer queue', () => {
           ),
       } as unknown as TerminalRegistry,
       () => {},
+      { list: () => [], save: () => {}, forget: () => {} },
     );
     queue.enqueue(request);
     queue.cancel(queue.list()[0]!.id);

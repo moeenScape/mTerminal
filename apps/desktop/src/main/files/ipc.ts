@@ -4,6 +4,7 @@ import {
   REMOTE_EDIT_CHANGED,
   type RemoteEditState,
 } from '../../shared/remote-edit.js';
+import type { TransferRecoveryStore } from './transfer-recovery.js';
 import { RemoteEditManager, validRemoteEditRequest } from './remote-edit.js';
 import {
   FILES_LIST,
@@ -19,6 +20,7 @@ import {
   TRANSFERS_CHANGED,
   type TransferResponse,
   type TransferJob,
+  type TransferRecoveryRecord,
 } from '../../shared/transfers.js';
 import { validTerminalId } from '../../shared/terminal.js';
 import { TransferQueue, validTransferRequest } from './transfer-queue.js';
@@ -34,14 +36,20 @@ export function attachFiles(
   rendererUrl: string,
   terminals: TerminalRegistry,
   editRoot: string,
+  recovery: Pick<TransferRecoveryStore, 'list' | 'save' | 'forget'>,
 ): void {
   let pending = 0;
   let mutating = false;
   let disposed = false;
-  const transfers = new TransferQueue(terminals, () => {
-    if (!disposed && !window.webContents.isDestroyed()) window.webContents.send(TRANSFERS_CHANGED);
-    editor.syncFromQueue();
-  });
+  const transfers = new TransferQueue(
+    terminals,
+    () => {
+      if (!disposed && !window.webContents.isDestroyed())
+        window.webContents.send(TRANSFERS_CHANGED);
+      editor.syncFromQueue();
+    },
+    recovery,
+  );
   const editor = new RemoteEditManager(
     editRoot,
     terminals,
@@ -95,10 +103,23 @@ export function attachFiles(
   for (const channel of Object.values(transferChannels)) {
     ipcMain.handle(
       channel,
-      async (event, ...args: unknown[]): Promise<TransferResponse<TransferJob[] | undefined>> => {
+      async (
+        event,
+        ...args: unknown[]
+      ): Promise<TransferResponse<TransferJob[] | TransferRecoveryRecord[] | undefined>> => {
         validateAppInfoRequest(event, window.webContents, rendererUrl, []);
         if (disposed) return { ok: false, code: 'disconnected' };
         try {
+          if (channel === transferChannels.recovery && !args.length)
+            return { ok: true, value: transfers.listRecovery() };
+          if (
+            channel === transferChannels.forget &&
+            args.length === 1 &&
+            validTerminalId(args[0])
+          ) {
+            transfers.forgetRecovery(args[0]);
+            return { ok: true, value: undefined };
+          }
           if (channel === transferChannels.list && !args.length)
             return { ok: true, value: transfers.list() };
           if (channel === transferChannels.clear && !args.length) transfers.clearFinished();

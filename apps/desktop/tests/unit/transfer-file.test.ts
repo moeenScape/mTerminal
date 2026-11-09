@@ -495,3 +495,45 @@ describe('staged SFTP transfers', () => {
     }
   });
 });
+
+describe('recovery checkpoints', () => {
+  it.each(['staging', 'backup', 'publishing'] as const)(
+    'persists %s before mutation and preserves the old destination if persistence fails',
+    async (stopAt) => {
+      const directory = await mkdtemp(join(tmpdir(), 'mterminal-checkpoint-'));
+      const remote = remoteFixture({ '/remote/sample.bin': Buffer.from('old bytes') });
+      try {
+        await writeFile(join(directory, 'sample.bin'), 'new bytes');
+        const approval = await getPreview(remote.client, request(directory));
+        const checkpoints: string[] = [];
+        await expect(
+          transferFile(
+            remote.client,
+            request(directory),
+            new AbortController().signal,
+            () => {},
+            approval,
+            undefined,
+            (checkpoint) => {
+              checkpoints.push(checkpoint.phase);
+              if (checkpoint.phase === 'staging') {
+                expect(remote.files.has(checkpoint.partialPath!)).toBe(false);
+                expect(checkpoint.source?.path).toBe(join(directory, 'sample.bin'));
+              }
+              if (checkpoint.phase === 'backup') {
+                expect(remote.files.has(checkpoint.backupPath!)).toBe(false);
+                expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('old bytes');
+              }
+              if (checkpoint.phase === stopAt) throw new FileBrowserError('recovery-unavailable');
+            },
+          ),
+        ).rejects.toMatchObject({ code: 'recovery-unavailable' });
+        expect(checkpoints).toContain(stopAt);
+        expect(remote.files.get('/remote/sample.bin')?.toString()).toBe('old bytes');
+        expect([...remote.files.keys()].some((path) => path.endsWith('.part'))).toBe(false);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+});

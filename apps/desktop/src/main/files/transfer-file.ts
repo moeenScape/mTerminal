@@ -5,6 +5,7 @@ import type { Client, SFTPWrapper, Stats } from 'ssh2';
 import type { FileErrorCode } from '../../shared/files.js';
 import type {
   TransferRequest,
+  TransferCheckpoint,
   TransferConflictPreview,
   TransferFileInfo,
 } from '../../shared/transfers.js';
@@ -43,6 +44,7 @@ export async function transferFile(
   progress: (transferred: number, total: number) => void,
   approval?: TransferConflictPreview,
   limits?: { maxBytes: number },
+  checkpoint?: (value: TransferCheckpoint) => void,
 ): Promise<TransferOutcome> {
   let channel: SFTPWrapper | undefined;
   let local: FileHandle | undefined;
@@ -120,6 +122,8 @@ export async function transferFile(
     );
     if (destination && !replacing) throw new TransferConflict(conflictPreview(source, destination));
     if (approval && !destination) throw new FileBrowserError('destination-changed');
+    const record = (phase: TransferCheckpoint['phase'], plannedBackup = backupPath) =>
+      checkpoint?.({ phase, partialPath: stage, backupPath: plannedBackup, source, destination });
     let size: number;
     let modified: number;
     if (upload) {
@@ -140,6 +144,7 @@ export async function transferFile(
       size = stats.size;
       modified = stats.mtimeMs;
       stage = childPath(remoteParent, `.mterminal-${randomUUID()}.part`, true);
+      record('staging');
       remoteHandle = await rpc<Buffer>((done) => sftp.open(stage!, 'wx', 0o600, done));
       stageCreated = true;
     } else {
@@ -157,6 +162,7 @@ export async function transferFile(
       size = stats.size;
       modified = stats.mtime;
       stage = childPath(localParent, `.mterminal-${randomUUID()}.part`, false);
+      record('staging');
       local = await open(stage, 'wx', 0o600);
       stageCreated = true;
     }
@@ -225,6 +231,7 @@ export async function transferFile(
         `.mterminal-${randomUUID()}.bak`,
         upload,
       );
+      record('backup', backup);
       if (upload) {
         backupPath = backup;
         await call((done) => sftp.rename(remotePath, backup, done));
@@ -264,6 +271,7 @@ export async function transferFile(
       }
     }
     if (combined.aborted) throw combined.reason;
+    record('publishing');
     if (upload) {
       await call((done) => sftp.rename(stage!, remotePath, done));
       stageCreated = false;

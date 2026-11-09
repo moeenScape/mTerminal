@@ -36,16 +36,20 @@ export class TerminalRegistry {
     if (!session) throw new FileBrowserError('disconnected');
     return session.prepareRemoteEdit(request, directory, signal);
   }
+  transferPeer(id: string) {
+    return this.sessions.get(id)?.transferPeer ?? null;
+  }
   async transferFile(
     id: string,
     request: import('../../shared/transfers.js').TransferRequest,
     signal: AbortSignal,
     progress: (transferred: number, total: number) => void,
     approval?: import('../../shared/transfers.js').TransferConflictPreview,
+    checkpoint?: (value: import('../../shared/transfers.js').TransferCheckpoint) => void,
   ) {
     const session = this.sessions.get(id);
     if (!session) throw new FileBrowserError('disconnected');
-    return session.transferFile(request, signal, progress, approval);
+    return session.transferFile(request, signal, progress, approval, checkpoint);
   }
   get count(): number {
     return this.sessions.size;

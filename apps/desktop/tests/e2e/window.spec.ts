@@ -113,6 +113,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'enqueueTransfer',
       'exportWorkspace',
       'finishRemoteEdit',
+      'forgetTransferRecovery',
       'generateSshKey',
       'getAppInfo',
       'getPreferences',
@@ -128,6 +129,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listHostGroups',
       'listHosts',
       'listSshIdentities',
+      'listTransferRecovery',
       'listTransfers',
       'lockVault',
       'mutateDirectory',
@@ -233,6 +235,50 @@ test('creates, renames and confirms deletion of a local folder without overwriti
     .click();
   await expect(local.getByRole('button', { name: 'Actions for renamed-folder' })).toBeHidden();
   expect(await readFile(join(folder, 'existing'), 'utf8')).toBe('keep');
+});
+
+test('shows saved recovery evidence and confirms forgetting only the record', async () => {
+  await application.evaluate(({ ipcMain, BrowserWindow }) => {
+    let records = [
+      {
+        id: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        sessionId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+        title: 'Recovery fixture',
+        direction: 'upload',
+        name: 'recover.txt',
+        localDirectory: '/local',
+        remoteDirectory: '/remote',
+        state: 'running',
+        phase: 'publishing',
+        partialPath: '/remote/possible.part',
+        backupPath: '/remote/possible.bak',
+        source: null,
+        destination: null,
+        peer: null,
+        updatedAt: '2026-11-09T00:00:00.000Z',
+      },
+    ];
+    ipcMain.removeHandler('transfers:recovery');
+    ipcMain.handle('transfers:recovery', () => ({ ok: true, value: records }));
+    ipcMain.removeHandler('transfers:forget');
+    ipcMain.handle('transfers:forget', (_event, id: string) => {
+      records = records.filter((record) => record.id !== id);
+      BrowserWindow.getAllWindows()[0]!.webContents.send('transfers:changed');
+      return { ok: true, value: undefined };
+    });
+  });
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const recovery = page.getByRole('region', { name: 'Saved transfer recovery' });
+  await expect(recovery).toContainText('Interrupted · publishing');
+  await expect(recovery).toContainText('/remote/possible.bak');
+  await recovery.getByRole('button', { name: 'Forget recovery record for recover.txt' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Forget recovery record?' });
+  await expect(dialog).toContainText('stay on disk');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(recovery).toBeVisible();
+  await recovery.getByRole('button', { name: 'Forget recovery record for recover.txt' }).click();
+  await dialog.getByRole('button', { name: 'Forget record', exact: true }).click();
+  await expect(recovery).toHaveCount(0);
 });
 
 test('renders transfer progress and cancels and clears jobs through preload', async () => {

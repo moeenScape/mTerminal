@@ -61,6 +61,11 @@ const migrations = [
       ALTER TABLE host_groups ADD COLUMN identityId TEXT REFERENCES ssh_identities(id) ON DELETE SET NULL;
     `);
   },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE transfer_recovery (
+      id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(length(data) <= 65536)
+    ) STRICT;`);
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -125,6 +130,8 @@ function validateDatabase(database: DatabaseSync): void {
     database.prepare('SELECT identityId FROM hosts LIMIT 0').all();
     database.prepare('SELECT identityId FROM host_groups LIMIT 0').all();
   }
+  if (pragmaNumber(database, 'user_version') >= 6)
+    database.prepare('SELECT id,data FROM transfer_recovery LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
