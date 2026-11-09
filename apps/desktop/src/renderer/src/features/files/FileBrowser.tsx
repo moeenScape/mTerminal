@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type DragEvent } from 'react';
 import { Icon } from '../../components/Icon';
 import type {
   DirectoryListing,
@@ -7,7 +7,14 @@ import type {
   FileMutationRequest,
   FileOperation,
 } from '../../../../shared/files';
-import { fileSize, visibleFiles, type FileSort } from './file-browser';
+import {
+  FILE_DRAG_TYPE,
+  fileDropRequest,
+  fileSize,
+  visibleFiles,
+  type FileSort,
+  type FileDrag,
+} from './file-browser';
 import { ContextMenu, menuPositionFor, type MenuPosition } from '../../components/ContextMenu';
 import { FileOperationDialog, type FileAction } from './FileOperationDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -37,6 +44,7 @@ export function FileBrowser({
     (path: string) => setRemoteDirectory({ sessionId, path }),
     [sessionId],
   );
+  const [drag, setDrag] = useState<FileDrag | null>(null);
   const [recoveryRevision, setRecoveryRevision] = useState(0);
   const transfers = useTransfers();
   const editor = useRemoteEdit();
@@ -44,8 +52,35 @@ export function FileBrowser({
     sessionId && localDirectory && remoteDirectory?.sessionId === sessionId
       ? { sessionId, title: remoteTitle, localDirectory, remoteDirectory: remoteDirectory.path }
       : null;
+  const beginDrag = (
+    event: DragEvent<HTMLElement>,
+    side: 'local' | 'remote',
+    entry: FileEntry,
+    directory: string,
+  ) => {
+    if (!transferContext || entry.kind !== 'file') {
+      event.preventDefault();
+      return;
+    }
+    const token = crypto.randomUUID();
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(FILE_DRAG_TYPE, token);
+    setDrag({ token, side, entry, directory, sessionId: transferContext.sessionId });
+  };
   return (
-    <section className="file-browser" aria-label="File browser">
+    <section
+      className="file-browser"
+      aria-label="File browser"
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'none';
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setDrag(null);
+      }}
+    >
       <header className="file-browser-header">
         <div>
           <Icon name="folder" />
@@ -56,6 +91,10 @@ export function FileBrowser({
           Back to terminal
         </button>
       </header>
+      <p className="file-transfer-hint">
+        Drag one file to the opposite pane, or use Upload / Download beside a file. Drops use the
+        destination pane&apos;s open folder.
+      </p>
       <div className="file-browser-panes">
         <DirectoryPane
           side="local"
@@ -64,6 +103,9 @@ export function FileBrowser({
           onDirectory={setLocalDirectory}
           transferContext={transferContext}
           transferRevision={transfers.revision + recoveryRevision}
+          drag={drag}
+          onFileDrag={beginDrag}
+          onFileDragEnd={() => setDrag(null)}
           canEdit={false}
         />
         {remote ? (
@@ -74,6 +116,9 @@ export function FileBrowser({
             onDirectory={onRemoteDirectory}
             transferContext={transferContext}
             transferRevision={transfers.revision + recoveryRevision}
+            drag={drag}
+            onFileDrag={beginDrag}
+            onFileDragEnd={() => setDrag(null)}
             canEdit={editor.ready && !editor.edit}
           />
         ) : (
@@ -102,6 +147,9 @@ function DirectoryPane({
   transferContext,
   transferRevision,
   canEdit,
+  drag,
+  onFileDrag,
+  onFileDragEnd,
 }: {
   side: 'local' | 'remote';
   title: string;
@@ -110,8 +158,17 @@ function DirectoryPane({
   transferContext: Omit<TransferRequest, 'direction' | 'name'> | null;
   transferRevision: number;
   canEdit: boolean;
+  drag: FileDrag | null;
+  onFileDrag: (
+    event: DragEvent<HTMLElement>,
+    side: 'local' | 'remote',
+    entry: FileEntry,
+    directory: string,
+  ) => void;
+  onFileDragEnd: () => void;
 }) {
   const id = useId();
+  const [dropToken, setDropToken] = useState<string | null>(null);
   const [location, setLocation] = useState({ path: '', revision: 0 });
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [draft, setDraft] = useState('');
@@ -129,6 +186,24 @@ function DirectoryPane({
   const loading = useRef<Promise<void>>(Promise.resolve());
   const disconnected = side === 'remote' && !sessionId;
   const blocked = busy || mutating || disconnected;
+  const ready =
+    !!listing &&
+    !blocked &&
+    !message &&
+    !!transferContext &&
+    listing.path ===
+      (side === 'local' ? transferContext.localDirectory : transferContext.remoteDirectory);
+  const incoming = ready ? fileDropRequest(drag, side, transferContext) : null;
+  const dropActive = !!drag && dropToken === drag.token && !!incoming;
+  const previewTransfer = (entry: FileEntry) => {
+    if (!ready || !transferContext || entry.kind !== 'file') return;
+    setMenu(null);
+    setTransfer({
+      ...transferContext,
+      name: entry.name,
+      direction: side === 'local' ? 'upload' : 'download',
+    });
+  };
   useEffect(() => {
     if (side === 'remote' && !sessionId) return;
     let cancelled = false;
@@ -198,10 +273,40 @@ function DirectoryPane({
   };
   return (
     <section
-      className="file-pane"
+      className={`file-pane${dropActive && incoming ? ' file-pane-drop-target' : ''}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const accepts = !!incoming && event.dataTransfer.types.includes(FILE_DRAG_TYPE);
+        event.dataTransfer.dropEffect = accepts ? 'copy' : 'none';
+        setDropToken(accepts ? drag!.token : null);
+      }}
+      onDragLeave={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setDropToken(null);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setDropToken(null);
+        if (incoming && drag && event.dataTransfer.getData(FILE_DRAG_TYPE) === drag.token) {
+          setMenu(null);
+          setTransfer(incoming);
+        }
+        onFileDragEnd();
+      }}
       aria-label={`${side === 'local' ? 'Local' : 'Remote'} files`}
       aria-busy={busy || mutating}
     >
+      {dropActive && incoming && (
+        <div className="file-drop-hint" role="status">
+          Drop to {incoming.direction === 'upload' ? 'upload' : 'download'} into{' '}
+          <code>{listing?.path}</code>. Confirmation required.
+        </div>
+      )}
       <header className="file-pane-heading">
         <Icon name={side === 'local' ? 'terminal' : 'hosts'} />
         <h2>{title}</h2>
@@ -325,7 +430,25 @@ function DirectoryPane({
           </thead>
           <tbody>
             {entries.map((entry) => (
-              <tr key={entry.path}>
+              <tr
+                key={entry.path}
+                draggable={ready && entry.kind === 'file'}
+                onDragStart={(event) => {
+                  if (!ready || !listing || entry.kind !== 'file') {
+                    event.preventDefault();
+                    return;
+                  }
+                  setMenu(null);
+                  onFileDrag(event, side, entry, listing.path);
+                }}
+                onDragEnd={onFileDragEnd}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!blocked && entry.kind !== 'other')
+                    setMenu({ entry, position: { x: event.clientX, y: event.clientY } });
+                }}
+              >
                 <td>
                   {entry.kind === 'directory' || entry.kind === 'symlink' ? (
                     <button
@@ -360,7 +483,23 @@ function DirectoryPane({
                     ? new Date(entry.modified).toLocaleString()
                     : '—'}
                 </td>
-                <td>
+                <td className="file-row-actions">
+                  {entry.kind === 'file' && (
+                    <button
+                      type="button"
+                      className="file-transfer-button"
+                      disabled={!ready}
+                      title={
+                        ready
+                          ? `Copy to the ${side === 'local' ? 'remote' : 'local'} pane's open folder`
+                          : 'Connect through Hosts and wait for both folders to load'
+                      }
+                      aria-label={`${side === 'local' ? 'Upload' : 'Download'} ${entry.name}`}
+                      onClick={() => previewTransfer(entry)}
+                    >
+                      {side === 'local' ? 'Upload…' : 'Download…'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="icon-button"
@@ -425,16 +564,8 @@ function DirectoryPane({
               : []),
             {
               label: side === 'local' ? 'Upload…' : 'Download…',
-              disabled: !transferContext || menu.entry.kind !== 'file',
-              onSelect: () => {
-                if (transferContext)
-                  setTransfer({
-                    ...transferContext,
-                    name: menu.entry.name,
-                    direction: side === 'local' ? 'upload' : 'download',
-                  });
-                setMenu(null);
-              },
+              disabled: !ready || menu.entry.kind !== 'file',
+              onSelect: () => previewTransfer(menu.entry),
             },
             {
               label: 'Rename…',

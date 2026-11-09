@@ -13,7 +13,9 @@ Remote text editing opens a private `.txt` working copy and uploads saved change
 request. See [Remote editing](docs/REMOTE_EDITING.md) for limits, editor setup and copy retention.
 Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
-[File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status.
+[File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status. Drag individual
+files between its Local and Remote panes, or use the visible Upload/Download row buttons;
+review the confirmation before adding a transfer to the queue.
 F37 adds persistent transfer recovery records, confirmed temporary-file cleanup and verified transfer resume in Files. See [Transfer recovery](docs/TRANSFER_RECOVERY.md)
 for cleanup/resume requirements, older-record limits, overwrite confirmation and metadata-only forgetting. Phase 4 tests and live/platform acceptance remain pending.
 

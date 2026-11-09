@@ -1,4 +1,35 @@
-import type { FileEntry } from '../../../../shared/files.js';
+import { validFileName, type FileEntry } from '../../../../shared/files.js';
+import type { TransferRequest } from '../../../../shared/transfers.js';
+
+export const FILE_DRAG_TYPE = 'application/x-mterminal-file';
+export interface FileDrag {
+  token: string;
+  side: 'local' | 'remote';
+  entry: FileEntry;
+  directory: string;
+  sessionId: string;
+}
+export function fileDropRequest(
+  drag: FileDrag | null,
+  target: 'local' | 'remote',
+  context: Omit<TransferRequest, 'direction' | 'name'> | null,
+): TransferRequest | null {
+  if (
+    !drag ||
+    !context ||
+    drag.side === target ||
+    drag.entry.kind !== 'file' ||
+    !validFileName(drag.entry.name) ||
+    drag.sessionId !== context.sessionId ||
+    drag.directory !== (drag.side === 'local' ? context.localDirectory : context.remoteDirectory)
+  )
+    return null;
+  return {
+    ...context,
+    name: drag.entry.name,
+    direction: drag.side === 'local' ? 'upload' : 'download',
+  };
+}
 
 export type FileSort = 'name' | 'size' | 'modified';
 export function visibleFiles(

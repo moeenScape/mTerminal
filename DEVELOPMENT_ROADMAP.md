@@ -24,7 +24,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F37-C implemented — Explicit verified transfer resume; Phase 4 implementation complete, acceptance pending |
+| Active feature | F34-A implemented — Bidirectional file-pane drag-and-drop and visible transfer actions; Phase 4 acceptance pending |
 | Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
@@ -163,6 +163,7 @@ Dependencies: Phase 3 and the SSH connection layer.
 - [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
 - [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
+  - [x] **F34-A — Transfer interaction (implementation):** Drag one regular file between Local/Remote panes into the open target folder, then explicitly confirm Add to queue. Visible Upload/Download buttons and file-row right-click actions improve discovery. Same-pane, external, non-file and stale-context drops are refused. Regression tests written; execution and visual/live/platform acceptance deferred.
 - [x] **F35 — Overwrites (implementation):** Source/destination metadata preview, token-bound Replace/Skip/Cancel decisions with Skip as default, canonical path/version checks, staged replacement with retained original backups, guarded restore, and uncertain-outcome reporting. Non-file destinations are refused. Tests written; Phase 4 execution and desktop/platform acceptance remain pending. See `docs/FILE_BROWSER.md`.
 - [x] **F36 — Remote editing (implementation):** One regular UTF-8 file up to 1 MiB per window; private `.txt` working copy in the OS default text editor, saved-byte change detection, explicit immutable-snapshot uploads through existing version/conflict/backup checks, and confirmed scoped discard or retained copies. No auto-upload or connection rebinding. Tests written; execution and native/visual/platform acceptance deferred. See `docs/REMOTE_EDITING.md`.
 - [x] **F37 — Recovery (implementation):** Interrupted-transfer evidence, confirmed partial-file cleanup, and explicit verified resume. Phase 4 tests and live/platform acceptance pending; see `docs/TRANSFER_RECOVERY.md`.
@@ -1073,3 +1074,32 @@ F37 and Phase 4 implementation are marked complete; acceptance is not claimed. P
 rereads data, server probes do not establish vendor compatibility, and SFTP metadata/path races
 retain the limits documented in `docs/TRANSFER_RECOVERY.md`. Next: Phase 4 verification gate when
 test execution is requested, then F38 split panes. Commit locally with phase/step; do not push.
+
+
+### F34-A file-pane drag-and-drop — 2026-11-09
+
+Added user-requested bidirectional single-file drag-and-drop between the Local and Remote panes.
+Rows become draggable only with a loaded, successful listing and an app-managed SSH transfer
+context. The target pane highlights its current folder; a drop opens the existing Upload/Download
+confirmation with both paths. Cancel leaves files unchanged; Add to queue uses the existing
+validated main-process transfer, conflict/backup, cancellation and recovery workflow.
+
+Drag data contains only an opaque token bound to an in-memory selected row. No dropped paths,
+file contents or URLs are parsed. Changed session/source-folder selections, unavailable/stale
+targets, same-pane moves, directories, symlinks and foreign drops are refused. Native OS file
+manager drops, folder copying and multi-file selection remain outside this substep. Dropping on
+a folder row still uses the destination pane's open folder, shown in the confirmation.
+
+Regular-file rows now have visible Upload/Download buttons and a file-specific right-click menu;
+actions stay visible while scrolling metadata horizontally. A compact help line distinguishes
+this workflow from terminal Copy/Paste/Close session actions. Native keyboard buttons remain an
+alternative to dragging, with Cancel focused by default in the existing modal.
+
+Regression code covers both transfer directions, unchanged preview/cancel behavior, exact queued
+paths, forged tokens, non-file/same-pane/stale selections, visible actions and row menus. Tests
+remain unrun at the user's request. `npm run check`, `npm run build`, and `git diff --check`
+passed on Linux x64; no test cases were executed. Live SFTP, actual pointer interaction, visual
+and Windows/macOS acceptance remain pending.
+No new dependencies, preload APIs, backend filesystem capabilities or database migrations.
+Continue with the Phase 4 verification gate when test execution is requested, then F38 split panes.
+Commit locally with phase/step; do not push.

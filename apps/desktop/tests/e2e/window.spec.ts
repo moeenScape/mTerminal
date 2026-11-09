@@ -418,6 +418,146 @@ test('previews recovery cleanup and resume with explicit Cancel-first confirmati
   await expect(recovery).toContainText('/remote/retained.bak');
 });
 
+test('drags individual files between panes and queues only after confirmation', async () => {
+  const localRoot = join(userData, 'local-files');
+  await application.evaluate(({ ipcMain }, localRoot) => {
+    const queued: unknown[] = [];
+    ipcMain.on('fixture:drag-transfers', (_event, respond: (value: unknown[]) => void) =>
+      respond(queued),
+    );
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle('terminal:ssh', (event, id: string) => {
+      event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+      return { ok: true };
+    });
+    ipcMain.removeHandler('files:list');
+    ipcMain.handle('files:list', (_event, request: { side: 'local' | 'remote'; path: string }) => {
+      const path = request.path || (request.side === 'local' ? localRoot : '/remote-files');
+      const name = request.side === 'local' ? 'upload.txt' : 'download.txt';
+      return {
+        ok: true,
+        value: {
+          path,
+          parent: path,
+          breadcrumbs: [{ name: path, path }],
+          truncated: false,
+          canChmod: false,
+          entries: [
+            {
+              name,
+              path: `${path}/${name}`,
+              kind: 'file',
+              size: 3,
+              modified: 1,
+              permissions: '0600',
+            },
+            {
+              name: 'folder',
+              path: `${path}/folder`,
+              kind: 'directory',
+              size: 0,
+              modified: 1,
+              permissions: '0700',
+            },
+          ],
+        },
+      };
+    });
+    ipcMain.removeHandler('transfers:enqueue');
+    ipcMain.handle('transfers:enqueue', (_event, request: unknown) => {
+      queued.push(request);
+      return { ok: true, value: undefined };
+    });
+  }, localRoot);
+  const queued = () =>
+    application.evaluate(
+      ({ ipcMain }) =>
+        new Promise<unknown[]>((resolve) => {
+          ipcMain.emit('fixture:drag-transfers', null, resolve);
+        }),
+    );
+  await page.evaluate(async () => {
+    await window.mterminal.saveHost({
+      name: 'Drag fixture',
+      address: 'example.com',
+      port: 22,
+      username: 'deploy',
+      protocol: 'ssh',
+    });
+  });
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Drag fixture', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill('fixture');
+  await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  const local = page.getByRole('region', { name: 'Local files', exact: true });
+  const remote = page.getByRole('region', { name: 'Remote files', exact: true });
+  const upload = local
+    .getByRole('row')
+    .filter({ has: page.getByText('upload.txt', { exact: true }) });
+  const download = remote
+    .getByRole('row')
+    .filter({ has: page.getByText('download.txt', { exact: true }) });
+  await expect(local.getByRole('button', { name: 'Upload upload.txt', exact: true })).toBeEnabled();
+  await expect(
+    remote.getByRole('button', { name: 'Download download.txt', exact: true }),
+  ).toBeEnabled();
+  await expect(
+    local
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: 'folder', exact: true }) }),
+  ).toHaveAttribute('draggable', 'false');
+  // Native drag data carries only an opaque token; a forged token cannot select a path.
+  const data = await page.evaluateHandle(() => new DataTransfer());
+  try {
+    await upload.dispatchEvent('dragstart', { dataTransfer: data });
+    await data.evaluate((value) => value.setData('application/x-mterminal-file', 'forged-token'));
+    await remote.dispatchEvent('drop', { dataTransfer: data });
+    await upload.dispatchEvent('dragend', { dataTransfer: data });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await queued()).toEqual([]);
+  } finally {
+    await data.dispose();
+  }
+  await upload.dragTo(local);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await upload.dragTo(remote);
+  let dialog = page.getByRole('dialog', { name: 'Upload file?' });
+  await expect(dialog).toContainText(localRoot);
+  await expect(dialog).toContainText('/remote-files');
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  expect(await queued()).toEqual([]);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await queued()).toEqual([]);
+  await upload.dragTo(remote);
+  await page.getByRole('dialog').getByRole('button', { name: 'Add to queue', exact: true }).click();
+  await expect.poll(async () => (await queued()).length).toBe(1);
+  expect((await queued())[0]).toMatchObject({
+    name: 'upload.txt',
+    direction: 'upload',
+    localDirectory: localRoot,
+    remoteDirectory: '/remote-files',
+  });
+  await download.dragTo(local);
+  dialog = page.getByRole('dialog', { name: 'Download file?' });
+  await expect(dialog).toContainText('Remote → Local');
+  await dialog.getByRole('button', { name: 'Add to queue', exact: true }).click();
+  await expect.poll(async () => (await queued()).length).toBe(2);
+  expect((await queued())[1]).toMatchObject({
+    name: 'download.txt',
+    direction: 'download',
+    localDirectory: localRoot,
+    remoteDirectory: '/remote-files',
+  });
+  await local.getByRole('button', { name: 'Upload upload.txt', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Upload file?' })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await upload.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Upload…', exact: true })).toBeEnabled();
+  await expect(page.getByRole('menuitem', { name: 'Close session', exact: true })).toHaveCount(0);
+});
+
 test('renders transfer progress and cancels and clears jobs through preload', async () => {
   await application.evaluate(({ ipcMain, BrowserWindow }, directory) => {
     let jobs = [

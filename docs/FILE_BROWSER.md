@@ -69,6 +69,25 @@ copy, the system's default text editor, saved-change detection and explicit snap
 5. The queue beneath the panes shows bytes transferred, progress and status. **Cancel** removes
    a queued job or interrupts an active copy; **cancelling** remains visible during cleanup.
 
+You can also drag one regular file from **Local** to **Remote** to upload, or from **Remote**
+to **Local** to download. Drop anywhere inside the opposite pane to target its **currently open
+folder**; hovering over a folder row does not select that subfolder. The target highlights and
+shows its path. Dropping opens the same confirmation dialog; choose **Add to queue** to start,
+or **Cancel** to leave both computers unchanged.
+
+Each regular file also has a visible **Upload…** / **Download…** button. Its row's **⋯** button or
+right-click menu offers the same action. The terminal toolbar's **⋯** menu contains Copy/Paste/
+Close session; choose **Browse files** there, or the folder icon labelled **Files**, to reach this
+view. Both folders must load successfully, and the SSH connection must be opened through Hosts.
+Typing `ssh ...` inside a local shell does not attach the remote file pane.
+
+Drag-and-drop currently supports individual regular files **between these two app panes**.
+Folders, symlinks, multiple selections, OS file-manager drops and same-pane moves are unavailable.
+Only a token bound to an actual row drag is accepted; dropped paths/URLs are never parsed as
+transfer instructions. A changed connection/source folder or an unavailable target refuses the
+drop. The main process still validates every queued request and uses the normal conflict,
+backup, progress, cancellation and recovery behavior.
+
 One transfer runs at a time per window, with up to 32 jobs including finished jobs. **Clear
 finished** removes only queue records; it never deletes files. Existing destinations wait for an
 explicit conflict decision. Directory, symbolic-link and special-file transfers are unavailable.

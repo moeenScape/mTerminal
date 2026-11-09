@@ -7,7 +7,11 @@ import {
   listLocalDirectory,
   validFileRequest,
 } from '../../src/main/files/listing.js';
-import { visibleFiles } from '../../src/renderer/src/features/files/file-browser.js';
+import {
+  visibleFiles,
+  fileDropRequest,
+  type FileDrag,
+} from '../../src/renderer/src/features/files/file-browser.js';
 import { TerminalRegistry } from '../../src/main/terminal/registry.js';
 
 describe('read-only file browser', () => {
@@ -85,5 +89,67 @@ describe('read-only file browser', () => {
     }
     expect(fileErrorCode({ code: 'EACCES' })).toBe('permission');
     expect(fileErrorCode({ code: 3 })).toBe('permission');
+  });
+});
+
+describe('file-pane drag transfers', () => {
+  const context = {
+    sessionId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+    title: 'SSH fixture',
+    localDirectory: '/local',
+    remoteDirectory: '/remote',
+  };
+  const local: FileDrag = {
+    token: 'internal-token',
+    sessionId: context.sessionId,
+    side: 'local',
+    directory: '/local',
+    entry: {
+      name: 'বাংলা file.txt',
+      path: '/local/বাংলা file.txt',
+      kind: 'file',
+      size: 3,
+      modified: 1,
+      permissions: '0600',
+    },
+  };
+  it('previews uploads and downloads using the current opposite folder', () => {
+    expect(fileDropRequest(local, 'remote', context)).toEqual({
+      ...context,
+      name: local.entry.name,
+      direction: 'upload',
+    });
+    const remote = {
+      ...local,
+      side: 'remote' as const,
+      directory: '/remote',
+      entry: { ...local.entry, path: '/remote/বাংলা file.txt' },
+    };
+    expect(fileDropRequest(remote, 'local', { ...context, localDirectory: '/chosen' })).toEqual({
+      ...context,
+      localDirectory: '/chosen',
+      name: local.entry.name,
+      direction: 'download',
+    });
+  });
+  it('refuses same-side, missing, disconnected, stale-source and non-file selections', () => {
+    expect(fileDropRequest(null, 'remote', context)).toBeNull();
+    expect(fileDropRequest(local, 'remote', null)).toBeNull();
+    expect(fileDropRequest(local, 'local', context)).toBeNull();
+    expect(
+      fileDropRequest(local, 'remote', { ...context, sessionId: 'different-session' }),
+    ).toBeNull();
+    expect(fileDropRequest(local, 'remote', { ...context, localDirectory: '/changed' })).toBeNull();
+    for (const kind of ['directory', 'symlink', 'other'] as const)
+      expect(
+        fileDropRequest({ ...local, entry: { ...local.entry, kind } }, 'remote', context),
+      ).toBeNull();
+    expect(
+      fileDropRequest(
+        { ...local, entry: { ...local.entry, name: '../escape' } },
+        'remote',
+        context,
+      ),
+    ).toBeNull();
   });
 });
