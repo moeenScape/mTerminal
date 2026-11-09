@@ -7,6 +7,8 @@ import { TerminalPane } from './TerminalPane';
 import type { ToolsPreferences } from './TerminalTools';
 import {
   tabsReducer,
+  panePositions,
+  type SplitDirection,
   tabTitle,
   tabPhaseLabels,
   isLiveTab,
@@ -113,7 +115,7 @@ export function WorkspaceView({
   toolsPreferences: ToolsPreferences;
   onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
-  const [state, dispatch] = useReducer(tabsReducer, { tabs: [], activeId: null });
+  const [state, dispatch] = useReducer(tabsReducer, { tabs: [], layouts: [], activeId: null });
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -123,6 +125,10 @@ export function WorkspaceView({
   const running = state.tabs.filter(
     (tab) => tab.phase === 'running' || tab.phase === 'connected',
   ).length;
+  const selectedLayout = state.layouts.find((layout) =>
+    panePositions(layout).some((pane) => pane.id === state.activeId),
+  );
+  const visiblePanes = selectedLayout ? panePositions(selectedLayout) : [];
   const dialogTab = state.tabs.find((tab) => tab.id === dialog?.id);
   const menuTab = state.tabs.find((tab) => tab.id === tabMenu?.id);
   const phaseChanged = useCallback(
@@ -186,10 +192,24 @@ export function WorkspaceView({
     onActivate();
     focus(id, true);
   }
+  function split(sourceId: string, direction: SplitDirection) {
+    const source = state.tabs.find((tab) => tab.id === sourceId);
+    if (!source || state.tabs.length >= MAX_TERMINAL_TABS) return;
+    const id = crypto.randomUUID();
+    dispatch({
+      type: 'split',
+      id,
+      sourceId,
+      direction,
+      title: source.hostId ? source.title : `Terminal ${nextNumber.current++}`,
+    });
+    onActivate();
+    focus(id, true);
+  }
   function close(id: string) {
     const next = tabsReducer(state, { type: 'close', id });
     dispatch({ type: 'close', id });
-    focus(next.activeId);
+    focus(next.activeId, true);
   }
   const requestClose = (id: string) => {
     const tab = state.tabs.find((item) => item.id === id);
@@ -336,6 +356,7 @@ export function WorkspaceView({
       ) : (
         <>
           <div className="terminal-panels">
+            {/* Stable siblings preserve sessions and scrollback when the layout changes. */}
             {state.tabs.map((tab) => (
               <TerminalPane
                 key={tab.id}
@@ -343,6 +364,14 @@ export function WorkspaceView({
                 title={tab.title}
                 hostId={tab.hostId}
                 active={active && state.activeId === tab.id}
+                visible={active && visiblePanes.some((pane) => pane.id === tab.id)}
+                position={visiblePanes.find((pane) => pane.id === tab.id)}
+                split={visiblePanes.length > 1}
+                onActivate={() => {
+                  if (state.activeId !== tab.id) dispatch({ type: 'select', id: tab.id });
+                }}
+                onSplit={(direction) => split(tab.id, direction)}
+                canSplit={state.tabs.length < MAX_TERMINAL_TABS}
                 appearance={appearance}
                 navigationShortcuts={navigationShortcuts}
                 onPhaseChange={phaseChanged}
@@ -365,6 +394,16 @@ export function WorkspaceView({
               label: 'Rename…',
               shortcut: 'F2',
               onSelect: () => setDialog({ id: menuTab.id, mode: 'rename' }),
+            },
+            {
+              label: 'Split right',
+              disabled: state.tabs.length >= MAX_TERMINAL_TABS,
+              onSelect: () => split(menuTab.id, 'right'),
+            },
+            {
+              label: 'Split down',
+              disabled: state.tabs.length >= MAX_TERMINAL_TABS,
+              onSelect: () => split(menuTab.id, 'down'),
             },
             {
               label: 'Move left',

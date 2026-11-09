@@ -734,16 +734,33 @@ h2 {
 }
 
 .terminal-panels {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
 }
 .terminal-pane {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+.terminal-pane[data-split='true'] {
+  border: 1px solid var(--border);
+}
+.terminal-pane[data-split='true'][data-active='true'] {
+  border-color: var(--accent);
+}
+.pane-title {
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 .terminal-pane .terminal-status {
   padding: 0;

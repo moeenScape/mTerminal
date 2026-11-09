@@ -206,6 +206,14 @@ Labels, order and scrollback remain in memory and are discarded on reload.
 The feature tests are written/type-checked but deferred; native/visual/platform
 verification remains pending.
 
+F38-A adds **Split right** and **Split down** in the terminal’s More actions menu and the tab
+context menu. Local panes open independent shells; SSH panes start a separate connection to
+the same host, using its saved login or asking for credentials. Click a pane or select its tab
+to focus it. Each session keeps its tab; selecting any tab in a split group shows the group.
+Close confirms live work and removes only that pane, expanding the survivors. New terminal
+opens an independent tab outside the current group. Splits use equal sizes for this step;
+drag resizing and dedicated pane shortcuts follow in F38-B. Layouts last for this app session.
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

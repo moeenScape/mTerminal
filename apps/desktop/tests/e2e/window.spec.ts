@@ -16,7 +16,7 @@ let userData: string;
 /** Opens the visible terminal's action menu and returns it. */
 async function openTerminalMenu() {
   await page
-    .locator('.terminal-pane:not([hidden])')
+    .locator('.terminal-pane[data-active="true"]:not([hidden])')
     .getByRole('button', { name: 'More actions', exact: true })
     .click();
   return page.getByRole('menu');
@@ -1116,6 +1116,136 @@ test('creates independent tabs, renames, reorders, switches, and confirms closin
     'aria-selected',
     'true',
   );
+});
+
+test('splits local sessions in both directions, preserves them across navigation, and closes only the chosen pane', async () => {
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const first = page.getByRole('tabpanel', { name: 'Terminal 1', exact: true });
+  await expect(first.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const original = await first.locator('.xterm').elementHandle();
+  await page.keyboard.type("MT_SPLIT_KEEP=original; printf 'ORIGINAL_READY\\n'");
+  await page.keyboard.press('Enter');
+  await expect(first.locator('.xterm-accessibility-tree')).toContainText('ORIGINAL_READY');
+  await terminalAction('Split right');
+  const second = page.getByRole('tabpanel', { name: 'Terminal 2', exact: true });
+  await expect(second.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await expect(first).toBeVisible();
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  const left = (await first.boundingBox())!;
+  const right = (await second.boundingBox())!;
+  expect(Math.abs(right.x - (left.x + left.width))).toBeLessThan(2);
+  expect(Math.abs(right.y - left.y)).toBeLessThan(2);
+  await page.keyboard.type('printf \'NEW_SESSION=%s\\n\' "${MT_SPLIT_KEEP-unset}"');
+  await page.keyboard.press('Enter');
+  await expect(second.locator('.xterm-accessibility-tree')).toContainText('NEW_SESSION=unset');
+  await terminalAction('Split down');
+  const third = page.getByRole('tabpanel', { name: 'Terminal 3', exact: true });
+  await expect(third.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const upper = (await second.boundingBox())!;
+  const lower = (await third.boundingBox())!;
+  expect(Math.abs(lower.y - (upper.y + upper.height))).toBeLessThan(2);
+  expect(Math.abs(lower.x - upper.x)).toBeLessThan(2);
+  await first.locator('.xterm-screen').click();
+  await expect(first).toHaveAttribute('data-active', 'true');
+  await expect(page.getByRole('tab', { name: 'Terminal 1', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.keyboard.type('printf \'KEPT=%s\\n\' "$MT_SPLIT_KEEP"');
+  await page.keyboard.press('Enter');
+  await expect(first.locator('.xterm-accessibility-tree')).toContainText('KEPT=original');
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(first).toBeHidden();
+  await expect(second).toBeHidden();
+  await expect(third).toBeHidden();
+  await page.getByRole('tab', { name: 'Terminal 2', exact: true }).click();
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  await expect(third).toBeVisible();
+  await navButton('Hosts').click();
+  await navButton('Workspace').click();
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  await page.getByRole('button', { name: 'Close Terminal 2', exact: true }).click();
+  const confirmation = page.getByRole('dialog');
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(second).toBeVisible();
+  await page.getByRole('button', { name: 'Close Terminal 2', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await expect(second).toHaveCount(0);
+  await expect(first).toBeVisible();
+  await expect(third).toBeVisible();
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+  await first.locator('.xterm-screen').click();
+  await page.keyboard.type('printf \'STILL_ALIVE=%s\\n\' "$MT_SPLIT_KEEP"');
+  await page.keyboard.press('Enter');
+  await expect(first.locator('.xterm-accessibility-tree')).toContainText('STILL_ALIVE=original');
+});
+
+test('split SSH panes connect independently without copying a one-time login', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    const calls: { id: string; hostId: string; username: string }[] = [];
+    ipcMain.removeHandler('terminal:ssh');
+    ipcMain.handle(
+      'terminal:ssh',
+      (event, id: string, _size, hostId: string, credentials: { username: string }) => {
+        calls.push({ id, hostId, username: credentials.username });
+        event.sender.send('terminal:event', { kind: 'state', id, state: 'connected' });
+        return { ok: true };
+      },
+    );
+    ipcMain.on('fixture:split-ssh-calls', (_event, respond: (value: typeof calls) => void) =>
+      respond(calls),
+    );
+  });
+  const hostId = await page.evaluate(
+    async () =>
+      (
+        await window.mterminal.saveHost({
+          name: 'Split SSH',
+          address: 'example.internal',
+          port: 22,
+          username: '',
+          protocol: 'ssh',
+        })
+      ).id,
+  );
+  await navButton('Hosts').click();
+  await page.getByRole('button', { name: 'Connect to Split SSH', exact: true }).click();
+  let prompt = page.getByRole('dialog');
+  await prompt.getByLabel('SSH username').fill('first-user');
+  await prompt.getByLabel('Password', { exact: true }).fill('fixture-secret');
+  await prompt.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toHaveCount(1);
+  await terminalAction('Split right');
+  prompt = page.getByRole('dialog');
+  await expect(prompt.getByLabel('SSH username')).toHaveValue('');
+  await expect(prompt.getByLabel('Password', { exact: true })).toHaveValue('');
+  await prompt.getByLabel('SSH username').fill('second-user');
+  await prompt.getByLabel('Password', { exact: true }).fill('other-fixture-secret');
+  await prompt.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toHaveCount(2);
+  const calls = await application.evaluate(
+    ({ ipcMain }) =>
+      new Promise<{ id: string; hostId: string; username: string }[]>((resolve) =>
+        ipcMain.emit('fixture:split-ssh-calls', null, resolve),
+      ),
+  );
+  expect(calls.map((call) => ({ hostId: call.hostId, username: call.username }))).toEqual([
+    { hostId, username: 'first-user' },
+    { hostId, username: 'second-user' },
+  ]);
+  expect(calls[0]?.id).not.toBe(calls[1]?.id);
+  await terminalAction('Close session');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Close terminal', exact: true })
+    .click();
+  await expect(page.locator('.terminal-pane:not([hidden])')).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toHaveCount(1);
 });
 
 test('supports terminal tab keyboard navigation, rename, and reorder', async () => {

@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F26-B implemented — Explicitly save complete host logins for one-click connections; runtime verification pending |
-| Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
+| Active feature | F38-A implemented — Basic split panes, independent sessions, click focus and per-pane close; verification pending |
+| Next feature | F38-B — Draggable pane resizing and focus shortcuts; Phase 4 verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -181,15 +181,17 @@ Completion criteria: Test permissions, interruptions, large files, symlinks, unu
 Dependencies: Stable sessions, storage, and credential handling.
 
 - [ ] **F38 — Split panes:** Resizing, focus shortcuts, and independent sessions.
+  - [x] **F38-A — Basic splits (implementation):** Split right/down, independent local or same-host SSH sessions, click focus, stable mounted terminals, split-group tab navigation and confirmed per-pane close. Fixed equal sizes; regression code written, execution deferred.
+  - [ ] **F38-B — Resize and shortcuts:** Draggable dividers, keyboard resizing/focus navigation, minimum sizes and layout acceptance.
 - [ ] **F39 — Workspace templates:** Saved layouts and deliberate reconnection.
 - [ ] **F40 — Snippets:** Save, organize, search, and execute commands.
 - [ ] **F41 — Startup snippets:** Assigned connection-time actions with visible execution.
 - [ ] **F42 — Multiple-host execution:** Destination selection and per-host results/failures.
 - [ ] **F43 — Broadcast input:** Explicit mode, visible recipients, and immediate stop.
-- [ ] **F44 — Command history:** Search and sensitive-entry handling.
+- [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [ ] **F45 — Environment variables:** Host/group values and server-support requirements.
 - [ ] **F46 — Shell integration:** Supported working-directory and command-state detection.
-- [ ] **F47 — Autocomplete:** History/snippets first, paths and arguments later.
+- [ ] **F47 — Autocomplete:** History suggestions already implemented in CH04, including keyboard/click insertion and popup bounds. Reuse that implementation; snippet, path and argument sources remain future work.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
 
 Completion criteria: Workspace restoration does not silently repeat destructive commands. Broadcast destinations remain visible. Verify log limits and deletion, including sensitive-output handling. Unsupported shell integration must degrade gracefully.
@@ -1197,3 +1199,30 @@ resolution, account precedence, legacy passwords, restart, encrypted files, fail
 corrupt records, forgetting and pending-save cancellation. Tests were not executed per user
 instruction. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64. Live SSH, real OS-keychain restart, visual and
 Windows/macOS behavior remain unverified. Preserve unrelated local-storage edits/reference image.
+
+
+### F38-A basic split panes — 2026-11-09
+
+Added Split right/down to terminal and tab context menus. A split creates a new session ID
+and independent shell, or a separate connection to the same SSH host. Existing saved-login
+lookup is reused; one-time credentials are not copied between panes. All sessions share the
+existing maximum session count. No IPC, dependency, credential-storage or process-model changes.
+
+The renderer maintains split layout trees but renders terminals as stable keyed siblings, so
+splitting, navigating and collapsing a layout do not remount surviving terminals. Equal-size
+positions support nested splits; existing ResizeObserver sizing updates each terminal/PTY.
+Each pane retains a session tab. Selecting a tab shows its group and focuses that pane;
+click/focus updates the selected tab and active border. New terminal/host requests remain
+independent groups. Closing live work retains the existing confirmation and closes only its
+session; remaining branches expand and focus stays in the group. Layouts are in memory only.
+
+Existing autocomplete/history are retained. F44 now links the completed local history work;
+F47 records the existing history suggestion source without marking future sources complete.
+F38 remains incomplete until F38-B adds divider resizing and pane shortcuts.
+
+Regression code covers nested directions, bounds, stable session records, group collapse/focus,
+SSH host-only copying, invalid split requests and shared limits. Desktop regressions cover
+independent local shell state, retained xterm nodes, group/view navigation, click focus,
+close confirmation/cancellation and independent SSH prompts. Tests remain unrun per user
+instruction. `npm run check`, `npm run build` and `git diff --check` passed on Linux x64.
+Visual, live SSH, native focus/PTY interaction and Windows/macOS acceptance remain unverified. Preserve unrelated local-storage edits/image.

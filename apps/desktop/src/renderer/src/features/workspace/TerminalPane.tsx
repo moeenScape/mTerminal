@@ -1,3 +1,4 @@
+import type { PanePosition, SplitDirection } from './tabs';
 import { SshChallengeDialog } from './SshChallengeDialog';
 import { SshPrompt } from './SshPrompt';
 import { findSavedCredentials } from './saved-credentials';
@@ -46,6 +47,12 @@ export function TerminalPane({
   onRequestClose,
   onOpenVault,
   active,
+  visible,
+  position,
+  split,
+  onActivate,
+  onSplit,
+  canSplit,
   appearance,
   navigationShortcuts,
   onPhaseChange,
@@ -58,6 +65,12 @@ export function TerminalPane({
   onRequestClose: (id: string) => void;
   onOpenVault: () => Promise<void>;
   active: boolean;
+  visible: boolean;
+  position: PanePosition | undefined;
+  split: boolean;
+  onActivate: () => void;
+  onSplit: (direction: SplitDirection) => void;
+  canSplit: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
   onPhaseChange: (id: string, phase: TabPhase) => void;
@@ -513,6 +526,13 @@ export function TerminalPane({
       },
     },
     {
+      label: 'Split right',
+      separator: true,
+      disabled: !canSplit,
+      onSelect: () => onSplit('right'),
+    },
+    { label: 'Split down', disabled: !canSplit, onSelect: () => onSplit('down') },
+    {
       label: running || starting ? 'Close session' : 'Close tab',
       danger: true,
       separator: true,
@@ -523,7 +543,21 @@ export function TerminalPane({
   return (
     <div
       className="terminal-pane"
-      hidden={!active}
+      hidden={!visible}
+      data-active={active}
+      data-split={split}
+      style={
+        position
+          ? {
+              left: `${position.left}%`,
+              top: `${position.top}%`,
+              width: `${position.width}%`,
+              height: `${position.height}%`,
+            }
+          : undefined
+      }
+      onFocusCapture={onActivate}
+      onPointerDownCapture={onActivate}
       role="tabpanel"
       id={`terminal-panel-${id}`}
       aria-labelledby={`terminal-tab-${id}`}
@@ -554,6 +588,11 @@ export function TerminalPane({
         />
       )}
       <header className="pane-bar">
+        {split && (
+          <span className="pane-title" title={title}>
+            {title}
+          </span>
+        )}
         <p className="terminal-status" role="status">
           {status}
         </p>
