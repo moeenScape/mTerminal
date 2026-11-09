@@ -11,6 +11,9 @@ import {
   visibleFiles,
   fileDropRequest,
   type FileDrag,
+  rememberDirectory,
+  symbolicPermissions,
+  fileKindLabel,
 } from '../../src/renderer/src/features/files/file-browser.js';
 import { TerminalRegistry } from '../../src/main/terminal/registry.js';
 
@@ -151,5 +154,55 @@ describe('file-pane drag transfers', () => {
         context,
       ),
     ).toBeNull();
+  });
+});
+
+describe('compact file-list controls', () => {
+  it('filters names without changing entries and sorts kinds with folders first', () => {
+    const base = { size: 1, modified: 1, permissions: '0644' };
+    const entries = [
+      { ...base, name: 'Report.TXT', path: '/Report.TXT', kind: 'file' as const },
+      { ...base, name: 'archive.zip', path: '/archive.zip', kind: 'file' as const },
+      { ...base, name: '.report', path: '/.report', kind: 'file' as const },
+      { ...base, name: 'folder', path: '/folder', kind: 'directory' as const },
+    ];
+    expect(
+      visibleFiles(entries, false, 'name', false, 'REPORT').map((entry) => entry.name),
+    ).toEqual(['Report.TXT']);
+    expect(visibleFiles(entries, true, 'name', false, 'report').map((entry) => entry.name)).toEqual(
+      ['.report', 'Report.TXT'],
+    );
+    expect(visibleFiles(entries, false, 'kind', true).map((entry) => entry.name)).toEqual([
+      'folder',
+      'archive.zip',
+      'Report.TXT',
+    ]);
+    expect(entries[0]?.name).toBe('Report.TXT');
+    expect(fileKindLabel({ name: '.env', kind: 'file' })).toBe('File');
+    expect(fileKindLabel({ name: 'target', kind: 'symlink' })).toBe('Link');
+  });
+  it('records successful canonical navigation, reuses back/forward entries and truncates forward history on a new branch', () => {
+    let history = { paths: [] as string[], index: -1 };
+    for (const path of ['/home', '/home/one', '/home/two'])
+      history = rememberDirectory(history, path);
+    expect(rememberDirectory(history, '/home/two')).toBe(history);
+    history = rememberDirectory(history, '/home/one', 1);
+    expect(history).toEqual({ paths: ['/home', '/home/one', '/home/two'], index: 1 });
+    expect(rememberDirectory(history, '/home/two', 2).index).toBe(2);
+    history = rememberDirectory(history, '/other');
+    expect(history).toEqual({ paths: ['/home', '/home/one', '/other'], index: 2 });
+    for (let i = 0; i < 80; i++) history = rememberDirectory(history, `/folder-${i}`);
+    expect(history.paths).toHaveLength(64);
+    expect(history.paths[history.index]).toBe('/folder-79');
+  });
+  it.each([
+    ['0755', 'directory', 'drwxr-xr-x'],
+    ['0644', 'file', '-rw-r--r--'],
+    ['0600', 'symlink', 'lrw-------'],
+    ['4755', 'file', '-rwsr-xr-x'],
+    ['4644', 'file', '-rwSr--r--'],
+    ['1777', 'directory', 'drwxrwxrwt'],
+  ] as const)('formats %s permissions without losing special bits', (mode, kind, expected) => {
+    expect(symbolicPermissions(mode, kind)).toBe(expected);
   });
 });

@@ -11,6 +11,10 @@ import {
   FILE_DRAG_TYPE,
   fileDropRequest,
   fileSize,
+  fileKindLabel,
+  symbolicPermissions,
+  rememberDirectory,
+  type DirectoryHistory,
   visibleFiles,
   type FileSort,
   type FileDrag,
@@ -92,8 +96,8 @@ export function FileBrowser({
         </button>
       </header>
       <p className="file-transfer-hint">
-        Drag one file to the opposite pane, or use Upload / Download beside a file. Drops use the
-        destination pane&apos;s open folder.
+        Select a file to Upload / Download, or drag it into the opposite pane&apos;s open folder.
+        Double-click folders to open.
       </p>
       <div className="file-browser-panes">
         <DirectoryPane
@@ -169,7 +173,20 @@ function DirectoryPane({
 }) {
   const id = useId();
   const [dropToken, setDropToken] = useState<string | null>(null);
-  const [location, setLocation] = useState({ path: '', revision: 0 });
+  const [location, setLocation] = useState({
+    path: '',
+    revision: 0,
+    historyIndex: null as number | null,
+  });
+  const [history, setHistory] = useState<DirectoryHistory>({ paths: [], index: -1 });
+  const [editingPath, setEditingPath] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [selection, setSelection] = useState<{
+    path: string;
+    directory: string;
+    sessionId: string | null;
+  } | null>(null);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(true);
@@ -178,7 +195,9 @@ function DirectoryPane({
   const [sort, setSort] = useState<FileSort>('name');
   const [descending, setDescending] = useState(false);
   const [action, setAction] = useState<FileAction | null>(null);
-  const [menu, setMenu] = useState<{ entry: FileEntry; position: MenuPosition } | null>(null);
+  const [menu, setMenu] = useState<{ entry: FileEntry | null; position: MenuPosition } | null>(
+    null,
+  );
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState('');
   const [transfer, setTransfer] = useState<TransferRequest | null>(null);
@@ -216,8 +235,9 @@ function DirectoryPane({
       .then((value) => {
         if (cancelled || !value) return;
         setListing(value);
+        setMenu(null);
+        setHistory((current) => rememberDirectory(current, value.path, location.historyIndex));
         onDirectory(value.path);
-        setDraft(value.path);
         setMessage('');
       })
       .catch((error: unknown) => {
@@ -231,12 +251,36 @@ function DirectoryPane({
       cancelled = true;
     };
   }, [side, sessionId, location, transferRevision, onDirectory]);
-  const navigate = (path: string) => {
+  const navigate = (path: string, historyIndex: number | null = null) => {
+    setSelection(null);
+    setMenu(null);
+    setEditingPath(false);
     setBusy(true);
     setMessage('');
-    setLocation((current) => ({ path, revision: current.revision + 1 }));
+    setLocation((current) => ({ path, revision: current.revision + 1, historyIndex }));
   };
-  const entries = visibleFiles(listing?.entries ?? [], hidden, sort, descending);
+  const entries = visibleFiles(listing?.entries ?? [], hidden, sort, descending, query);
+  const selected =
+    !blocked &&
+    !message &&
+    selection?.directory === listing?.path &&
+    selection?.sessionId === sessionId
+      ? entries.find((entry) => entry.path === selection.path)
+      : undefined;
+  const select = (entry: FileEntry) => {
+    if (listing && !blocked && !message)
+      setSelection({ path: entry.path, directory: listing.path, sessionId });
+  };
+  const changeSort = (field: FileSort) => {
+    if (sort === field) setDescending((value) => !value);
+    else {
+      setSort(field);
+      setDescending(false);
+    }
+  };
+  const refresh = () =>
+    message ? navigate(location.path, location.historyIndex) : navigate(listing?.path ?? '');
+  const menuEntry = menu?.entry;
   const beginAction = (type: FileOperation['action'], entry?: FileEntry) => {
     if (!listing || blocked) return;
     setAction({ action: type, path: listing.path, entry, sessionId });
@@ -308,97 +352,192 @@ function DirectoryPane({
         </div>
       )}
       <header className="file-pane-heading">
-        <Icon name={side === 'local' ? 'terminal' : 'hosts'} />
-        <h2>{title}</h2>
-        <span>{side === 'local' ? 'LOCAL' : 'SFTP'}</span>
+        <span className={`file-pane-badge ${side}`}>
+          <Icon name={side === 'local' ? 'terminal' : 'hosts'} />
+        </span>
+        <h2>{side === 'local' ? 'Local' : title}</h2>
+        <button
+          type="button"
+          className="pane-filter-button"
+          aria-label={`${side} filter files`}
+          aria-expanded={filterOpen}
+          onClick={() => setFilterOpen((value) => !value)}
+        >
+          <Icon name="search" />
+          Filter{query && <span className="filter-dot" />}
+        </button>
+        <button
+          type="button"
+          className="pane-transfer-button"
+          title={
+            !transferContext
+              ? 'Connect through Hosts and load both folders'
+              : selected?.kind !== 'file'
+                ? 'Select one regular file'
+                : 'Copy to the opposite pane’s open folder'
+          }
+          disabled={!ready || selected?.kind !== 'file'}
+          aria-label={
+            selected
+              ? `${side === 'local' ? 'Upload' : 'Download'} ${selected.name}`
+              : `${side === 'local' ? 'Upload' : 'Download'} selected file`
+          }
+          onClick={() => selected && previewTransfer(selected)}
+        >
+          {side === 'local' ? 'Upload…' : 'Download…'}
+        </button>
+        <button
+          type="button"
+          className="pane-actions-button"
+          aria-label={`${side} Actions`}
+          aria-haspopup="menu"
+          disabled={blocked}
+          onClick={(event) =>
+            setMenu({ entry: selected ?? null, position: menuPositionFor(event.currentTarget) })
+          }
+        >
+          Actions
+          <Icon name="chevron" />
+        </button>
       </header>
-      <nav className="file-breadcrumbs" aria-label={`${side} folder breadcrumbs`}>
-        {listing?.breadcrumbs.map((crumb) => (
+      <div className="file-navigation">
+        <div className="file-navigation-buttons">
           <button
-            key={crumb.path}
             type="button"
-            disabled={blocked || crumb.path === listing.path}
-            onClick={() => navigate(crumb.path)}
-            title={crumb.path}
+            aria-label="Back"
+            title="Previous folder"
+            disabled={blocked || history.index <= 0}
+            onClick={() => navigate(history.paths[history.index - 1]!, history.index - 1)}
           >
-            {crumb.name}
+            <Icon name="chevron" className="file-back-icon" />
           </button>
-        ))}
-      </nav>
-      <form
-        className="file-path"
-        onSubmit={(event) => {
-          event.preventDefault();
-          navigate(draft);
-        }}
-      >
-        <label className="sr-only" htmlFor={`${id}-path`}>
-          {side} folder path
-        </label>
-        <input
-          id={`${id}-path`}
-          value={draft}
-          maxLength={4096}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={blocked}
-          placeholder={side === 'local' ? 'Home folder' : 'Remote home folder'}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <button type="submit" disabled={blocked}>
-          Go
-        </button>
-      </form>
-      <div className="file-pane-controls">
+          <button
+            type="button"
+            aria-label="Forward"
+            title="Next folder"
+            disabled={blocked || history.index < 0 || history.index >= history.paths.length - 1}
+            onClick={() => navigate(history.paths[history.index + 1]!, history.index + 1)}
+          >
+            <Icon name="chevron" />
+          </button>
+          <button
+            type="button"
+            aria-label="Up"
+            title="Parent folder"
+            disabled={blocked || !listing || listing.path === listing.parent}
+            onClick={() => listing && navigate(listing.parent)}
+          >
+            <Icon name="chevron" className="file-up-icon" />
+          </button>
+        </div>
+        {editingPath ? (
+          <form
+            className="file-path"
+            onSubmit={(event) => {
+              event.preventDefault();
+              navigate(draft);
+            }}
+          >
+            <label className="sr-only" htmlFor={`${id}-path`}>
+              {side} folder path
+            </label>
+            <input
+              id={`${id}-path`}
+              autoFocus
+              value={draft}
+              maxLength={4096}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={blocked}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setDraft(listing?.path ?? '');
+                  setEditingPath(false);
+                }
+              }}
+            />
+            <button type="submit" disabled={blocked}>
+              Go
+            </button>
+            <button
+              type="button"
+              aria-label="Cancel editing location"
+              onClick={() => {
+                setDraft(listing?.path ?? '');
+                setEditingPath(false);
+              }}
+            >
+              <Icon name="close" />
+            </button>
+          </form>
+        ) : (
+          <nav className="file-breadcrumbs" aria-label={`${side} folder breadcrumbs`}>
+            {listing?.breadcrumbs.map((crumb) => (
+              <button
+                key={crumb.path}
+                type="button"
+                disabled={blocked || crumb.path === listing.path}
+                onClick={() => navigate(crumb.path)}
+                title={crumb.path}
+              >
+                <Icon name="folder" />
+                {crumb.name}
+                <Icon name="chevron" />
+              </button>
+            ))}
+          </nav>
+        )}
+        {!editingPath && (
+          <button
+            type="button"
+            className="file-edit-path"
+            aria-label={`${side} edit location`}
+            title="Enter a folder path"
+            disabled={blocked}
+            onClick={() => {
+              setDraft(message ? location.path : (listing?.path ?? location.path));
+              setEditingPath(true);
+            }}
+          >
+            <Icon name="edit" />
+          </button>
+        )}
         <button
           type="button"
-          disabled={blocked || !listing || listing.path === listing.parent}
-          onClick={() => listing && navigate(listing.parent)}
-        >
-          Up
-        </button>
-        <button
-          type="button"
+          aria-label={message ? 'Retry' : 'Refresh'}
+          title={message ? 'Retry folder' : 'Refresh folder'}
           disabled={blocked}
-          onClick={() => navigate(message ? location.path : (listing?.path ?? ''))}
+          onClick={refresh}
         >
-          {message ? 'Retry' : 'Refresh'}
+          <span aria-hidden="true">↻</span>
         </button>
-        <button type="button" disabled={blocked} onClick={() => navigate('')}>
-          Home
-        </button>
-        <button type="button" disabled={blocked || !listing} onClick={() => beginAction('mkdir')}>
-          New folder
-        </button>
-        <label>
+      </div>
+      {filterOpen && (
+        <div className="file-filter">
+          <Icon name="search" />
           <input
-            type="checkbox"
-            checked={hidden}
-            onChange={(event) => setHidden(event.target.checked)}
-          />{' '}
-          Hidden files
-        </label>
-      </div>
-      <div className="file-sort">
-        <label htmlFor={`${id}-sort`}>Sort</label>
-        <select
-          id={`${id}-sort`}
-          value={sort}
-          onChange={(event) => setSort(event.target.value as FileSort)}
-        >
-          <option value="name">Name</option>
-          <option value="size">Size</option>
-          <option value="modified">Modified</option>
-        </select>
-        <button
-          type="button"
-          aria-label={`${side} sort descending`}
-          aria-pressed={descending}
-          onClick={() => setDescending((value) => !value)}
-        >
-          {descending ? 'Descending' : 'Ascending'}
-        </button>
-      </div>
+            autoFocus
+            type="search"
+            aria-label={`${side} filename filter`}
+            placeholder="Filter files by name"
+            maxLength={255}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button
+            type="button"
+            aria-label={`${side} close filter`}
+            onClick={() => {
+              setQuery('');
+              setFilterOpen(false);
+            }}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
       {message && (
         <p className="file-error" role="alert">
           {message}
@@ -419,25 +558,89 @@ function DirectoryPane({
           <caption className="sr-only">{side} directory entries</caption>
           <thead>
             <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Size</th>
-              <th scope="col">Permissions</th>
-              <th scope="col">Modified</th>
-              <th scope="col">
-                <span className="sr-only">Actions</span>
-              </th>
+              {(
+                [
+                  ['name', 'Name'],
+                  ['modified', 'Date Modified'],
+                  ['size', 'Size'],
+                  ['kind', 'Kind'],
+                ] as const
+              ).map(([field, label]) => (
+                <th
+                  key={field}
+                  scope="col"
+                  aria-sort={sort === field ? (descending ? 'descending' : 'ascending') : 'none'}
+                >
+                  <button type="button" onClick={() => changeSort(field)}>
+                    {label}
+                    {sort === field && <span aria-hidden="true">{descending ? ' ↓' : ' ↑'}</span>}
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {entries.map((entry, index) => (
               <tr
                 key={entry.path}
+                className={selected?.path === entry.path ? 'file-row-selected' : undefined}
+                tabIndex={selected ? (selected.path === entry.path ? 0 : -1) : index === 0 ? 0 : -1}
+                onFocus={(event) => {
+                  if (event.target === event.currentTarget) select(entry);
+                }}
+                onClick={() => select(entry)}
+                onDoubleClick={() => {
+                  if (
+                    !blocked &&
+                    !message &&
+                    (entry.kind === 'directory' || entry.kind === 'symlink')
+                  )
+                    navigate(entry.path);
+                }}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || blocked || message) return;
+                  if (
+                    event.key === 'Enter' &&
+                    (entry.kind === 'directory' || entry.kind === 'symlink')
+                  ) {
+                    event.preventDefault();
+                    navigate(entry.path);
+                  } else if (event.key === ' ') {
+                    event.preventDefault();
+                    select(entry);
+                  } else if (
+                    event.key === 'ContextMenu' ||
+                    (event.shiftKey && event.key === 'F10')
+                  ) {
+                    event.preventDefault();
+                    setMenu({ entry, position: menuPositionFor(event.currentTarget) });
+                  } else {
+                    const next =
+                      event.key === 'ArrowDown'
+                        ? Math.min(entries.length - 1, index + 1)
+                        : event.key === 'ArrowUp'
+                          ? Math.max(0, index - 1)
+                          : event.key === 'Home'
+                            ? 0
+                            : event.key === 'End'
+                              ? entries.length - 1
+                              : null;
+                    if (next !== null) {
+                      event.preventDefault();
+                      select(entries[next]!);
+                      (
+                        event.currentTarget.parentElement?.children[next] as HTMLElement | undefined
+                      )?.focus();
+                    }
+                  }
+                }}
                 draggable={ready && entry.kind === 'file'}
                 onDragStart={(event) => {
                   if (!ready || !listing || entry.kind !== 'file') {
                     event.preventDefault();
                     return;
                   }
+                  select(entry);
                   setMenu(null);
                   onFileDrag(event, side, entry, listing.path);
                 }}
@@ -445,74 +648,59 @@ function DirectoryPane({
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
+                  select(entry);
                   if (!blocked && entry.kind !== 'other')
                     setMenu({ entry, position: { x: event.clientX, y: event.clientY } });
                 }}
               >
                 <td>
-                  {entry.kind === 'directory' || entry.kind === 'symlink' ? (
+                  <div className="file-name-cell">
                     <button
                       type="button"
-                      className="file-name"
+                      className={`file-name file-kind-${entry.kind}`}
                       disabled={blocked}
-                      title={
-                        entry.kind === 'symlink'
-                          ? `${entry.name} — symbolic link; open to browse its directory target`
-                          : entry.name
-                      }
-                      onClick={() => navigate(entry.path)}
+                      aria-label={entry.name}
+                      aria-pressed={selected?.path === entry.path}
+                      onClick={() => select(entry)}
                     >
-                      <Icon name="folder" />
-                      <span>{entry.name}</span>
-                      {entry.kind === 'symlink' && <small>link</small>}
+                      <Icon
+                        name={
+                          entry.kind === 'directory' || entry.kind === 'symlink' ? 'folder' : 'file'
+                        }
+                      />
+                      <span className="file-name-text">
+                        <strong title={entry.name}>{entry.name}</strong>
+                        <small title={`Permissions: ${entry.permissions}`}>
+                          {symbolicPermissions(entry.permissions, entry.kind)}
+                        </small>
+                      </span>
                     </button>
-                  ) : (
-                    <span className="file-name" title={entry.name}>
-                      <Icon name="file" />
-                      <span>{entry.name}</span>
-                      {entry.kind === 'other' && <small>special</small>}
-                    </span>
-                  )}
+                    <button
+                      type="button"
+                      className="icon-button file-row-more"
+                      tabIndex={selected?.path === entry.path ? 0 : -1}
+                      aria-label={`Actions for ${entry.name}`}
+                      aria-haspopup="menu"
+                      disabled={blocked || !!message || entry.kind === 'other'}
+                      onClick={(event) => {
+                        select(entry);
+                        setMenu({ entry, position: menuPositionFor(event.currentTarget) });
+                      }}
+                    >
+                      <Icon name="more" />
+                    </button>
+                  </div>
                 </td>
-                <td>{entry.kind === 'directory' ? '—' : fileSize(entry.size)}</td>
-                <td>
-                  <code>{entry.permissions}</code>
-                </td>
-                <td>
+                <td className="file-modified">
                   {Number.isFinite(entry.modified)
-                    ? new Date(entry.modified).toLocaleString()
+                    ? new Date(entry.modified).toLocaleString(undefined, {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })
                     : '—'}
                 </td>
-                <td className="file-row-actions">
-                  {entry.kind === 'file' && (
-                    <button
-                      type="button"
-                      className="file-transfer-button"
-                      disabled={!ready}
-                      title={
-                        ready
-                          ? `Copy to the ${side === 'local' ? 'remote' : 'local'} pane's open folder`
-                          : 'Connect through Hosts and wait for both folders to load'
-                      }
-                      aria-label={`${side === 'local' ? 'Upload' : 'Download'} ${entry.name}`}
-                      onClick={() => previewTransfer(entry)}
-                    >
-                      {side === 'local' ? 'Upload…' : 'Download…'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`Actions for ${entry.name}`}
-                    aria-haspopup="menu"
-                    disabled={blocked || entry.kind === 'other'}
-                    onClick={(event) =>
-                      setMenu({ entry, position: menuPositionFor(event.currentTarget) })
-                    }
-                  >
-                    <Icon name="more" />
-                  </button>
-                </td>
+                <td>{entry.kind === 'directory' ? '—' : fileSize(entry.size)}</td>
+                <td className="file-kind-label">{fileKindLabel(entry)}</td>
               </tr>
             ))}
           </tbody>
@@ -520,7 +708,9 @@ function DirectoryPane({
         {!entries.length && !blocked && !message && (
           <p className="file-empty">
             {listing?.entries.length
-              ? 'No visible files. Enable Hidden files to see more.'
+              ? query
+                ? 'No files match this filter.'
+                : 'No visible files. Choose Show hidden files in Actions to see more.'
               : 'This folder is empty.'}
           </p>
         )}
@@ -532,30 +722,40 @@ function DirectoryPane({
             ? 'Applying change…'
             : busy
               ? 'Loading folder…'
-              : `${entries.length} items${message && listing ? ' · Previous folder shown' : ''}`}
+              : `${entries.length} items${selected ? ` · Selected: ${selected.name}` : ''}${query ? ' · Filtered' : ''}${message && listing ? ' · Previous folder shown' : ''}`}
         {listing?.truncated && ' · Showing a partial listing (5,000-entry limit).'}
       </footer>
       {menu && listing && !blocked && (
         <ContextMenu
-          label={`File actions for ${menu.entry.name}`}
+          label={menuEntry ? `File actions for ${menuEntry.name}` : `${side} file actions`}
           position={menu.position}
           onClose={() => setMenu(null)}
           items={[
+            {
+              label: 'Open folder',
+              disabled:
+                !menuEntry ||
+                !!message ||
+                (menuEntry.kind !== 'directory' && menuEntry.kind !== 'symlink'),
+              onSelect: () => menuEntry && navigate(menuEntry.path),
+            },
             ...(side === 'remote'
               ? [
                   {
                     label: 'Edit in local editor…',
                     disabled:
                       !canEdit ||
-                      menu.entry.kind !== 'file' ||
-                      menu.entry.size > REMOTE_EDIT_MAX_BYTES,
+                      !menuEntry ||
+                      !!message ||
+                      menuEntry.kind !== 'file' ||
+                      menuEntry.size > REMOTE_EDIT_MAX_BYTES,
                     onSelect: () => {
-                      if (sessionId)
+                      if (sessionId && menuEntry)
                         setPendingEdit({
                           sessionId,
                           title,
                           remoteDirectory: listing.path,
-                          name: menu.entry.name,
+                          name: menuEntry.name,
                         });
                       setMenu(null);
                     },
@@ -564,28 +764,49 @@ function DirectoryPane({
               : []),
             {
               label: side === 'local' ? 'Upload…' : 'Download…',
-              disabled: !ready || menu.entry.kind !== 'file',
-              onSelect: () => previewTransfer(menu.entry),
+              disabled: !ready || menuEntry?.kind !== 'file',
+              onSelect: () => menuEntry && previewTransfer(menuEntry),
             },
             {
               label: 'Rename…',
+              disabled: !menuEntry || !!message || menuEntry.kind === 'other',
               onSelect: () => {
-                beginAction('rename', menu.entry);
+                if (menuEntry) beginAction('rename', menuEntry);
               },
             },
             {
               label: 'Permissions…',
-              disabled: !listing.canChmod || menu.entry.kind === 'symlink',
+              disabled:
+                !menuEntry ||
+                !!message ||
+                !listing.canChmod ||
+                menuEntry.kind === 'symlink' ||
+                menuEntry.kind === 'other',
               onSelect: () => {
-                beginAction('chmod', menu.entry);
+                if (menuEntry) beginAction('chmod', menuEntry);
               },
             },
             {
               label: 'Delete…',
+              disabled: !menuEntry || !!message || menuEntry.kind === 'other',
               danger: true,
               separator: true,
               onSelect: () => {
-                beginAction('delete', menu.entry);
+                if (menuEntry) beginAction('delete', menuEntry);
+              },
+            },
+            { label: message ? 'Retry' : 'Refresh', separator: true, onSelect: refresh },
+            { label: 'New folder', disabled: !!message, onSelect: () => beginAction('mkdir') },
+            { label: 'Home', onSelect: () => navigate('') },
+            {
+              label: hidden ? 'Hide hidden files' : 'Show hidden files',
+              onSelect: () => setHidden((value) => !value),
+            },
+            {
+              label: 'Edit location…',
+              onSelect: () => {
+                setDraft(listing.path);
+                setEditingPath(true);
               },
             },
           ]}

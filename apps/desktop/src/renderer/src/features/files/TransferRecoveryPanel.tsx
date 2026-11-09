@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type {
   TransferRecoveryRecord,
   PartialCleanupPreview,
@@ -14,6 +14,8 @@ export function TransferRecoveryPanel({
   sessionId: string | null;
   onCleaned: () => void;
 }) {
+  const contentId = useId();
+  const [expanded, setExpanded] = useState(false);
   const [records, setRecords] = useState<TransferRecoveryRecord[]>([]);
   const [error, setError] = useState('');
   const [inspecting, setInspecting] = useState<string | null>(null);
@@ -55,140 +57,156 @@ export function TransferRecoveryPanel({
   return (
     <section className="transfer-queue transfer-recovery" aria-label="Saved transfer recovery">
       <header>
-        <strong>Saved transfer recovery</strong>
+        <button
+          type="button"
+          className="file-panel-toggle"
+          aria-label={expanded ? 'Hide recovery records' : 'Show recovery records'}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+          <strong>Saved transfer recovery</strong>
+        </button>
         <span>{records.length} records</span>
       </header>
       {error && <p role="alert">{error}</p>}
-      <p className="transfer-empty">
-        Inspect these paths before retrying. Listed temporary and backup paths may be absent; an
-        interrupted publication may already have completed. No transfer resumes automatically.
-      </p>
-      <ol>
-        {records.map((record) => (
-          <li key={record.id}>
-            <div className="transfer-job-heading">
-              <strong>
-                {record.direction === 'upload' ? 'Upload' : 'Download'} · {record.name}
-              </strong>
-              <span>
-                {record.phase === 'settled' ? record.state : `Interrupted · ${record.phase}`}
-              </span>
-              {record.partialPath &&
-                record.staging &&
-                record.peer &&
-                record.source &&
-                !record.backupPath &&
-                record.state !== 'uncertain' &&
-                record.state !== 'completed' &&
-                record.phase !== 'backup' &&
-                record.phase !== 'publishing' && (
+      <div id={contentId} hidden={!expanded}>
+        <p className="transfer-empty">
+          Inspect these paths before retrying. Listed temporary and backup paths may be absent; an
+          interrupted publication may already have completed. No transfer resumes automatically.
+        </p>
+        <ol>
+          {records.map((record) => (
+            <li key={record.id}>
+              <div className="transfer-job-heading">
+                <strong>
+                  {record.direction === 'upload' ? 'Upload' : 'Download'} · {record.name}
+                </strong>
+                <span>
+                  {record.phase === 'settled' ? record.state : `Interrupted · ${record.phase}`}
+                </span>
+                {record.partialPath &&
+                  record.staging &&
+                  record.peer &&
+                  record.source &&
+                  !record.backupPath &&
+                  record.state !== 'uncertain' &&
+                  record.state !== 'completed' &&
+                  record.phase !== 'backup' &&
+                  record.phase !== 'publishing' && (
+                    <button
+                      type="button"
+                      disabled={!sessionId || !!inspecting}
+                      aria-label={`Preview resume for ${record.name}`}
+                      onClick={() => {
+                        if (!sessionId) return;
+                        setInspecting(record.id);
+                        setError('');
+                        void window.mterminal
+                          .inspectTransferResume(record.id, sessionId)
+                          .then(
+                            (preview) => setResume({ preview, sessionId }),
+                            (cause: unknown) =>
+                              setError(
+                                cause instanceof Error ? cause.message : 'Unable to verify resume.',
+                              ),
+                          )
+                          .finally(() => setInspecting(null));
+                      }}
+                    >
+                      Resume…
+                    </button>
+                  )}
+                {record.partialPath && (
                   <button
                     type="button"
-                    disabled={!sessionId || !!inspecting}
-                    aria-label={`Preview resume for ${record.name}`}
+                    disabled={!sessionId || !record.staging || !record.peer || !!inspecting}
+                    aria-label={`Inspect temporary file for ${record.name}`}
                     onClick={() => {
                       if (!sessionId) return;
                       setInspecting(record.id);
                       setError('');
                       void window.mterminal
-                        .inspectTransferResume(record.id, sessionId)
+                        .inspectTransferPartial(record.id, sessionId)
                         .then(
-                          (preview) => setResume({ preview, sessionId }),
+                          (preview) => setCleanup({ preview, sessionId }),
                           (cause: unknown) =>
                             setError(
-                              cause instanceof Error ? cause.message : 'Unable to verify resume.',
+                              cause instanceof Error
+                                ? cause.message
+                                : 'Unable to verify the temporary file.',
                             ),
                         )
                         .finally(() => setInspecting(null));
                     }}
                   >
-                    Resume…
+                    {inspecting === record.id ? 'Inspecting…' : 'Inspect temporary file…'}
                   </button>
                 )}
-              {record.partialPath && (
                 <button
                   type="button"
-                  disabled={!sessionId || !record.staging || !record.peer || !!inspecting}
-                  aria-label={`Inspect temporary file for ${record.name}`}
-                  onClick={() => {
-                    if (!sessionId) return;
-                    setInspecting(record.id);
-                    setError('');
-                    void window.mterminal
-                      .inspectTransferPartial(record.id, sessionId)
-                      .then(
-                        (preview) => setCleanup({ preview, sessionId }),
-                        (cause: unknown) =>
-                          setError(
-                            cause instanceof Error
-                              ? cause.message
-                              : 'Unable to verify the temporary file.',
-                          ),
-                      )
-                      .finally(() => setInspecting(null));
-                  }}
+                  disabled={!!inspecting}
+                  aria-label={`Forget recovery record for ${record.name}`}
+                  onClick={() => setSelected(record)}
                 >
-                  {inspecting === record.id ? 'Inspecting…' : 'Inspect temporary file…'}
+                  Forget record…
                 </button>
+              </div>
+              <p>
+                {record.peer
+                  ? `${record.peer.username}@${record.peer.address}:${record.peer.port}`
+                  : record.title}
+              </p>
+              {record.peer && (
+                <p>
+                  Recorded host key: <code>{record.peer.fingerprint}</code>
+                </p>
               )}
-              <button
-                type="button"
-                disabled={!!inspecting}
-                aria-label={`Forget recovery record for ${record.name}`}
-                onClick={() => setSelected(record)}
-              >
-                Forget record…
-              </button>
-            </div>
-            <p>
-              {record.peer
-                ? `${record.peer.username}@${record.peer.address}:${record.peer.port}`
-                : record.title}
-            </p>
-            {record.peer && (
               <p>
-                Recorded host key: <code>{record.peer.fingerprint}</code>
+                Local folder: <code>{record.localDirectory}</code> · Remote folder:{' '}
+                <code>{record.remoteDirectory}</code>
               </p>
-            )}
-            <p>
-              Local folder: <code>{record.localDirectory}</code> · Remote folder:{' '}
-              <code>{record.remoteDirectory}</code>
-            </p>
-            {record.source && (
+              {record.source && (
+                <p>
+                  Original source: <code>{record.source.path}</code>
+                </p>
+              )}
+              {record.destination && (
+                <p>
+                  Recorded destination: <code>{record.destination.path}</code>
+                </p>
+              )}
+              {record.partialPath && (
+                <p>
+                  Possible temporary file ({record.direction === 'upload' ? 'remote' : 'local'}):{' '}
+                  <code>{record.partialPath}</code>
+                </p>
+              )}
+              {record.partialPath && (!record.staging || !record.peer) && (
+                <p>Creation or connection evidence is unavailable; inspect this file manually.</p>
+              )}
+              {record.partialPath && record.staging && record.peer && !sessionId && (
+                <p>
+                  Open Files in the matching SSH host/account tab to verify this temporary file.
+                </p>
+              )}
+              {record.backupPath && (
+                <p>
+                  Possible backup ({record.direction === 'upload' ? 'remote' : 'local'}):{' '}
+                  <code>{record.backupPath}</code>
+                </p>
+              )}
               <p>
-                Original source: <code>{record.source.path}</code>
+                Last recorded:{' '}
+                <time dateTime={record.updatedAt}>
+                  {new Date(record.updatedAt).toLocaleString()}
+                </time>
               </p>
-            )}
-            {record.destination && (
-              <p>
-                Recorded destination: <code>{record.destination.path}</code>
-              </p>
-            )}
-            {record.partialPath && (
-              <p>
-                Possible temporary file ({record.direction === 'upload' ? 'remote' : 'local'}):{' '}
-                <code>{record.partialPath}</code>
-              </p>
-            )}
-            {record.partialPath && (!record.staging || !record.peer) && (
-              <p>Creation or connection evidence is unavailable; inspect this file manually.</p>
-            )}
-            {record.partialPath && record.staging && record.peer && !sessionId && (
-              <p>Open Files in the matching SSH host/account tab to verify this temporary file.</p>
-            )}
-            {record.backupPath && (
-              <p>
-                Possible backup ({record.direction === 'upload' ? 'remote' : 'local'}):{' '}
-                <code>{record.backupPath}</code>
-              </p>
-            )}
-            <p>
-              Last recorded:{' '}
-              <time dateTime={record.updatedAt}>{new Date(record.updatedAt).toLocaleString()}</time>
-            </p>
-          </li>
-        ))}
-      </ol>
+            </li>
+          ))}
+        </ol>
+      </div>
       {cleanup && cleanup.sessionId === sessionId && (
         <ConfirmDialog
           title="Delete verified temporary file?"

@@ -24,7 +24,7 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F34-A implemented — Bidirectional file-pane drag-and-drop and visible transfer actions; Phase 4 acceptance pending |
+| Active feature | F32-A implemented — Compact SFTP layout, selection, filtering, history and collapsible activity panels; Phase 4 acceptance pending |
 | Next feature | Phase 4 verification gate (tests deferred by request), then F38 — Split panes |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
@@ -161,6 +161,7 @@ interactive Electron validation remains pending.
 Dependencies: Phase 3 and the SSH connection layer.
 
 - [x] **F32 — File browser (implementation):** Read-only local/remote panes within terminal tabs, canonical paths, breadcrumbs, home/up/refresh navigation, hidden files, sorting, and metadata. Reuse the verified SSH connection; bound directory listings and clean up SFTP handles/channels. Tests written and deferred to the Phase 4 gate; desktop/platform acceptance pending. See `docs/FILE_BROWSER.md`.
+  - [x] **F32-A — File-browser design (implementation):** Compact pane-level Filter/Actions and selected-file transfer controls; on-demand path editor, bounded Back/Forward history, filename filtering, sortable Name/Date Modified/Size/Kind columns, symbolic permissions under names, keyboard selection and folder navigation, and compact queue/recovery/editor panels. Existing transfers and confirmations reused. Tests written but unrun; browser unavailable for visual inspection.
 - [x] **F33 — File operations (implementation):** Single-folder creation, same-directory rename with destination protection, confirmed file/link/empty-folder deletion, and permitted octal mode changes. No recursive deletion, elevation, or chmod of symlinks/special files. Refresh after each attempt, preserve partial/uncertain outcomes, and reject stale SSH-connection confirmations. Tests written; Phase 4 execution and desktop/platform acceptance deferred. See `docs/FILE_BROWSER.md`.
 - [x] **F34 — Transfers (implementation):** Window-owned, bounded single-file upload/download queue on verified SSH sessions, progress, queued/active cancellation, sanitized failure and cleanup-path reporting, destination refresh, and non-overwriting staged publication. Regular files only; no replay or resume. Tests written and deferred to the Phase 4 gate; live-server, visual, and platform acceptance pending. See `docs/FILE_BROWSER.md`.
   - [x] **F34-A — Transfer interaction (implementation):** Drag one regular file between Local/Remote panes into the open target folder, then explicitly confirm Add to queue. Visible Upload/Download buttons and file-row right-click actions improve discovery. Same-pane, external, non-file and stale-context drops are refused. Regression tests written; execution and visual/live/platform acceptance deferred.
@@ -1103,3 +1104,40 @@ and Windows/macOS acceptance remain pending.
 No new dependencies, preload APIs, backend filesystem capabilities or database migrations.
 Continue with the Phase 4 verification gate when test execution is requested, then F38 split panes.
 Commit locally with phase/step; do not push.
+
+
+### F32-A file-browser design improvements — 2026-11-09
+
+Reworked the file view around the user's SFTP reference while retaining mTerminal branding and
+application theme. Each pane uses two compact rows: heading with Filter/Actions and selected-file
+Upload/Download, then Back/Forward/Up, breadcrumbs and an on-demand path editor. Filename filtering
+is case-insensitive and local to loaded entries. Sortable headers replace the sort-control row;
+columns are Name, Date Modified, Size and Kind. Filled folder icons and symbolic permissions below
+names improve scanning while retaining octal tooltips and special permission bits.
+
+Single-click selects; double-click/Enter opens folders. Keyboard arrows/Home/End move selection,
+and Shift+F10 opens row actions. Pane and row menus reuse existing scoped mutation/editor/transfer
+confirmations. Selection is derived from fresh visible entries and scoped to directory/connection;
+filtered or stale entries do not enable selected-file actions. Navigation history commits only
+successful canonical paths, supports Back/Forward, truncates new branches and is bounded to 64
+entries. Refreshes do not duplicate history and background refresh does not replace a path draft.
+
+Idle transfer history and saved recovery lists collapse behind accessible summary controls. Active,
+conflict and failed transfer details stay visible; errors remain visible. The empty editor is
+hidden, an unchanged ready edit is compact, and pending saved edits/active work/errors open its
+details. File dialogs, queue/recovery watchers, default Cancel focus, drag tokens, copy confirmation,
+backups and explicit resume/cleanup behavior remain in the existing flow. No backend, preload,
+storage schema, dependency or server-package changes were needed. Separate SFTP workspace tabs,
+multiple selection and folder transfers are outside this interface step.
+
+Regression code was updated/written for path/history navigation, filtering, column sorting,
+symbolic permission bits, single-file selection, keyboard folder access, collapsed panels and
+existing actions/drag-transfer confirmations. Tests remain unrun at the user's request.
+`npm run check` (including test-source type checking), `npm run build`, and `git diff --check`
+passed on Linux x64; no test cases were executed. A temporary fixture-only preview was prepared,
+but computer-use reported no available browser, so no visual or interactive pass is claimed.
+Live SFTP, actual pointer/keyboard behavior and Windows/macOS acceptance remain pending.
+
+Preserve unrelated local-storage documentation edits and the supplied reference image outside
+this commit. Next remains the Phase 4 verification gate when test execution is requested, then
+F38 split panes. Commit locally with phase/step; do not push.

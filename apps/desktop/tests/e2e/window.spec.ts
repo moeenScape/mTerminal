@@ -178,17 +178,61 @@ test('browses local files, toggles hidden entries and reports folder errors', as
   await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   const local = page.getByRole('region', { name: 'Local files', exact: true });
-  await expect(local.getByLabel('local folder path')).toBeEnabled();
+  await local.getByRole('button', { name: 'local edit location', exact: true }).click();
   await local.getByLabel('local folder path').fill(folder);
   await local.getByRole('button', { name: 'Go', exact: true }).click();
   await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
   await expect(local.getByText('.hidden', { exact: true })).toBeHidden();
-  await local.getByLabel('Hidden files').check();
+  await local.getByRole('button', { name: 'local Actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Show hidden files', exact: true }).click();
   await expect(local.getByText('.hidden', { exact: true })).toBeVisible();
-  await local.getByRole('button', { name: 'child', exact: true }).click();
+  await local.getByRole('button', { name: 'local filter files', exact: true }).click();
+  await local.getByLabel('local filename filter').fill('VISIBLE');
+  await expect(local.getByRole('button', { name: 'visible.txt', exact: true })).toBeVisible();
+  await expect(local.getByRole('button', { name: '.hidden', exact: true })).toBeHidden();
+  await local.getByRole('button', { name: 'visible.txt', exact: true }).click();
+  await expect(local.getByRole('button', { name: 'visible.txt', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(
+    local.getByRole('button', { name: 'Upload visible.txt', exact: true }),
+  ).toBeDisabled();
+  await local.getByLabel('local filename filter').fill('no-matching-file');
+  await expect(local.getByText('No files match this filter.', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'local close filter', exact: true }).click();
+  await local.getByRole('button', { name: 'Date Modified', exact: true }).click();
+  await expect(
+    local.getByRole('columnheader', { name: 'Date Modified', exact: true }),
+  ).toHaveAttribute('aria-sort', 'ascending');
+  await local.getByRole('button', { name: 'Date Modified', exact: true }).click();
+  await expect(
+    local.getByRole('columnheader', { name: 'Date Modified', exact: true }),
+  ).toHaveAttribute('aria-sort', 'descending');
+  await local.getByRole('button', { name: 'child', exact: true }).dblclick();
+  await expect(local.getByText('This folder is empty.')).toBeVisible();
+  await local.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'Forward', exact: true }).click();
   await expect(local.getByText('This folder is empty.')).toBeVisible();
   await local.getByRole('button', { name: 'Up', exact: true }).click();
   await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  const childRow = local
+    .getByRole('row')
+    .filter({ has: page.getByRole('button', { name: 'child', exact: true }) });
+  await childRow.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(local.locator('tbody tr.file-row-selected')).toHaveCount(1);
+  await expect(local.getByRole('button', { name: 'child', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await childRow.focus();
+  await page.keyboard.press('Enter');
+  await expect(local.getByText('This folder is empty.')).toBeVisible();
+  await local.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(local.getByText('visible.txt', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'local edit location', exact: true }).click();
   await local.getByLabel('local folder path').fill(join(folder, 'absent'));
   await local.getByRole('button', { name: 'Go', exact: true }).click();
   await expect(local.getByRole('alert')).toContainText('no longer exists');
@@ -205,11 +249,12 @@ test('creates, renames and confirms deletion of a local folder without overwriti
   await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   const local = page.getByRole('region', { name: 'Local files', exact: true });
-  await expect(local.getByLabel('local folder path')).toBeEnabled();
+  await local.getByRole('button', { name: 'local edit location', exact: true }).click();
   await local.getByLabel('local folder path').fill(folder);
   await local.getByRole('button', { name: 'Go', exact: true }).click();
   await expect(local.getByText('existing', { exact: true })).toBeVisible();
-  await local.getByRole('button', { name: 'New folder', exact: true }).click();
+  await local.getByRole('button', { name: 'local Actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New folder', exact: true }).click();
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('Folder name', { exact: true }).fill('new-folder');
   await dialog.getByRole('button', { name: 'Create folder', exact: true }).click();
@@ -274,6 +319,7 @@ test('shows saved recovery evidence and confirms forgetting only the record', as
   });
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   const recovery = page.getByRole('region', { name: 'Saved transfer recovery' });
+  await recovery.getByRole('button', { name: 'Show recovery records', exact: true }).click();
   await expect(recovery).toContainText('Interrupted · publishing');
   await expect(recovery).toContainText('/remote/possible.bak');
   await recovery.getByRole('button', { name: 'Forget recovery record for recover.txt' }).click();
@@ -391,6 +437,7 @@ test('previews recovery cleanup and resume with explicit Cancel-first confirmati
   await expect(page.getByRole('status').filter({ hasText: 'SSH connected' })).toBeVisible();
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   const recovery = page.getByRole('region', { name: 'Saved transfer recovery' });
+  await recovery.getByRole('button', { name: 'Show recovery records', exact: true }).click();
   const inspect = recovery.getByRole('button', { name: 'Inspect temporary file for recover.txt' });
   await inspect.click();
   const dialog = page.getByRole('dialog', { name: 'Delete verified temporary file?' });
@@ -499,6 +546,8 @@ test('drags individual files between panes and queues only after confirmation', 
   const download = remote
     .getByRole('row')
     .filter({ has: page.getByText('download.txt', { exact: true }) });
+  await local.getByRole('button', { name: 'upload.txt', exact: true }).click();
+  await remote.getByRole('button', { name: 'download.txt', exact: true }).click();
   await expect(local.getByRole('button', { name: 'Upload upload.txt', exact: true })).toBeEnabled();
   await expect(
     remote.getByRole('button', { name: 'Download download.txt', exact: true }),
@@ -599,6 +648,7 @@ test('renders transfer progress and cancels and clears jobs through preload', as
   await expect(queue.getByRole('progressbar')).toHaveAttribute('value', '128');
   await expect(queue).toContainText('Transfer fixture');
   await queue.getByRole('button', { name: 'Cancel upload queued-file.txt' }).click();
+  await queue.getByRole('button', { name: 'Show transfer details', exact: true }).click();
   await expect(queue.getByRole('status')).toHaveText('cancelled');
   await queue.getByRole('button', { name: 'Clear finished' }).click();
   await expect(queue.getByRole('progressbar')).toBeHidden();
@@ -690,6 +740,7 @@ test('previews transfer conflicts with Skip as default and explicit Replace and 
     .getByRole('dialog')
     .getByRole('button', { name: 'Cancel transfer', exact: true })
     .click();
+  await queue.getByRole('button', { name: 'Show transfer details', exact: true }).click();
   await expect(
     queue.getByRole('listitem').filter({ hasText: 'cancel.txt' }).getByRole('status'),
   ).toHaveText('cancelled');
@@ -741,6 +792,7 @@ test('shows pending remote edits, uploads explicitly, and confirms local-only di
   await expect(editor.getByRole('status')).toContainText('Saved changes pending');
   await editor.getByRole('button', { name: 'Open editor', exact: true }).click();
   await editor.getByRole('button', { name: 'Upload changes', exact: true }).click();
+  await editor.getByRole('button', { name: 'Show editor details', exact: true }).click();
   await expect(editor.getByRole('button', { name: 'Upload changes', exact: true })).toBeDisabled();
   await expect(editor).toContainText('/remote/editor-original.bak');
   await editor.getByRole('button', { name: 'Discard local copy…', exact: true }).click();

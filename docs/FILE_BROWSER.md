@@ -16,23 +16,46 @@ reconnecting the terminal, the remote browser retries its last folder. Changes f
 on an older SSH connection are refused; close and reopen the action after reconnecting.
 Servers must allow both a shell and the SFTP subsystem for this first implementation.
 
-## Navigate and inspect
+## Navigate, select and filter
 
-- Click a folder or breadcrumb, enter an absolute path and choose **Go**, or use **Up** / **Home**.
-- **Refresh** reads the current folder again. **Retry** retries a failed navigation.
-- Enable **Hidden files** to show names starting with a dot.
-- Sort by name, size, or modified date, ascending or descending. Directories stay first.
-- Rows show byte-based file sizes, numeric mode permissions, and modification times in the
-  computer's local timezone. Windows reports the mode provided by Node, not a Windows ACL.
-- Symbolic links are marked **link**. Opening one resolves its directory target; a file link or
-  broken link produces an error. Special files are identified without being opened.
-- On failure, the last successful folder remains visible, with its breadcrumb and an error.
-- Panes stack vertically in narrow windows; file tables scroll horizontally for metadata.
+- Each pane has a compact heading with **Filter**, selected-file **Upload… / Download…**, and
+  **Actions**. Controls use the application theme; Local and Remote retain distinct badges.
+- **Single-click** a row to select it. **Double-click** a folder/link, press **Enter** on its row,
+  or choose **Actions → Open folder** to browse. Arrow keys, Home and End move row selection;
+  Shift+F10 opens its file menu. Selection is scoped to the shown folder and connection, and
+  filtered-out, disconnected or stale entries cannot drive selected-file actions.
+- Use **Back / Forward** for successful navigation history (up to 64 entries), **Up** for the
+  parent, or click a breadcrumb. Failed reads do not advance history. A new route after Back
+  replaces forward history; refreshes do not create duplicate entries.
+- The pencil button opens an editable absolute path. Enter it and choose **Go**; Escape or its
+  close button cancels editing. The path editor closes after navigation and background refresh
+  does not overwrite an unfinished path. **Actions → Home** returns to the initial account home.
+- **Refresh / Retry** rereads the current/requested folder. On failure the previous folder stays
+  visible with an error and stale-selection actions disabled.
+- **Filter** searches loaded filenames without case sensitivity, separately in each pane. Its
+  close button clears the query. It does not search subdirectories or unloaded entries.
+  **Actions → Show hidden files / Hide hidden files** controls dot-prefixed names.
+- Click **Name / Date Modified / Size / Kind** to sort; clicking again reverses direction.
+  Folders stay first. Kind describes the entry type or filename extension, not inspected MIME data.
+- Permissions appear below filenames in symbolic form, including setuid/setgid/sticky bits;
+  the tooltip retains the octal mode. Times use the computer's locale/timezone. Windows reports
+  Node's mode, not a Windows ACL. Symbolic links and special files remain identifiable.
+- Panes stack in narrow windows; file tables scroll when needed. Regular files remain draggable
+  in either direction. Dropping on a folder row still targets the opposite pane's open folder.
+
+## Compact activity panels
+
+Transfers keeps a small summary when idle and opens for running/conflict/failed/uncertain work.
+Use its disclosure button to inspect finished history. Saved recovery records start collapsed
+with a count; choose **Show recovery records** to inspect or resume/clean a specific item.
+Remote editor is hidden when unused, compact when ready and unchanged, and opens for pending
+saved changes, active work or errors. Its disclosure button shows retained-copy details.
+Errors remain visible and all existing confirmation/overwrite/recovery safeguards still apply.
 
 ## Create, rename, delete, and change permissions
 
-- **New folder** creates one folder in the pane's current directory.
-- Each row's **Actions** menu offers **Rename…**, **Permissions…**, and **Delete…**. Keyboard
+- **Actions → New folder** creates one folder in the pane's current directory.
+- The pane's **Actions** menu uses its selected row. Each row's **⋯** and right-click menu also offer **Rename…**, **Permissions…**, and **Delete…**. Keyboard
   users can focus the Actions button and open it with Enter or Space.
 - Names must be single path components: no slash, backslash, control characters, dot, or dot-dot.
   Rename stays in the same directory and refuses an existing destination, including an empty one.
@@ -63,8 +86,8 @@ copy, the system's default text editor, saved-change detection and explicit snap
 
 1. Connect to a saved SSH host and open **Files** in that terminal tab.
 2. Navigate both panes to the desired source/destination folders.
-3. Choose **Upload…** from a regular local file's Actions menu, or **Download…** from a regular
-   remote file's menu. These actions become available after both folders load.
+3. Select a regular file, then choose **Upload…** in the Local heading or **Download…** in the
+   Remote heading. Row menus offer the same actions after both folders load.
 4. Confirm the file name, SSH tab, direction, and both folders, then choose **Add to queue**.
 5. The queue beneath the panes shows bytes transferred, progress and status. **Cancel** removes
    a queued job or interrupts an active copy; **cancelling** remains visible during cleanup.
@@ -75,8 +98,8 @@ folder**; hovering over a folder row does not select that subfolder. The target 
 shows its path. Dropping opens the same confirmation dialog; choose **Add to queue** to start,
 or **Cancel** to leave both computers unchanged.
 
-Each regular file also has a visible **Upload…** / **Download…** button. Its row's **⋯** button or
-right-click menu offers the same action. The terminal toolbar's **⋯** menu contains Copy/Paste/
+The heading's visible **Upload…** / **Download…** button acts on the selected regular file.
+Its row's **⋯** button or right-click menu offers the same action. The terminal toolbar's **⋯** menu contains Copy/Paste/
 Close session; choose **Browse files** there, or the folder icon labelled **Files**, to reach this
 view. Both folders must load successfully, and the SSH connection must be opened through Hosts.
 Typing `ssh ...` inside a local shell does not attach the remote file pane.
@@ -203,3 +226,14 @@ F37-C adds **Resume…** with matching connection ownership, source-prefix and d
 remaining-byte preview and a fresh confirmation. Resumed cancellation/failure retains the partial;
 replacement still preserves the old destination in a new backup. No transfer resumes automatically. See [Transfer recovery](TRANSFER_RECOVERY.md) for storage,
 planned-path caveats, cleanup limitations, resume restrictions and validation status.
+
+
+## Interface update validation — F32-A
+
+Regression code covers canonical successful history and forward branching, filtering and kind
+sorting, symbolic permissions (including special bits), selected-file actions, keyboard folder
+navigation, path editing, collapsed panels, existing dialogs and bidirectional drag-and-drop.
+Test execution remains deferred at the user's request. Type/lint/format/build evidence is recorded
+in the roadmap. The fixture-only visual preview could not be inspected because this session had
+no available browser; pixel layout, real pointer interaction, live SFTP and platform acceptance
+remain unverified. This update does not add a separate SFTP tab, multi-selection or folder transfer.

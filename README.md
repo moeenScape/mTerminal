@@ -14,8 +14,9 @@ request. See [Remote editing](docs/REMOTE_EDITING.md) for limits, editor setup a
 Connect to a saved host and open **Files** from its terminal tab
 to browse both computers using the verified SSH connection. See
 [File browser](docs/FILE_BROWSER.md) for navigation, limits, and validation status. Drag individual
-files between its Local and Remote panes, or use the visible Upload/Download row buttons;
-review the confirmation before adding a transfer to the queue.
+files between its Local and Remote panes, or select a file and use Upload/Download in the pane heading;
+review the confirmation before adding a transfer to the queue. Compact Actions/Filter controls,
+Back/Forward navigation and permissions beneath filenames keep the file lists in focus.
 F37 adds persistent transfer recovery records, confirmed temporary-file cleanup and verified transfer resume in Files. See [Transfer recovery](docs/TRANSFER_RECOVERY.md)
 for cleanup/resume requirements, older-record limits, overwrite confirmation and metadata-only forgetting. Phase 4 tests and live/platform acceptance remain pending.
 
