@@ -2969,3 +2969,11 @@ p.field-hint {
   white-space: nowrap;
   font-family: var(--terminal-font);
 }
+
+.command-suggestion-source {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--muted);
+}

@@ -34,8 +34,10 @@ determine whether another program or a password prompt will receive the input.
 
 A snippet uses the current shell environment and working directory. Saving, opening a tools
 panel, loading a workspace template or reconnecting never runs a snippet automatically.
-Startup assignments are described below. Snippet autocomplete sources remain F47 work;
-the existing history suggestions are unchanged.
+Startup assignments are described below. F47.1 adds eligible single-line commands to local Bash
+autocomplete, marked **Snippet**. Selection inserts without Enter and revalidates the saved
+content and vault access. Multiline/control-bearing or secret-like commands stay out of this
+source. See [autocomplete sources](AUTOCOMPLETE.md).
 
 ## Startup assignments
 
@@ -75,7 +77,7 @@ failures preserve the previous file. Snippets persist until explicitly deleted o
 is reset. Reset moves their ciphertext into the existing recovery folder.
 
 Avoid hard-coded credentials: use variables or managed identities. Commands are decrypted in
-the renderer only for the snippet interface and execution. They are excluded from workspace
+the renderer only for the snippet interface, eligible autocomplete suggestions and execution. They are excluded from workspace
 JSON exports, SQLite snapshots and diagnostics. Back up the encrypted vault files together
 with the rest of the app data and retain the vault passphrase and required OS keychain.
 

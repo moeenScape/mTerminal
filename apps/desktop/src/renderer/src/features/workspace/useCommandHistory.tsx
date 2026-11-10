@@ -1,15 +1,28 @@
 import { shellMarker, type ShellIntegrationState } from '../../../../shared/shell-integration';
-import { useCallback, useEffect, useRef, useState, useId, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useId,
+  useLayoutEffect,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../../components/Icon';
-import { autocompleteMatches, autocompletePosition } from './autocomplete';
+import {
+  autocompleteMatches,
+  autocompletePosition,
+  currentSnippetSuggestion,
+  type AutocompleteSuggestion,
+} from './autocomplete';
 import type { Terminal, IMarker } from '@xterm/xterm';
-import type { CommandHistoryEntry } from '../../../../shared/history';
+import type { Snippet } from '../../../../shared/snippets';
 
 export type HistoryIntegration = 'unknown' | 'unsupported' | 'starting' | 'ready';
 
 /**
- * Inline history suggestions for local Bash prompts. The shell integration marks where each
+ * Inline history and snippet suggestions for local Bash prompts. The shell integration marks where each
  * prompt ends (OSC 777), so the typed command can be read back from the terminal buffer.
  */
 export function useCommandHistory(
@@ -30,10 +43,13 @@ export function useCommandHistory(
     lastExitCode: null,
   });
   const enabledRef = useRef(enabled);
+  const activeRef = useRef(active);
+  const snippetCache = useRef<Promise<Snippet[]> | null>(null);
+  const accepting = useRef<number | null>(null);
   const [selected, setSelected] = useState(-1);
   const [popup, setPopup] = useState<{
     prefix: string;
-    items: CommandHistoryEntry[];
+    items: AutocompleteSuggestion[];
     left: number;
     top: number;
     width: number;
@@ -42,9 +58,11 @@ export function useCommandHistory(
   const marker = useRef<IMarker | null>(null);
   const column = useRef(0);
   const directory = useRef('');
-  const suggestion = useRef<{ prefix: string; items: CommandHistoryEntry[]; index: number } | null>(
-    null,
-  );
+  const suggestion = useRef<{
+    prefix: string;
+    items: AutocompleteSuggestion[];
+    index: number;
+  } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const version = useRef(0);
   const lastQuery = useRef('');
@@ -57,10 +75,35 @@ export function useCommandHistory(
     setPopup(null);
   }, []);
 
+  const loadSnippets = useCallback(() => {
+    if (!snippetCache.current) {
+      const request = window.mterminal.listSnippets();
+      snippetCache.current = request;
+      // Failed reads must retry after unlock; history remains available independently.
+      void request.catch(() => {
+        if (snippetCache.current === request) snippetCache.current = null;
+      });
+    }
+    return snippetCache.current;
+  }, []);
+
+  useLayoutEffect(() => {
+    activeRef.current = active;
+    enabledRef.current = enabled;
+    if (!active || !enabled) {
+      version.current++;
+      clearTimeout(timer.current);
+      suggestion.current = null;
+      snippetCache.current = null;
+      lastQuery.current = '';
+    }
+  }, [active, enabled]);
+
   const onSessionStatus = useCallback(
     (status: 'unsupported' | 'starting' | 'unknown') => {
       marker.current?.dispose();
       marker.current = null;
+      snippetCache.current = null;
       directory.current = '';
       lastQuery.current = '';
       dismiss();
@@ -107,7 +150,7 @@ export function useCommandHistory(
       terminal.current = term;
       const render = () => {
         const text = prefix();
-        if (!enabledRef.current || !text || text.startsWith(' ')) {
+        if (!activeRef.current || !enabledRef.current || !text || /^\s/u.test(text)) {
           lastQuery.current = '';
           dismiss();
           return;
@@ -118,11 +161,19 @@ export function useCommandHistory(
         dismiss();
         const request = version.current;
         timer.current = setTimeout(() => {
-          void window.mterminal
-            .searchHistory(text, directory.current, 'prefix')
-            .then((items) => {
-              if (request !== version.current || prefix() !== text) return;
-              const matches = autocompleteMatches(items, text);
+          void Promise.all([
+            window.mterminal.searchHistory(text, directory.current, 'prefix').catch(() => []),
+            loadSnippets().catch(() => []),
+          ])
+            .then(([items, snippets]) => {
+              if (
+                request !== version.current ||
+                prefix() !== text ||
+                !activeRef.current ||
+                !enabledRef.current
+              )
+                return;
+              const matches = autocompleteMatches(items, text, snippets);
               const screen = container.current?.querySelector<HTMLElement>('.xterm-screen');
               const host = container.current;
               if (!screen || !host) return;
@@ -153,6 +204,7 @@ export function useCommandHistory(
         if (!data.startsWith('mterminal;')) return false;
         const state = shellMarker(data, session.current);
         if (!state) return true;
+        snippetCache.current = null;
         dismiss();
         marker.current?.dispose();
         marker.current = null;
@@ -194,7 +246,7 @@ export function useCommandHistory(
         resized.dispose();
       };
     },
-    [local, prefix, dismiss, container, onSessionStatus, session],
+    [local, prefix, dismiss, container, onSessionStatus, session, loadSnippets],
   );
 
   const onInput = useCallback(
@@ -209,6 +261,7 @@ export function useCommandHistory(
       ) {
         marker.current?.dispose();
         marker.current = null;
+        snippetCache.current = null;
         setShellState((previous) =>
           previous.phase === 'prompt' ? { ...previous, phase: 'waiting' } : previous,
         );
@@ -218,26 +271,69 @@ export function useCommandHistory(
   );
 
   const accept = useCallback(
-    /** Types the rest of a suggestion; with `run`, also presses Enter to execute it. */
-    (index: number, run = false) => {
+    async (index: number, run = false) => {
       const current = suggestion.current;
       const item = current?.items[index];
-      if (!current || !item || prefix() !== current.prefix || !session.current) return;
-      window.mterminal.writeTerminal(session.current, {
+      const target = session.current;
+      if (
+        !current ||
+        !item ||
+        !target ||
+        !activeRef.current ||
+        !enabledRef.current ||
+        !ready.current ||
+        prefix() !== current.prefix ||
+        accepting.current === version.current
+      )
+        return;
+      const request = version.current;
+      const selection = current.index;
+      if (item.kind === 'snippet') {
+        accepting.current = request;
+        try {
+          const snippets = await window.mterminal.listSnippets();
+          if (
+            request !== version.current ||
+            session.current !== target ||
+            current.index !== selection ||
+            !activeRef.current ||
+            !enabledRef.current ||
+            !ready.current ||
+            prefix() !== current.prefix
+          )
+            return;
+          if (!currentSnippetSuggestion(item, snippets)) {
+            snippetCache.current = null;
+            dismiss();
+            lastQuery.current = '';
+            return;
+          }
+        } catch {
+          if (request === version.current) {
+            snippetCache.current = null;
+            dismiss();
+          }
+          return;
+        } finally {
+          if (accepting.current === request) accepting.current = null;
+        }
+      }
+      const submit = run && item.kind === 'history';
+      window.mterminal.writeTerminal(target, {
         kind: 'text',
-        data: item.command.slice(current.prefix.length) + (run ? '\r' : ''),
+        data: item.command.slice(current.prefix.length) + (submit ? '\r' : ''),
       });
-      if (run) {
-        // The command was submitted, so this prompt is finished.
+      if (submit) {
         marker.current?.dispose();
         marker.current = null;
+        snippetCache.current = null;
         setShellState((previous) => ({ ...previous, phase: 'waiting' }));
       }
       dismiss();
       lastQuery.current = '';
       terminal.current?.focus();
     },
-    [dismiss, prefix, session],
+    [dismiss, prefix, session, ready],
   );
 
   const handleKey = useCallback(
@@ -278,14 +374,14 @@ export function useCommandHistory(
         return false;
       }
       if (event.key === 'ArrowRight') {
-        accept(Math.max(0, current.index));
+        void accept(Math.max(0, current.index));
         return false;
       }
       if (event.key === 'Enter' && current.index >= 0) {
-        // A highlighted suggestion runs as the full command, as in Termius.
+        // Enter runs history suggestions; snippet selections insert for review first.
         event.preventDefault();
         swallowEnter.current = true;
-        accept(current.index, true);
+        void accept(current.index, true);
         return false;
       }
       if (event.key === 'Enter' || event.key === 'Tab') dismiss();
@@ -330,12 +426,30 @@ export function useCommandHistory(
       }),
     [dismiss],
   );
-  useEffect(() => window.mterminal.onVaultLocked(dismiss), [dismiss]);
   useEffect(() => {
-    if (active) return;
+    const invalidate = () => {
+      snippetCache.current = null;
+      dismiss();
+      lastQuery.current = '';
+    };
+    const changed = window.mterminal.onSnippetsChanged(() => {
+      invalidate();
+      const term = terminal.current;
+      if (term && activeRef.current && enabledRef.current) term.refresh(0, term.rows - 1);
+    });
+    const locked = window.mterminal.onVaultLocked(invalidate);
+    return () => {
+      changed();
+      locked();
+      snippetCache.current = null;
+      dismiss();
+    };
+  }, [dismiss]);
+  useEffect(() => {
+    if (active && enabled) return;
     const frame = requestAnimationFrame(dismiss);
     return () => cancelAnimationFrame(frame);
-  }, [active, dismiss]);
+  }, [active, enabled, dismiss]);
 
   useEffect(() => {
     const input = terminal.current?.textarea;
@@ -358,14 +472,14 @@ export function useCommandHistory(
   }, [popup, selected, listId]);
 
   const overlay =
-    active && popup && container.current
+    active && enabled && popup && container.current
       ? createPortal(
           <div
             className="command-suggestions"
             id={listId}
             role="listbox"
             aria-label="Command suggestions"
-            aria-description="Up and Down select, Right Arrow inserts, Enter runs the selected command, Escape dismisses."
+            aria-description="Up and Down select, Right Arrow or click inserts. Enter runs selected history or inserts a snippet for review. Escape dismisses."
             style={{
               left: popup.left,
               top: popup.top,
@@ -376,24 +490,36 @@ export function useCommandHistory(
           >
             {popup.items.map((item, index) => (
               <div
-                key={item.id}
+                key={`${item.kind}:${item.id}`}
                 id={`${listId}-${index}`}
                 role="option"
                 aria-selected={selected === index}
                 className="command-suggestion"
-                title={item.command}
+                title={
+                  item.kind === 'snippet'
+                    ? `${item.name}${item.folder ? ` (${item.folder})` : ''}\n${item.command}\nInserts only; press Enter afterward to run.`
+                    : item.command
+                }
+                aria-label={
+                  item.kind === 'snippet'
+                    ? `Snippet ${item.name}${item.folder ? ` (${item.folder})` : ''}: ${item.command}. Inserts only.`
+                    : undefined
+                }
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => {
                   if (suggestion.current) suggestion.current.index = index;
                   setSelected(index);
                 }}
-                onClick={() => accept(index)}
+                onClick={() => void accept(index)}
               >
-                <Icon name="history" />
+                <Icon name={item.kind === 'snippet' ? 'rocket' : 'history'} />
                 <span className="command-suggestion-text">
                   <mark>{item.command.slice(0, popup.prefix.length)}</mark>
                   {item.command.slice(popup.prefix.length)}
                 </span>
+                {item.kind === 'snippet' && (
+                  <small className="command-suggestion-source">Snippet</small>
+                )}
               </div>
             ))}
           </div>,

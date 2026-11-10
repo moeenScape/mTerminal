@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F46 implemented — Session-bound local Bash prompt/running/directory/exit-state reporting; acceptance pending |
-| Next feature | F47 — Extend autocomplete sources while retaining completed history suggestions; runtime verification remains deferred |
+| Active feature | F47.1 implemented — Reviewed single-line snippet suggestions alongside history; F47 remains in progress |
+| Next feature | F47.2 — Local path autocomplete; runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -191,7 +191,10 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [x] **F45 — Environment variables (implementation):** Host/group editors, parent → child → host overrides, literal SSH shell/exec env requests, schema-v8 persistence and backup round-trips. Server AcceptEnv requirements and unconfirmed acceptance are documented; regression execution/runtime acceptance deferred.
 - [x] **F46 — Shell integration (implementation):** Local Bash 5.1+ directory, prompt/waiting/running states and paired completion exit codes; session-bound metadata, per-pane display and unsupported-shell fallback. Existing history/snippet behavior retained; regression execution/runtime acceptance deferred.
-- [ ] **F47 — Autocomplete:** History suggestions already implemented in CH04, including keyboard/click insertion and popup bounds. Reuse that implementation; snippet, path and argument sources remain future work.
+- [ ] **F47 — Autocomplete (in progress):** Keep completed history suggestions; extend sources through the steps below.
+  - [x] **F47.1 — Snippet source (implementation):** Match safe single-line saved commands by prefix, show source/name/folder, deduplicate with history and revalidate before insert-only acceptance. Existing history execution remains available; regression execution/runtime acceptance deferred.
+  - [ ] **F47.2 — Local path source:** Complete paths at a recognized local prompt through a narrow validated main-process operation.
+  - [ ] **F47.3 — Argument source:** Define supported commands and argument suggestions with documented limits.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
 
 Completion criteria: Workspace restoration does not silently repeat destructive commands. Broadcast destinations remain visible. Verify log limits and deletion, including sensitive-output handling. Unsupported shell integration must degrade gracefully.
@@ -1484,3 +1487,38 @@ framework behavior, visual/accessibility and macOS/Windows acceptance remain unv
 Shell metadata is informational and does not monitor background-process lifetime or grant
 filesystem permissions. Additional shells and opt-in remote capture remain CH05. Next is
 F47 — Extend autocomplete sources while retaining the completed history-suggestion work.
+
+### F47.1 saved-snippet autocomplete source — 2026-11-10
+
+Added eligible saved single-line snippet commands to the existing local Bash autocomplete
+popup. Command-prefix matching remains literal and case-sensitive; names/folders identify
+entries through tooltips and accessible labels instead of acting as replacement aliases.
+A rocket icon and Snippet badge identify the source. Curated snippets sort by folder/name
+before existing ranked history; exact commands deduplicate across sources, preferring the
+insert-only snippet action. The combined list retains its 20-row bound, scrolling, placement
+and existing autocomplete preference. Multiline/control-bearing, oversized and secret-like
+commands are excluded using the existing sensitive-command filter plus control validation.
+
+Right Arrow/click inserts either source. Enter on a selected snippet inserts only its missing
+suffix for review, without Enter; selected history retains its existing submit behavior.
+Before inserting a snippet, reread the vault catalog and require the same ID/command/displayed
+name/folder, current typed prefix, active ready session and request/selection generation.
+Changed/deleted/inaccessible entries cancel without sending. Prefix/prompt/session changes,
+selection changes, hidden panes, disabled autocomplete, disposal and lock invalidate pending
+acceptance. Snippet changes invalidate and refresh open suggestions; late responses cannot
+restore an old popup or insert into a replacement session.
+
+A bounded in-memory catalog promise is shared within an active prompt, avoiding a vault
+read for every typed prefix. Prompt/session changes, inactive/disabled panes, edits/deletion,
+lock and disposal clear it; failed reads retry on a future query. History/snippet query
+failures degrade independently. Existing validated snippet IPC and encrypted storage are
+reused; no new channels, dependencies, filesystem operations, plaintext persistence or schema
+changes. Manual snippet review/run and history storage are retained. See `docs/AUTOCOMPLETE.md`.
+
+Regression code covers source sorting, deduplication, bounds, unsafe-command rejection,
+case-sensitive/literal prefixes, stored-content revalidation, mixed UI sources, insert-only
+Enter, retained history submission, edit/delete refresh and a delayed acceptance after vault
+lock. Tests are written and type-checked but remain unrun at the user's request.
+`npm run check`, `npm run build` and `git diff --check` passed on Linux x64. Live PTY/keychain,
+visual/accessibility and cross-platform acceptance remain unverified. F47 remains in progress:
+next is F47.2 local path completion, followed by F47.3 command-specific argument sources.

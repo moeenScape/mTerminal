@@ -1,4 +1,5 @@
-import type { CommandHistoryEntry } from '../../../../shared/history.js';
+import type { Snippet } from '../../../../shared/snippets.js';
+import { isRecordableCommand, type CommandHistoryEntry } from '../../../../shared/history.js';
 
 export const SUGGESTION_LIMIT = 20;
 export const SUGGESTION_ROW_HEIGHT = 24;
@@ -6,16 +7,70 @@ export const SUGGESTION_ROW_HEIGHT = 24;
 export const SUGGESTION_VISIBLE_ROWS = 6;
 const LIST_PADDING = 8;
 
-/** Single-line commands that extend the typed text, in ranked order. */
-export function autocompleteMatches(entries: CommandHistoryEntry[], prefix: string) {
-  return entries
-    .filter(
-      (entry) =>
-        entry.command.startsWith(prefix) &&
-        entry.command.length > prefix.length &&
-        !/[\r\n]/.test(entry.command),
-    )
+export type AutocompleteSuggestion =
+  | { id: string; command: string; kind: 'history' }
+  | { id: string; command: string; kind: 'snippet'; name: string; folder: string };
+
+/** Curated snippets first, followed by history in its existing ranked order. */
+export function autocompleteMatches(
+  entries: CommandHistoryEntry[],
+  prefix: string,
+  snippets: Snippet[] = [],
+): AutocompleteSuggestion[] {
+  if (!prefix || /^\s/u.test(prefix)) return [];
+  const eligible = (command: string) =>
+    command.startsWith(prefix) &&
+    command.length > prefix.length &&
+    isRecordableCommand(command) &&
+    !Array.from(command).some(
+      (c) =>
+        c.charCodeAt(0) < 32 ||
+        (c.charCodeAt(0) >= 127 && c.charCodeAt(0) <= 159) ||
+        c.charCodeAt(0) === 0x2028 ||
+        c.charCodeAt(0) === 0x2029,
+    );
+  const candidates: AutocompleteSuggestion[] = [
+    ...snippets
+      .filter((snippet) => eligible(snippet.command))
+      .sort(
+        (a, b) =>
+          a.folder.localeCompare(b.folder) ||
+          a.name.localeCompare(b.name) ||
+          a.id.localeCompare(b.id),
+      )
+      .map(({ id, command, name, folder }) => ({
+        id,
+        command,
+        name,
+        folder,
+        kind: 'snippet' as const,
+      })),
+    ...entries
+      .filter((entry) => eligible(entry.command))
+      .map(({ id, command }) => ({ id, command, kind: 'history' as const })),
+  ];
+  const seen = new Set<string>();
+  return candidates
+    .filter((entry) => {
+      if (seen.has(entry.command)) return false;
+      seen.add(entry.command);
+      return true;
+    })
     .slice(0, SUGGESTION_LIMIT);
+}
+
+/** Revalidation prevents inserting a snippet edited/deleted after its popup was shown. */
+export function currentSnippetSuggestion(item: AutocompleteSuggestion, snippets: Snippet[]) {
+  return (
+    item.kind === 'snippet' &&
+    snippets.some(
+      (snippet) =>
+        snippet.id === item.id &&
+        snippet.command === item.command &&
+        snippet.name === item.name &&
+        snippet.folder === item.folder,
+    )
+  );
 }
 
 /** Places the list beneath the cursor, or above it when there is no room below. */

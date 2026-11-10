@@ -3574,3 +3574,154 @@ test('keeps unsupported shells usable without inventing directory or command sta
   );
   await expect(state).toHaveText('Shell integration unsupported');
 });
+
+test('merges snippet suggestions with history, inserts snippets without Enter, and refreshes edits and deletion', async () => {
+  test.skip(
+    process.platform !== 'linux',
+    'Requires the local Bash 5.1+ PTY acceptance environment.',
+  );
+  await snippetFixture();
+  await writeFile(
+    join(userData, 'bash_history'),
+    'echo F47_SNIPPET_VALUE\necho F47_HISTORY_VALUE\n',
+  );
+  const saved = await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({
+      ...preferences,
+      defaultShell: '/bin/bash',
+      autocomplete: true,
+      recordHistory: false,
+    });
+    const saved = await window.mterminal.saveSnippet({
+      name: 'Inspect',
+      command: 'echo F47_SNIPPET_VALUE',
+      folder: 'Work',
+      tags: [],
+    });
+    await window.mterminal.saveSnippet({
+      name: 'Multiline',
+      command: 'echo F47_MULTI\npwd',
+      folder: '',
+      tags: [],
+    });
+    return saved;
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(state).toContainText('At shell prompt');
+  const terminal = pane.locator('.xterm-helper-textarea');
+  await terminal.focus();
+  await page.keyboard.type('echo F47_');
+  const list = page.getByRole('listbox', { name: 'Command suggestions' });
+  const option = list.getByRole('option', {
+    name: /^Snippet Inspect \(Work\): echo F47_SNIPPET_VALUE/,
+  });
+  await expect(list.getByRole('option')).toHaveCount(2);
+  await expect(option).toContainText('Snippet');
+  await expect(list.getByRole('option').last()).toHaveText('echo F47_HISTORY_VALUE');
+  const before = (await snippetWrites()).length;
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(list).not.toBeVisible();
+  await expect
+    .poll(async () => (await snippetWrites()).slice(before))
+    .toEqual([{ id: expect.any(String), data: 'SNIPPET_VALUE' }]);
+  await expect(state).toContainText('At shell prompt');
+  // The completed command is still editable; no Enter was submitted by selection.
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('echo F47_');
+  await expect(option).toBeVisible();
+  await page.evaluate(async (saved) => {
+    await window.mterminal.saveSnippet({ ...saved, command: 'echo F47_UPDATED_VALUE' }, saved.id);
+  }, saved);
+  const updated = list.getByRole('option', { name: /Snippet Inspect .*F47_UPDATED_VALUE/ });
+  await expect(updated).toBeVisible();
+  await expect(option).not.toBeVisible();
+  await page.evaluate(async (id) => window.mterminal.deleteSnippet(id), saved.id);
+  await expect(list.getByRole('option', { name: /^Snippet / })).toHaveCount(0);
+  await expect(list.getByRole('option')).toHaveCount(2);
+  // The former duplicate is history again; its existing highlighted-Enter behavior remains.
+  await page.keyboard.press('ArrowDown');
+  const historyStart = (await snippetWrites()).length;
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await snippetWrites()).slice(historyStart))
+    .toContainEqual({ id: expect.any(String), data: expect.stringMatching(/\r$/) });
+});
+
+test('discards a snippet acceptance response that arrives after vault lock', async () => {
+  test.skip(
+    process.platform !== 'linux',
+    'Requires the local Bash 5.1+ PTY acceptance environment.',
+  );
+  await snippetFixture();
+  const saved = await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({
+      ...preferences,
+      defaultShell: '/bin/bash',
+      autocomplete: true,
+    });
+    return window.mterminal.saveSnippet({
+      name: 'Late',
+      command: 'echo F47_LATE_VALUE',
+      folder: '',
+      tags: [],
+    });
+  });
+  await application.evaluate(({ ipcMain, BrowserWindow }, saved) => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    let locked = false;
+    ipcMain.removeHandler('snippets:list');
+    ipcMain.handle('snippets:list', () => {
+      calls++;
+      if (locked) return { ok: false, code: 'vault-locked' };
+      if (calls === 2)
+        return new Promise((resolve) => {
+          release = () => resolve({ ok: true, value: [saved] });
+        });
+      return { ok: true, value: [saved] };
+    });
+    ipcMain.on('fixture:autocomplete-state', (_event, respond: (pending: boolean) => void) =>
+      respond(!!release),
+    );
+    ipcMain.on('fixture:lock-autocomplete', () => {
+      locked = true;
+      BrowserWindow.getAllWindows()[0]!.webContents.send('vault:locked');
+    });
+    ipcMain.on('fixture:release-autocomplete', () => release?.());
+  }, saved);
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  await expect(
+    pane.getByRole('group', { name: 'Shell integration status', exact: true }),
+  ).toContainText('At shell prompt');
+  await pane.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('echo F47_LATE_');
+  const list = page.getByRole('listbox', { name: 'Command suggestions' });
+  await expect(list.getByRole('option', { name: /^Snippet Late/ })).toBeVisible();
+  const before = (await snippetWrites()).length;
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
+  await expect
+    .poll(() =>
+      application.evaluate(
+        ({ ipcMain }) =>
+          new Promise<boolean>((resolve) =>
+            ipcMain.emit('fixture:autocomplete-state', null, resolve),
+          ),
+      ),
+    )
+    .toBe(true);
+  await application.evaluate(({ ipcMain }) => ipcMain.emit('fixture:lock-autocomplete'));
+  await expect(list).not.toBeVisible();
+  await application.evaluate(({ ipcMain }) => ipcMain.emit('fixture:release-autocomplete'));
+  // Flush the outstanding invoke before checking that its old command was discarded.
+  await page.evaluate(() => window.mterminal.getVaultState());
+  expect((await snippetWrites()).slice(before)).toEqual([]);
+});

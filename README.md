@@ -171,6 +171,11 @@ and the last completed command line's exit code. It works with local Bash 5.1+ a
 even when history recording is off. Other shells and SSH show unsupported status. See
 [shell integration and limitations](docs/SHELL_INTEGRATION.md).
 
+F47.1 adds safe single-line saved snippets to that same autocomplete popup. Unlock the vault,
+type a snippet command's prefix, and select its **Snippet** row to insert it for review.
+Snippet selection never submits Enter; highlighted history rows retain Enter-to-run behavior.
+See [autocomplete sources](docs/AUTOCOMPLETE.md). Path and argument sources are still pending.
+
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
 local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use
 **Close session** to stop it. Changing views preserves the running terminal;
