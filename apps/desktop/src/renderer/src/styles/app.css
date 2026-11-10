@@ -2951,3 +2951,21 @@ p.field-hint {
   color: var(--muted);
   white-space: pre-wrap;
 }
+
+.shell-integration-status {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 4px 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.shell-directory {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--terminal-font);
+}

@@ -3488,3 +3488,89 @@ test('edits SSH environment rows, persists overrides and rejects malformed IPC s
   });
   expect(result).toEqual({ rejected: true, unchanged: true, environment: [] });
 });
+
+test('shows per-pane Bash directory, running state and completion status independently of history recording', async () => {
+  test.skip(
+    process.platform !== 'linux',
+    'Requires the Linux Bash 5.1+ PTY acceptance environment.',
+  );
+  const directory = join(userData, 'shell-integration-folder');
+  await mkdir(directory);
+  await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({
+      ...preferences,
+      defaultShell: '/bin/bash',
+      recordHistory: false,
+    });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(state).toContainText('At shell prompt');
+  await expect(state).not.toContainText('Last exit:');
+  const terminal = pane.locator('.xterm-helper-textarea');
+  await terminal.focus();
+  const quotedDirectory = "'" + directory.replaceAll("'", "'\\''") + "'";
+  await page.keyboard.type(`cd ${quotedDirectory}`);
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText(directory);
+  await expect(state).toContainText('Last exit: 0');
+  await terminal.focus();
+  await page.keyboard.type('read -r __f46_wait; false');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('Command running');
+  await terminal.focus();
+  await page.keyboard.type('continue');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('At shell prompt');
+  await expect(state).toContainText('Last exit: 1');
+  await expect(page.getByRole('listbox', { name: 'Command suggestions' })).not.toBeVisible();
+  // A continuation line is waiting for shell input, not a confirmed running command.
+  await terminal.focus();
+  await page.keyboard.type('if true; then');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('Waiting for shell');
+  await page.keyboard.type('true; fi');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('At shell prompt');
+  await terminalAction('Split right');
+  const panes = page.locator('.terminal-pane:not([hidden])');
+  await expect(panes).toHaveCount(2);
+  const originalState = panes
+    .first()
+    .getByRole('group', { name: 'Shell integration status', exact: true });
+  const newState = panes
+    .last()
+    .getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(newState).toContainText('At shell prompt');
+  await expect(newState).not.toContainText(directory);
+  await expect(originalState).toContainText(directory);
+  const current = page.locator('.terminal-pane[data-active="true"] .xterm-helper-textarea');
+  await current.focus();
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(newState).not.toBeVisible();
+  await expect(originalState).toContainText(directory);
+});
+
+test('keeps unsupported shells usable without inventing directory or command state', async () => {
+  test.skip(process.platform !== 'linux', 'Requires the Linux /bin/sh PTY acceptance environment.');
+  await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: '/bin/sh' });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(state).toHaveText('Shell integration unsupported');
+  await pane.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type("printf '%s_%s\\n' F46_UNSUPPORTED SHELL_WORKS");
+  await page.keyboard.press('Enter');
+  await expect(pane.locator('.xterm-accessibility-tree')).toContainText(
+    'F46_UNSUPPORTED_SHELL_WORKS',
+  );
+  await expect(state).toHaveText('Shell integration unsupported');
+});

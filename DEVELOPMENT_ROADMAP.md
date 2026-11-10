@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F45 implemented — Host/group SSH environment values with inheritance and server-support guidance; acceptance pending |
-| Next feature | F46 — Shell integration (extend the existing local Bash integration); runtime verification remains deferred |
+| Active feature | F46 implemented — Session-bound local Bash prompt/running/directory/exit-state reporting; acceptance pending |
+| Next feature | F47 — Extend autocomplete sources while retaining completed history suggestions; runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -190,7 +190,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F43 — Broadcast input (implementation):** Reviewed SSH session recipients, dedicated text composer, multiline confirmation, Enter/Interrupt controls and immediate stop. Disconnect/focus/navigation/vault lifecycle disarms the mode; regression execution/runtime acceptance deferred.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [x] **F45 — Environment variables (implementation):** Host/group editors, parent → child → host overrides, literal SSH shell/exec env requests, schema-v8 persistence and backup round-trips. Server AcceptEnv requirements and unconfirmed acceptance are documented; regression execution/runtime acceptance deferred.
-- [ ] **F46 — Shell integration:** Supported working-directory and command-state detection.
+- [x] **F46 — Shell integration (implementation):** Local Bash 5.1+ directory, prompt/waiting/running states and paired completion exit codes; session-bound metadata, per-pane display and unsupported-shell fallback. Existing history/snippet behavior retained; regression execution/runtime acceptance deferred.
 - [ ] **F47 — Autocomplete:** History suggestions already implemented in CH04, including keyboard/click insertion and popup bounds. Reuse that implementation; snippet, path and argument sources remain future work.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
 
@@ -1448,3 +1448,39 @@ passed on Linux x64. Real migration/restore execution, live OpenSSH acceptance, 
 accessibility and Windows/macOS acceptance remain unverified. Next is F46 — Shell integration;
 extend the current local Bash working-directory/command-state implementation rather than
 replacing completed history/autocomplete work.
+
+### F46 local Bash shell-state integration — 2026-11-10
+
+Extended the existing temporary Bash rc integration with a PS0 command-start marker and
+prompt completion status captured before user prompt hooks. Existing PS0 text and scalar/
+array PROMPT_COMMAND entries are retained; no DEBUG trap is installed or replaced. The
+supported minimum is now explicitly Bash 5.1, the first version with PROMPT_COMMAND array
+execution, with base64/tr available. Older/missing integrations report unavailable status
+without preventing ordinary terminal input. No dotfile writes or automatic SSH hook injection.
+
+Each pane has a compact shell-status line showing its last reported logical directory,
+primary prompt / waiting-for-shell / command-running state and last paired command-line
+exit code. Initial prompts do not invent a completion status. Enter/continuation input waits
+for shell confirmation; interactive foreground programs remain running until the parent
+prompt returns. Command start invalidates the autocomplete prompt marker, and supported
+startup insertion waits for an empty integrated prompt. Completed history, clipboard,
+snippets, startup review and per-pane routing are preserved.
+
+The main process validates bounded private frames, canonical UTF-8/base64 directories,
+absolute paths and 0–255 statuses, strips raw public-marker attempts, and forwards normalized
+metadata with the validated owning session ID. Renderer decoding rejects other/stale sessions;
+exit, failure, reconnect and unmount clear the metadata. Invalid owned prompts or overlong
+partial frames invalidate stale state. Metadata works while recording is off or the vault is
+locked and is not persisted to logs, profiles, databases or workspace exports. No new IPC
+channels, dependencies or schema migration. See `docs/SHELL_INTEGRATION.md`.
+
+Regression code covers every frame split point, BEL/ST terminators, invalid tokens/fields,
+Unicode/encoding/path/size bounds, initial and paired completion states, malformed-frame
+recovery, custom Bash prompt/DEBUG hooks, directory changes, locked-vault IPC forwarding,
+recording-off UI transitions, multiline waiting, split isolation, exit cleanup and usable
+unsupported shells. Tests are written and type-checked but remain unrun at the user's request.
+`npm run check`, `npm run build` and `git diff --check` passed on Linux x64. Live PTY/prompt-
+framework behavior, visual/accessibility and macOS/Windows acceptance remain unverified.
+Shell metadata is informational and does not monitor background-process lifetime or grant
+filesystem permissions. Additional shells and opt-in remote capture remain CH05. Next is
+F47 — Extend autocomplete sources while retaining the completed history-suggestion work.

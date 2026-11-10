@@ -109,6 +109,15 @@ describe('history recording notifications', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(record).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
+      fixture.data('\x1b]777;fixture;C\x07\x1b]777;fixture;P;L3RtcA==;7\x07');
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith('terminal:event', {
+          kind: 'data',
+          id,
+          data: `\x1b]777;mterminal;${id};C\x07\x1b]777;mterminal;${id};P;L3RtcA==;7\x07`,
+        }),
+      );
+      expect(record).not.toHaveBeenCalled();
       expect(registry.count).toBe(1);
     } finally {
       registry.dispose();

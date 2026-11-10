@@ -291,6 +291,7 @@ export function TerminalPane({
       } else if (event.kind === 'history-error') {
         setStatus(`Command history was not saved. ${failureMessages[event.code]}`);
       } else {
+        historyStatus('unknown');
         setSshChallenge(null);
         inputReady.current = false;
         startupGeneration.current++;
@@ -468,6 +469,7 @@ export function TerminalPane({
         return;
       }
       inputReady.current = false;
+      historyStatus(hostId ? 'unsupported' : 'starting');
       startupGeneration.current++;
       setStartup(null);
       setSearchOpen(false);
@@ -501,6 +503,7 @@ export function TerminalPane({
           term.focus();
       } catch (error) {
         if (session.current !== sessionId) return;
+        historyStatus('unknown');
         setSshChallenge(null);
         inputReady.current = false;
         session.current = null;
@@ -535,7 +538,7 @@ export function TerminalPane({
         }
       }
     },
-    [id, onPhaseChange, hostId, logConnection, loadStartup],
+    [id, onPhaseChange, hostId, logConnection, loadStartup, historyStatus],
   );
   useEffect(() => {
     if (!autoStart || !active || autoStarted.current) return;
@@ -550,6 +553,7 @@ export function TerminalPane({
     if (!hostId || !expectedId || session.current !== expectedId) return;
     session.current = null;
     inputReady.current = false;
+    historyStatus('unknown');
     setSshChallenge(null);
     setSshPrompt(false);
     setConnection(null);
@@ -917,6 +921,37 @@ export function TerminalPane({
           Installed shells: {shells.join(', ') || 'None discovered'}. The saved default shell is
           used when configured. Closing a session stops its foreground work.
         </p>
+      )}
+      {running && (
+        <div
+          className="shell-integration-status"
+          role="group"
+          aria-label="Shell integration status"
+        >
+          <span>
+            {
+              {
+                prompt: 'At shell prompt',
+                running: 'Command running',
+                waiting: 'Waiting for shell',
+                starting: 'Starting shell integration…',
+                unsupported: 'Shell integration unsupported',
+                unknown: 'Shell state unavailable',
+              }[history.shellState.phase]
+            }
+          </span>
+          {history.shellState.directory && (
+            <span
+              className="shell-directory"
+              title={`Last reported shell directory: ${history.shellState.directory}`}
+            >
+              {history.shellState.directory}
+            </span>
+          )}
+          {history.shellState.lastExitCode !== null && (
+            <span>Last exit: {history.shellState.lastExitCode}</span>
+          )}
+        </div>
       )}
       <div className="terminal-stage">
         <div

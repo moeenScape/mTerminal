@@ -1,3 +1,4 @@
+import { shellMarker, type ShellIntegrationState } from '../../../../shared/shell-integration';
 import { useCallback, useEffect, useRef, useState, useId, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../../components/Icon';
@@ -23,10 +24,11 @@ export function useCommandHistory(
   const listId = `${useId()}-suggestions`;
   const terminal = useRef<Terminal | null>(null);
   const [integration, setIntegration] = useState<HistoryIntegration>('unknown');
-  const onSessionStatus = useCallback(
-    (status: 'unsupported' | 'starting') => setIntegration(status),
-    [],
-  );
+  const [shellState, setShellState] = useState<ShellIntegrationState>({
+    phase: local ? 'unknown' : 'unsupported',
+    directory: '',
+    lastExitCode: null,
+  });
   const enabledRef = useRef(enabled);
   const [selected, setSelected] = useState(-1);
   const [popup, setPopup] = useState<{
@@ -54,6 +56,19 @@ export function useCommandHistory(
     suggestion.current = null;
     setPopup(null);
   }, []);
+
+  const onSessionStatus = useCallback(
+    (status: 'unsupported' | 'starting' | 'unknown') => {
+      marker.current?.dispose();
+      marker.current = null;
+      directory.current = '';
+      lastQuery.current = '';
+      dismiss();
+      setIntegration(status);
+      setShellState({ phase: status, directory: '', lastExitCode: null });
+    },
+    [dismiss],
+  );
 
   /** The text typed after the prompt, or undefined when the cursor is not at a clean prompt. */
   const prefix = useCallback((): string | undefined => {
@@ -136,20 +151,29 @@ export function useCommandHistory(
       };
       const osc = term.parser.registerOscHandler(777, (data) => {
         if (!data.startsWith('mterminal;')) return false;
+        const state = shellMarker(data, session.current);
+        if (!state) return true;
         dismiss();
         marker.current?.dispose();
-        marker.current = term.registerMarker(0) ?? null;
-        column.current = term.buffer.active.cursorX;
-        try {
-          directory.current = new TextDecoder().decode(
-            Uint8Array.from(atob(data.slice(10)), (c) => c.charCodeAt(0)),
-          );
-          setIntegration('ready');
-        } catch {
-          marker.current?.dispose();
-          marker.current = null;
-        }
+        marker.current = null;
         lastQuery.current = '';
+        if (state.kind === 'unavailable') {
+          directory.current = '';
+          setIntegration((previous) => (previous === 'ready' ? previous : 'unsupported'));
+          setShellState({ phase: 'unknown', directory: '', lastExitCode: null });
+        } else if (state.kind === 'running') {
+          setShellState((previous) => ({ ...previous, phase: 'running' }));
+        } else {
+          directory.current = state.directory;
+          marker.current = term.registerMarker(0) ?? null;
+          column.current = term.buffer.active.cursorX;
+          setIntegration('ready');
+          setShellState({
+            phase: 'prompt',
+            directory: state.directory,
+            lastExitCode: state.exitCode,
+          });
+        }
         return true;
       });
       const rendered = term.onRender(render);
@@ -162,18 +186,15 @@ export function useCommandHistory(
         dismiss();
       });
       return () => {
-        setIntegration('unknown');
+        onSessionStatus('unknown');
         terminal.current = null;
         osc.dispose();
         rendered.dispose();
         scrolled.dispose();
         resized.dispose();
-        marker.current?.dispose();
-        marker.current = null;
-        dismiss();
       };
     },
-    [local, prefix, dismiss, container],
+    [local, prefix, dismiss, container, onSessionStatus, session],
   );
 
   const onInput = useCallback(
@@ -188,6 +209,9 @@ export function useCommandHistory(
       ) {
         marker.current?.dispose();
         marker.current = null;
+        setShellState((previous) =>
+          previous.phase === 'prompt' ? { ...previous, phase: 'waiting' } : previous,
+        );
       }
     },
     [dismiss],
@@ -207,6 +231,7 @@ export function useCommandHistory(
         // The command was submitted, so this prompt is finished.
         marker.current?.dispose();
         marker.current = null;
+        setShellState((previous) => ({ ...previous, phase: 'waiting' }));
       }
       dismiss();
       lastQuery.current = '';
@@ -271,7 +296,7 @@ export function useCommandHistory(
 
   const insertionError = useCallback((): string | undefined => {
     if (!session.current || !ready.current) return 'Start the session before inserting a command.';
-    if (local && integration === 'ready' && prefix() !== '')
+    if (local && (integration === 'ready' || integration === 'starting') && prefix() !== '')
       return 'Clear the command line and return to an empty shell prompt first.';
     return undefined;
   }, [session, ready, local, integration, prefix]);
@@ -383,6 +408,7 @@ export function useCommandHistory(
     onSessionStatus,
     overlay,
     integration,
+    shellState,
     insert,
     insertionError,
     directory: getDirectory,

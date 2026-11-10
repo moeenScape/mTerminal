@@ -259,7 +259,7 @@ function AutocompleteTab({
   const status = !local
     ? 'Suggestions appear in local Bash terminals. History and themes work here too.'
     : integration === 'unsupported'
-      ? 'Suggestions need Bash 5. Choose /bin/bash in Settings, then open a new terminal.'
+      ? 'Suggestions need Bash 5.1 or newer. Choose /bin/bash in Settings, then open a new terminal.'
       : integration === 'ready'
         ? preferences.autocomplete
           ? 'Suggestions are active in this terminal.'

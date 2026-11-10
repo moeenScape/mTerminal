@@ -1,3 +1,4 @@
+import { shellDirectory, shellExitCode } from '../../shared/shell-integration.js';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,13 +10,16 @@ export async function bashHistoryRc() {
   const path = join(directory, 'bashrc');
   const script = String.raw`
 [[ -r "$HOME/.bashrc" ]] && . "$HOME/.bashrc"
-if (( BASH_VERSINFO[0] >= 5 )) && command -v base64 >/dev/null; then
+if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )) && command -v base64 >/dev/null && command -v tr >/dev/null; then
   __mt_last=''
   __mt_cwd=$PWD
   __mt_marker=''
+  __mt_exit_status=0
+  PS0="\${PS0-}"$'\e]777;TOKEN;C\a'
   HISTCONTROL="\${HISTCONTROL:+$HISTCONTROL:}ignorespace"
   __mt_history_capture() {
     local result=$? line number command_text
+    __mt_exit_status=$result
     line=$(HISTTIMEFORMAT= builtin history 1)
     if [[ $line =~ ^[[:space:]]*([0-9]+)\ \ (.*)$ ]]; then
       number=\${BASH_REMATCH[1]}
@@ -34,11 +38,13 @@ if (( BASH_VERSINFO[0] >= 5 )) && command -v base64 >/dev/null; then
     __mt_cwd=$PWD
     [[ -n $__mt_marker ]] && PS1=\${PS1%"$__mt_marker"}
     encoded_cwd=$(printf %s "$PWD" | base64 | tr -d '\n')
-    __mt_marker="\[\e]777;TOKEN;P;$encoded_cwd\a\]"
+    __mt_marker="\[\e]777;TOKEN;P;$encoded_cwd;$__mt_exit_status\a\]"
     PS1="$PS1$__mt_marker"
     return "$result"
   }
   PROMPT_COMMAND=(__mt_history_capture "\${PROMPT_COMMAND[@]}" __mt_history_prompt)
+else
+  printf '\033]777;TOKEN;U\007'
 fi
 `;
   try {
@@ -55,15 +61,19 @@ fi
 
 export class BashHistoryStream {
   private pending = '';
+  private executing = false;
+  private lastExitCode: number | null = null;
   constructor(
     private readonly token: string,
     private readonly record: (command: string, directory: string) => void,
+    private readonly sessionId: string,
   ) {}
 
   feed(data: string): string {
     this.pending += data;
     let output = '';
     const prefix = '\x1b]777;';
+    const normalized = `\x1b]777;mterminal;${this.sessionId};`;
     while (this.pending) {
       const start = this.pending.indexOf(prefix);
       if (start < 0) {
@@ -80,25 +90,67 @@ export class BashHistoryStream {
       const terminator = this.pending.indexOf('\x1b\\', prefix.length);
       const end = bell < 0 ? terminator : terminator < 0 ? bell : Math.min(bell, terminator);
       if (end < 0) {
-        if (this.pending.length > 32768) this.pending = '';
+        if (this.pending.length > 32768) {
+          this.pending = '';
+          this.executing = false;
+          this.lastExitCode = null;
+          output += `${normalized}U\x07`;
+        }
         break;
       }
-      const [token, kind, encodedDirectory, encodedCommand] = this.pending
-        .slice(prefix.length, end)
-        .split(';');
+      const fields = this.pending.slice(prefix.length, end).split(';');
+      const [token, kind, encodedDirectory, encodedCommand] = fields;
       const frame = this.pending.slice(0, end + (end === terminator ? 2 : 1));
       this.pending = this.pending.slice(frame.length);
       if (token !== this.token && token !== 'mterminal') {
         output += frame;
         continue;
       }
-      if (token !== this.token || !encodedDirectory || !/^[A-Za-z0-9+/=]+$/.test(encodedDirectory))
+      if (token !== this.token) continue;
+      if (kind === 'C' && fields.length === 2) {
+        this.executing = true;
+        output += `${normalized}C\x07`;
         continue;
-      const directory = Buffer.from(encodedDirectory, 'base64').toString('utf8');
-      if (directory.length > 4096) continue;
-      if (kind === 'P') output += `\x1b]777;mterminal;${encodedDirectory}\x07`;
-      if (kind === 'H' && encodedCommand && /^[A-Za-z0-9+/=]+$/.test(encodedCommand))
-        this.record(Buffer.from(encodedCommand, 'base64').toString('utf8'), directory);
+      }
+      if (kind === 'U' && fields.length === 2) {
+        this.executing = false;
+        this.lastExitCode = null;
+        output += `${normalized}U\x07`;
+        continue;
+      }
+      if (kind !== 'H' && kind !== 'P') continue;
+      const directory =
+        encodedDirectory === undefined ? undefined : shellDirectory(encodedDirectory);
+      if (directory === undefined || (kind === 'P' && fields.length !== 3 && fields.length !== 4)) {
+        if (kind === 'P') {
+          this.executing = false;
+          this.lastExitCode = null;
+          output += `${normalized}U\x07`;
+        }
+        continue;
+      }
+      if (kind === 'P') {
+        const exitCode = encodedCommand === undefined ? undefined : shellExitCode(encodedCommand);
+        if (encodedCommand !== undefined && exitCode === undefined) {
+          this.executing = false;
+          this.lastExitCode = null;
+          output += `${normalized}U\x07`;
+          continue;
+        }
+        if (this.executing) this.lastExitCode = exitCode ?? null;
+        this.executing = false;
+        output += `${normalized}P;${encodedDirectory};${this.lastExitCode ?? '?'}\x07`;
+      }
+      if (
+        kind === 'H' &&
+        fields.length === 4 &&
+        encodedCommand &&
+        encodedCommand.length <= 22000 &&
+        /^[A-Za-z0-9+/]+={0,2}$/.test(encodedCommand)
+      ) {
+        const command = Buffer.from(encodedCommand, 'base64').toString('utf8');
+        if (command.length <= 4096) this.record(command, directory);
+      }
     }
     return output;
   }

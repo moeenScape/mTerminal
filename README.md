@@ -166,6 +166,11 @@ Local Bash terminals support opt-in encrypted command history and inline suggest
 Open **History**, enable recording, then open a new Bash terminal. See
 [command history setup and privacy](docs/COMMAND_HISTORY.md).
 
+F46 adds a compact per-pane shell status: last reported directory, prompt/waiting/running state,
+and the last completed command line's exit code. It works with local Bash 5.1+ and `base64`/`tr`,
+even when history recording is off. Other shells and SSH show unsupported status. See
+[shell integration and limitations](docs/SHELL_INTEGRATION.md).
+
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
 local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use
 **Close session** to stop it. Changing views preserves the running terminal;

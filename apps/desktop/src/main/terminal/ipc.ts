@@ -159,25 +159,29 @@ export function attachTerminal(
         const clean = () => {
           void integration.dispose().catch(() => {});
         };
-        const parser = new BashHistoryStream(integration.token, (command, directory) => {
-          if (!recordHistory() || signal.aborted) return;
-          void secrets
-            .vaultStatus()
-            .then(async (state) => {
-              // While the vault is locked or not set up, commands are simply not saved.
-              if (!state.configured || state.locked || !state.available) return;
-              await secrets.recordCommand(command, directory);
-              historyChanged();
-            })
-            .catch((error: unknown) => {
-              if (!window.webContents.isDestroyed())
-                window.webContents.send(channels.event, {
-                  kind: 'history-error',
-                  id,
-                  code: failureCode(error, 'vault-unavailable'),
-                });
-            });
-        });
+        const parser = new BashHistoryStream(
+          integration.token,
+          (command, directory) => {
+            if (!recordHistory() || signal.aborted) return;
+            void secrets
+              .vaultStatus()
+              .then(async (state) => {
+                // While the vault is locked or not set up, commands are simply not saved.
+                if (!state.configured || state.locked || !state.available) return;
+                await secrets.recordCommand(command, directory);
+                historyChanged();
+              })
+              .catch((error: unknown) => {
+                if (!window.webContents.isDestroyed())
+                  window.webContents.send(channels.event, {
+                    kind: 'history-error',
+                    id,
+                    code: failureCode(error, 'vault-unavailable'),
+                  });
+              });
+          },
+          id,
+        );
         return {
           write: (data) => pty.write(data),
           resize: (cols, rows) => pty.resize(cols, rows),

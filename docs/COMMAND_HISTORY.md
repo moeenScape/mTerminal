@@ -46,7 +46,7 @@ Saved history is excluded from workspace backups and diagnostics.
 
 ## Supported shells
 
-Suggestions need local Bash 5+ with `base64`. Every new local Bash tab gets a small prompt hook
+Suggestions need local Bash 5.1+ with `base64` and `tr`. Every new local Bash tab gets a small prompt hook
 from a temporary rc file that sources your `~/.bashrc`; your dotfiles are not modified. Zsh,
 PowerShell and SSH sessions get the History and Themes tabs (inserting a command types it into
 the session) but no inline suggestions yet.
