@@ -122,6 +122,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'generateSshKey',
       'getAppInfo',
       'getBatchState',
+      'getBroadcastState',
       'getPreferences',
       'getRemoteEdit',
       'getShells',
@@ -135,6 +136,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'inspectTransferResume',
       'installSshPublicKey',
       'listBatchTargets',
+      'listBroadcastTargets',
       'listDirectory',
       'listHostGroups',
       'listHosts',
@@ -146,6 +148,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'lockVault',
       'mutateDirectory',
       'onBatchChanged',
+      'onBroadcastChanged',
       'onHistoryChanged',
       'onRemoteEditChanged',
       'onSnippetsChanged',
@@ -171,10 +174,13 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'saveSshPassword',
       'saveWorkspaceTemplate',
       'searchHistory',
+      'sendBroadcast',
       'setStartupSnippet',
       'setupVault',
       'startBatch',
+      'startBroadcast',
       'startRemoteEdit',
+      'stopBroadcast',
       'unlockVault',
       'uploadRemoteEdit',
       'writeClipboardText',
@@ -3324,4 +3330,104 @@ test('cancels a pending SSH attempt in place and ignores its late events and rep
   await expect(page.getByRole('button', { name: 'Reconnect SSH' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.xterm-accessibility-tree')).not.toContainText('F24_STALE_OUTPUT');
+});
+
+test('broadcast input reviews recipients, sends deliberately and disarms without replay', async () => {
+  await application.evaluate(({ ipcMain }) => {
+    const targets = [0, 1].map((index) => ({
+      sessionId: `${index}4e9f162-d3cd-4c8f-a70a-2323a1751a9b`,
+      username: 'deploy',
+      address: `broadcast-${index}.internal`,
+      port: 22,
+      fingerprint: `SHA256:${'a'.repeat(43)}`,
+    }));
+    let mode: { id: string; targets: typeof targets } | null = null;
+    const sent: unknown[] = [];
+    for (const channel of [
+      'broadcast:targets',
+      'broadcast:state',
+      'broadcast:start',
+      'broadcast:send',
+      'broadcast:stop',
+    ])
+      ipcMain.removeHandler(channel);
+    ipcMain.handle('broadcast:targets', () => ({ ok: true, value: targets }));
+    ipcMain.handle('broadcast:state', () => ({ ok: true, value: { mode, message: '' } }));
+    ipcMain.handle('broadcast:start', (event, selected: typeof targets) => {
+      mode = { id: crypto.randomUUID(), targets: selected };
+      event.sender.send('broadcast:changed');
+      return { ok: true, value: { mode, message: '' } };
+    });
+    ipcMain.handle('broadcast:send', (_event, id: string, action: unknown) => {
+      if (!mode || mode.id !== id) return { ok: false, code: 'broadcast-failed' };
+      sent.push(action);
+      return { ok: true, value: undefined };
+    });
+    ipcMain.handle('broadcast:stop', (event) => {
+      mode = null;
+      event.sender.send('broadcast:changed');
+      return { ok: true, value: undefined };
+    });
+    // Use the fixture's existing batch-state bridge to inspect captured actions.
+    ipcMain.removeHandler('batch:state');
+    ipcMain.handle('batch:state', () => ({ ok: true, value: { sent } }));
+  });
+  const sent = () =>
+    page.evaluate(
+      async () => Reflect.get((await window.mterminal.getBatchState())!, 'sent') as unknown[],
+    );
+  await page.getByRole('button', { name: 'Broadcast input', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'Broadcast input', exact: true });
+  await expect(setup.getByRole('checkbox')).toHaveCount(2);
+  for (const checkbox of await setup.getByRole('checkbox').all()) await checkbox.check();
+  expect(await sent()).toEqual([]);
+  await setup.getByRole('button', { name: 'Start broadcast (2)', exact: true }).click();
+  const bar = page.getByRole('region', { name: 'Active broadcast input' });
+  await expect(bar).toBeVisible();
+  await expect(bar).toContainText('deploy@broadcast-0.internal:22');
+  await expect(bar).toContainText('deploy@broadcast-1.internal:22');
+  const input = bar.getByRole('textbox', { name: 'Broadcast text' });
+  await input.fill('pwd');
+  expect(await sent()).toEqual([]);
+  await input.press('Enter');
+  await expect.poll(sent).toEqual([{ kind: 'line', text: 'pwd' }]);
+  await input.fill('echo one\necho two');
+  await bar.getByRole('button', { name: 'Send to recipients' }).click();
+  const review = page.getByRole('dialog', { name: 'Send multiple lines to all recipients?' });
+  await expect(review).toContainText('echo one\necho two');
+  await review.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await sent()).toHaveLength(1);
+  await bar.getByRole('button', { name: 'Send to recipients' }).click();
+  await review.getByRole('button', { name: 'Send lines', exact: true }).click();
+  await expect.poll(sent).toHaveLength(2);
+  await bar.getByRole('button', { name: 'Enter all', exact: true }).click();
+  await expect.poll(sent).toHaveLength(3);
+  await bar.getByRole('button', { name: 'Interrupt all (Ctrl+C)', exact: true }).click();
+  await expect
+    .poll(sent)
+    .toEqual([
+      { kind: 'line', text: 'pwd' },
+      { kind: 'line', text: 'echo one\necho two' },
+      { kind: 'enter' },
+      { kind: 'interrupt' },
+    ]);
+  await input.fill('must not send');
+  await input.press('Control+Shift+B');
+  await expect(bar).not.toBeVisible();
+  expect(await page.evaluate(() => window.mterminal.getBroadcastState())).toMatchObject({
+    mode: null,
+  });
+  expect(await sent()).toHaveLength(4);
+  // Explicitly rearm, then navigation must stop rather than restore the old mode.
+  await page.getByRole('button', { name: 'Broadcast input', exact: true }).click();
+  await setup.getByRole('checkbox').first().check();
+  await setup.getByRole('button', { name: 'Start broadcast (1)', exact: true }).click();
+  await expect(bar).toBeVisible();
+  await navButton('Hosts').click();
+  await expect
+    .poll(() => page.evaluate(() => window.mterminal.getBroadcastState()))
+    .toMatchObject({ mode: null });
+  await navButton('Workspace').click();
+  await expect(bar).not.toBeVisible();
+  expect(await sent()).toHaveLength(4);
 });

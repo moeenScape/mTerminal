@@ -1,3 +1,4 @@
+import { BroadcastControls } from './BroadcastControls';
 import { BatchCommands } from './BatchCommands';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -123,6 +124,8 @@ export function WorkspaceView({
   const [state, dispatch] = useReducer(tabsReducer, { tabs: [], layouts: [], activeId: null });
   const [showTemplates, setShowTemplates] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const closeBroadcastSetup = useCallback(() => setShowBroadcast(false), []);
   useEffect(() => window.mterminal.onVaultLocked(() => setShowBatch(false)), []);
   const [dialog, setDialog] = useState<{ id: string; mode: 'close' | 'rename' } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; position: MenuPosition } | null>(null);
@@ -159,7 +162,8 @@ export function WorkspaceView({
   const dialogTab = state.tabs.find((tab) => tab.id === dialog?.id);
   const menuTab = state.tabs.find((tab) => tab.id === tabMenu?.id);
   const phaseChanged = useCallback(
-    (id: string, phase: TabPhase) => dispatch({ type: 'phase', id, phase }),
+    (id: string, phase: TabPhase, sessionId?: string) =>
+      dispatch({ type: 'phase', id, phase, ...(sessionId ? { sessionId } : {}) }),
     [],
   );
   const handledSsh = useRef<string | null>(null);
@@ -405,6 +409,18 @@ export function WorkspaceView({
       <button
         type="button"
         className="session-new"
+        aria-label="Broadcast input"
+        title="Select sessions for broadcast input"
+        onClick={() => {
+          onActivate();
+          setShowBroadcast(true);
+        }}
+      >
+        <Icon name="terminal" />
+      </button>
+      <button
+        type="button"
+        className="session-new"
         aria-label="Run on hosts"
         title="Review a command for connected SSH hosts"
         onClick={() => {
@@ -442,6 +458,14 @@ export function WorkspaceView({
     <div className="local-workspace" hidden={!active} onKeyDownCapture={paneKeyDown}>
       {tabBarTarget && createPortal(sessionTabs, tabBarTarget)}
       <h1 className="sr-only">Workspace</h1>
+      <BroadcastControls
+        active={active}
+        setupOpen={showBroadcast}
+        onCloseSetup={closeBroadcastSetup}
+        paneTitles={Object.fromEntries(
+          state.tabs.filter((tab) => tab.sessionId).map((tab) => [tab.sessionId!, tab.title]),
+        )}
+      />
       {limitError && (
         <p className="workspace-alert" role="alert">
           {limitError}

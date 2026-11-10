@@ -177,3 +177,23 @@ describe('split terminal layouts', () => {
     ).toBe(full);
   });
 });
+
+it('tracks runtime session identities for broadcast labels and clears them on disconnect', () => {
+  let state = fixture();
+  state = tabsReducer(state, {
+    type: 'phase',
+    id: 'one',
+    phase: 'connected',
+    sessionId: 'first-session',
+  });
+  expect(state.tabs[0]?.sessionId).toBe('first-session');
+  state = tabsReducer(state, { type: 'phase', id: 'one', phase: 'disconnected' });
+  expect(state.tabs[0]).not.toHaveProperty('sessionId');
+  state = tabsReducer(state, {
+    type: 'phase',
+    id: 'one',
+    phase: 'connected',
+    sessionId: 'replacement-session',
+  });
+  expect(state.tabs[0]?.sessionId).toBe('replacement-session');
+});

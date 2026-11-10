@@ -1,4 +1,6 @@
 export const failureMessages = {
+  'broadcast-failed':
+    'Broadcast could not start or send input. Check the recipients and select them again; input is never replayed automatically.',
   'batch-failed':
     'Command batch could not be started or updated. Refresh destinations and review the command again. Nothing is retried automatically.',
   'startup-limit':

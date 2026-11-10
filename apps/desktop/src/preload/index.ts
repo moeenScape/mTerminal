@@ -1,3 +1,4 @@
+import { broadcastChannels, BROADCAST_CHANGED, type BroadcastState } from '../shared/broadcast.js';
 import {
   batchChannels,
   BATCH_CHANGED,
@@ -66,6 +67,16 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  listBroadcastTargets: () => historyRequest<BatchTarget[]>(broadcastChannels.targets),
+  getBroadcastState: () => historyRequest<BroadcastState>(broadcastChannels.state),
+  startBroadcast: (targets) => historyRequest<BroadcastState>(broadcastChannels.start, targets),
+  stopBroadcast: () => historyRequest<void>(broadcastChannels.stop),
+  sendBroadcast: (id, action) => historyRequest<void>(broadcastChannels.send, id, action),
+  onBroadcastChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(BROADCAST_CHANGED, handler);
+    return () => ipcRenderer.removeListener(BROADCAST_CHANGED, handler);
+  },
   listBatchTargets: () => historyRequest<BatchTarget[]>(batchChannels.targets),
   prepareBatch: (request) => historyRequest<BatchPreview>(batchChannels.prepare, request),
   startBatch: (token) => historyRequest<BatchState>(batchChannels.start, token),

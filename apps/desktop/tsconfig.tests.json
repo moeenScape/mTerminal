@@ -27,6 +27,8 @@
     "src/main/terminal/registry.ts",
     "src/main/terminal/ssh-exec.ts",
     "src/main/terminal/batch.ts",
+    "src/main/terminal/broadcast.ts",
+    "src/main/terminal/broadcast-ipc.ts",
     "src/main/terminal/batch-ipc.ts",
     "src/renderer/src/features/workspace/tabs.ts",
     "src/renderer/src/features/workspace/templates.ts",

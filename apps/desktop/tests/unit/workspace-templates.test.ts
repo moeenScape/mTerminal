@@ -27,10 +27,18 @@ function fixture(): TabsState {
 }
 describe('workspace template snapshots', () => {
   it('captures only layout metadata and restores fresh idle session IDs without altering live sessions', () => {
-    const original = fixture();
+    const live = fixture();
+    const original = tabsReducer(live, {
+      type: 'phase',
+      id: live.tabs[0]!.id,
+      phase: 'running',
+      sessionId: 'runtime-only-session',
+    });
     const template = captureTemplate(original, 'Development');
     expect(template.panes[0]).toEqual({ id: original.tabs[0]!.id, title: 'Local' });
-    expect(JSON.stringify(template)).not.toMatch(/phase|autoStart|password|command|output/);
+    expect(JSON.stringify(template)).not.toMatch(
+      /phase|autoStart|password|command|output|sessionId|runtime-only-session/,
+    );
     const restored = instantiateTemplate(template);
     expect(restored.tabs.every((tab) => tab.phase === 'idle' && tab.autoStart === false)).toBe(
       true,

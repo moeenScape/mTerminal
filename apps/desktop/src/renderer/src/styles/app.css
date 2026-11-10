@@ -2844,7 +2844,8 @@ p.field-hint {
   font-family: var(--terminal-font);
   font-size: 11px;
 }
-.batch-dialog textarea {
+.batch-dialog textarea,
+.broadcast-bar textarea {
   width: 100%;
   resize: vertical;
   padding: 10px;
@@ -2887,4 +2888,39 @@ p.field-hint {
 .batch-results li > strong,
 .batch-review-targets strong {
   overflow-wrap: anywhere;
+}
+
+.broadcast-bar {
+  flex: 0 0 auto;
+  max-height: 45vh;
+  overflow: auto;
+  margin: 0 12px 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.broadcast-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.broadcast-bar ul {
+  margin: 8px 0;
+  padding-left: 20px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.broadcast-bar label {
+  display: grid;
+  gap: 6px;
+}
+.broadcast-bar textarea {
+  width: 100%;
+  min-height: 54px;
+}
+.broadcast-status {
+  margin: 0 12px 8px;
+  font-size: 12px;
 }

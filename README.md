@@ -252,6 +252,12 @@ include stdout/stderr and exit status; concurrency, timeout and output limits ar
 Cancellation closes channels and may leave remote processes running. See
 [multiple-host execution](docs/MULTI_HOST_EXECUTION.md) for environment and lifecycle details.
 
+F43 adds **Broadcast input** in the session strip. Select connected SSH sessions, then use
+its visible input bar: Enter sends text, Shift+Enter adds a line, and multiline text needs
+review. Stop broadcast, Escape in the bar, or Ctrl+Shift+B / Command+Shift+B disarms it.
+Ordinary pane typing stays in that pane. Disconnects, focus loss, leaving Workspace and
+vault lock also stop broadcasting. See [broadcast input](docs/BROADCAST_INPUT.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

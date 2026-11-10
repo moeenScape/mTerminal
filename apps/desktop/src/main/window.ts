@@ -1,3 +1,4 @@
+import { attachBroadcast } from './terminal/broadcast-ipc.js';
 import { attachBatch } from './terminal/batch-ipc.js';
 import { attachSnippets } from './snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
@@ -224,11 +225,14 @@ export async function createMainWindow(
           return { ok: true, value: undefined };
         }
         if (channel === vaultChannels.lock && args.length === 0) {
+          broadcasts.stop('Broadcast stopped when the vault was locked.');
           await secrets.lockVault();
+          broadcasts.stop('Broadcast stopped when the vault was locked.');
           if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
           return { ok: true, value: undefined };
         }
         if (channel === vaultChannels.reset && args.length === 0) {
+          broadcasts.stop('Broadcast stopped for vault reset.');
           const confirmation = await dialog.showMessageBox(window, {
             type: 'warning',
             buttons: ['Reset vault', 'Cancel'],
@@ -241,6 +245,7 @@ export async function createMainWindow(
           });
           if (confirmation.response !== 0) return { ok: true, value: false };
           await secrets.resetVault();
+          broadcasts.stop('Broadcast stopped for vault reset.');
           return { ok: true, value: true };
         }
         const [identityId, value] = args;
@@ -340,6 +345,7 @@ export async function createMainWindow(
     () => store.preferences.recordHistory,
   );
   const batches = attachBatch(window, rendererUrl, terminals);
+  const broadcasts = attachBroadcast(window, rendererUrl, terminals);
   attachFiles(
     window,
     rendererUrl,
@@ -395,6 +401,7 @@ export async function createMainWindow(
   let confirming = false;
   window.on('close', (event) => {
     if (closing) return;
+    broadcasts.stop('Broadcast stopped for window close.');
     if (!confirmed && (terminals.count > 0 || batches.running)) {
       event.preventDefault();
       if (confirming) return;

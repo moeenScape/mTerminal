@@ -46,6 +46,7 @@ export interface TerminalTab {
   title: string;
   phase: TabPhase;
   hostId?: string;
+  sessionId?: string;
   autoStart?: false;
 }
 export interface TabsState {
@@ -62,7 +63,7 @@ export type TabsAction =
   | { type: 'close'; id: string }
   | { type: 'rename'; id: string; title: string }
   | { type: 'move'; id: string; to: number }
-  | { type: 'phase'; id: string; phase: TabPhase };
+  | { type: 'phase'; id: string; phase: TabPhase; sessionId?: string };
 export function tabTitle(value: string): string | undefined {
   const title = value.trim();
   return title &&
@@ -169,8 +170,12 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
   }
   return {
     ...state,
-    tabs: state.tabs.map((tab) =>
-      tab.id === action.id && tab.phase !== action.phase ? { ...tab, phase: action.phase } : tab,
-    ),
+    tabs: state.tabs.map((tab) => {
+      if (tab.id !== action.id) return tab;
+      const next = { ...tab, phase: action.phase };
+      if (action.sessionId) next.sessionId = action.sessionId;
+      else if (!isLiveTab(action.phase)) delete next.sessionId;
+      return next;
+    }),
   };
 }

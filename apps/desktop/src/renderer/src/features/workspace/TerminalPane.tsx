@@ -84,7 +84,7 @@ export function TerminalPane({
   canSplit: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
-  onPhaseChange: (id: string, phase: TabPhase) => void;
+  onPhaseChange: (id: string, phase: TabPhase, sessionId?: string) => void;
   toolsPreferences: ToolsPreferences;
   onToolsPreferenceChange: (patch: Partial<ToolsPreferences>) => Promise<void>;
 }) {
@@ -489,7 +489,7 @@ export function TerminalPane({
         inputReady.current = true;
         setRunning(true);
         setStarting(false);
-        onPhaseChange(id, hostId ? 'connected' : 'running');
+        onPhaseChange(id, hostId ? 'connected' : 'running', sessionId);
         setStatus(hostId ? 'SSH connected' : 'Local shell running');
         void loadStartup(sessionId);
         const panel = document.getElementById(`terminal-panel-${id}`);

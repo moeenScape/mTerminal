@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F42 implemented — Reviewed execution on connected SSH accounts with bounded per-host results; acceptance pending |
-| Next feature | F43 — Broadcast input; Phase 4/5 runtime verification remains deferred |
+| Active feature | F43 implemented — Explicit SSH session broadcast input with visible recipients and immediate stop; acceptance pending |
+| Next feature | F45 — Environment variables (F44 local history already implemented); runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -187,7 +187,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F40 — Snippets (implementation):** Shared encrypted local library with create/edit/delete, nested folders/tags and search; single-line Insert and target-bound, confirmed multiline Run. Vault lifecycle, quotas and regression code included; execution/runtime/platform acceptance deferred.
 - [x] **F41 — Startup snippets (implementation):** Encrypted local/per-host assignment, post-connect Review/Skip notice, current-command confirmation and at-most-once submission per session. No unattended execution or completion claim; regression code written, execution/runtime acceptance deferred.
 - [x] **F42 — Multiple-host execution (implementation):** Select connected verified SSH accounts, review full command/destinations, execute via independent channels and inspect per-host output/exit status. One-use previews, bounded concurrency/output/time and cancellation included; regression execution/runtime acceptance deferred.
-- [ ] **F43 — Broadcast input:** Explicit mode, visible recipients, and immediate stop.
+- [x] **F43 — Broadcast input (implementation):** Reviewed SSH session recipients, dedicated text composer, multiline confirmation, Enter/Interrupt controls and immediate stop. Disconnect/focus/navigation/vault lifecycle disarms the mode; regression execution/runtime acceptance deferred.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [ ] **F45 — Environment variables:** Host/group values and server-support requirements.
 - [ ] **F46 — Shell integration:** Supported working-directory and command-state detection.
@@ -1376,3 +1376,36 @@ unrun at the user's request. `npm run check`, `npm run build` and `git diff --ch
 on Linux x64. Real SSH, remote-process lifetime, visual/accessibility and Windows/macOS
 acceptance remain unverified. See
 `docs/MULTI_HOST_EXECUTION.md`. Preserve unrelated local-storage documentation edits/image.
+
+### F43 explicit SSH session broadcast input — 2026-11-10
+
+Added Broadcast input in the session strip. Select connected verified SSH sessions and
+review their tab names, accounts, endpoints, fingerprints and session identities before
+arming. A persistent recipient bar has a dedicated text composer: Enter/Send submits text,
+Shift+Enter adds a line, multiline submissions require confirmation, and explicit Enter all /
+Interrupt all controls act on the same immutable recipient list. Same-account PTYs remain
+separate recipients. Ordinary terminal input, clipboard, snippets, startup snippets, history
+and terminal protocol replies keep their existing single-pane routing.
+
+The main process owns the transient mode, validates sender/frame/arity and payloads, and
+rechecks all recipient identities before each send. Stale mode IDs cannot target a newly
+armed list. Disconnects and write failures stop all recipients without retry or reconnect.
+Stop broadcast, Escape in the composer and Ctrl/Command+Shift+B disarm immediately; native
+shortcut handling also covers modal dialogs. Window blur/close, navigation/crash, leaving
+Workspace and vault lock/reset stop the mode. No automatic restoration, persistence,
+transcript logging, dependencies or database changes. Runtime session labels are excluded
+from saved workspace templates.
+
+Delivery is sequential and cannot roll back input already sent. Each session's foreground
+program interprets the text; this composer does not synchronize prompts or report command
+completion. Raw keystroke mirroring and local-PTY broadcasting are outside this implementation.
+See `docs/BROADCAST_INPUT.md` for controls and delivery limits.
+
+Regression code covers target/input validation, duplicate sessions, changed peers, stale
+mode IDs, disconnect/replacement, partial failures, disposal, control actions, IPC ownership,
+focus/navigation/crash and stop-shortcut cleanup, template isolation and UI selection,
+multiline review/cancel, deliberate send, controls, stop and navigation. Tests are written
+and type-checked but remain unrun at the user's request. `npm run check`, `npm run build`
+and `git diff --check` passed on Linux x64. Live SSH, visual/accessibility and Windows/macOS
+acceptance remain unverified. Next is F45 — Environment variables; F44 local command history
+is already implemented and additional shell/SSH capture remains tracked under CH05.
