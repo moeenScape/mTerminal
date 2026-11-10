@@ -3,6 +3,9 @@ export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
 > & {
+  completePaths?: (
+    prefix: string,
+  ) => Promise<import('../../shared/path-completion.js').PathCompletion[]>;
   executeCommand?: (
     command: string,
     signal: AbortSignal,

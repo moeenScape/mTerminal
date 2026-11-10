@@ -6,6 +6,7 @@ import {
   autocompleteMatches,
   autocompletePosition,
   currentSnippetSuggestion,
+  currentPathSuggestion,
 } from '../../src/renderer/src/features/workspace/autocomplete.js';
 
 const entry = (command: string, index: number) => ({
@@ -135,4 +136,30 @@ describe('snippet autocomplete source', () => {
       currentSnippetSuggestion(autocompleteMatches([entry('git status', 0)], 'git')[0]!, [saved]),
     ).toBe(false);
   });
+});
+
+it('appends insert-only path results without replacing ranked history or exceeding the shared limit', () => {
+  const paths = [
+    { command: 'cat ./folder/', directory: true, prompt: 1 },
+    { command: 'cat ./file.txt', directory: false, prompt: 1 },
+  ];
+  const results = autocompleteMatches([entry('cat ./file.txt', 1)], 'cat ./', [], paths);
+  expect(results.map((item) => [item.kind, item.command])).toEqual([
+    ['history', 'cat ./file.txt'],
+    ['path', 'cat ./folder/'],
+  ]);
+  expect(autocompleteMatches([], 'cat ./', [], paths)[0]).toMatchObject({
+    kind: 'path',
+    directory: true,
+  });
+});
+
+it('refuses changed file types, missing paths and replacement prompt revisions', () => {
+  const path = { command: 'cat ./file.txt', directory: false, prompt: 1 };
+  const item = autocompleteMatches([], 'cat ./', [], [path])[0]!;
+  expect(currentPathSuggestion(item, [path])).toBe(true);
+  expect(currentPathSuggestion(item, [{ ...path, prompt: 2 }])).toBe(false);
+  expect(currentPathSuggestion(item, [{ ...path, directory: true }])).toBe(false);
+  expect(currentPathSuggestion(item, [{ ...path, command: 'cat ./other.txt' }])).toBe(false);
+  expect(currentPathSuggestion(item, [])).toBe(false);
 });

@@ -107,6 +107,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'clearFinishedTransfers',
       'clearHistory',
       'closeTerminal',
+      'completeTerminalPaths',
       'deleteHistory',
       'deleteHost',
       'deleteHostGroup',
@@ -3724,4 +3725,77 @@ test('discards a snippet acceptance response that arrives after vault lock', asy
   // Flush the outstanding invoke before checking that its old command was discarded.
   await page.evaluate(() => window.mterminal.getVaultState());
   expect((await snippetWrites()).slice(before)).toEqual([]);
+});
+
+test('completes literal local files and folders without submitting Enter or evaluating filenames', async () => {
+  test.skip(process.platform !== 'linux', 'Requires the Bash 5.1+ PTY acceptance environment.');
+  await snippetFixture();
+  const directory = join(userData, 'path-files');
+  await mkdir(join(directory, 'folder with space'), { recursive: true });
+  await writeFile(join(directory, 'document $(touch BAD).txt'), 'PATH_COMPLETION_LITERAL_CONTENT');
+  await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({
+      ...preferences,
+      defaultShell: '/bin/bash',
+      autocomplete: true,
+      recordHistory: false,
+    });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(state).toContainText('At shell prompt');
+  const terminal = pane.locator('.xterm-helper-textarea');
+  await terminal.focus();
+  const quoted = "'" + directory.replaceAll("'", "'\\''") + "'";
+  await page.keyboard.type(`cd ${quoted}`);
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText(directory);
+  await page.keyboard.type('cat ./doc');
+  const list = page.getByRole('listbox', { name: 'Command suggestions' });
+  await expect(list.getByRole('option', { name: /^File:/ })).toHaveCount(1);
+  const before = (await snippetWrites()).length;
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(list).not.toBeVisible();
+  await expect
+    .poll(async () => (await snippetWrites()).slice(before))
+    .toEqual([{ id: expect.any(String), data: 'ument\\ \\$\\(touch\\ BAD\\).txt' }]);
+  await expect(state).toContainText('At shell prompt');
+  await expect(readFile(join(directory, 'BAD'))).rejects.toThrow();
+  await page.keyboard.press('Enter');
+  await expect(pane.locator('.xterm-accessibility-tree')).toContainText(
+    'PATH_COMPLETION_LITERAL_CONTENT',
+  );
+  await expect(state).toContainText('At shell prompt');
+  await expect(readFile(join(directory, 'BAD'))).rejects.toThrow();
+  await terminal.focus();
+  await page.keyboard.type('cd ./fol');
+  const folder = list.getByRole('option', { name: /^Folder:/ });
+  await expect(folder).toContainText('folder\\ with\\ space/');
+  const folderStart = (await snippetWrites()).length;
+  await folder.click();
+  await expect
+    .poll(async () => (await snippetWrites()).slice(folderStart))
+    .toEqual([{ id: expect.any(String), data: 'der\\ with\\ space/' }]);
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText(join(directory, 'folder with space'));
+  await terminal.focus();
+  await page.keyboard.type('cat ../doc');
+  await expect(list.getByRole('option', { name: /^File:/ })).toBeVisible();
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('read -r __path_wait');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('Command running');
+  const sessionId = (await snippetWrites()).at(-1)!.id;
+  expect(
+    await page.evaluate(
+      (id) => window.mterminal.completeTerminalPaths(id, 'cat ../doc'),
+      sessionId,
+    ),
+  ).toEqual([]);
+  await page.keyboard.press('Control+C');
+  await expect(state).toContainText('At shell prompt');
 });

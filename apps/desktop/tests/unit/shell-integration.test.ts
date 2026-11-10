@@ -84,3 +84,27 @@ describe('session-bound shell metadata', () => {
     expect(parser.feed('normal output')).toBe('normal output');
   });
 });
+
+it('keeps directory and HOME completion context private and invalidates it across prompts', () => {
+  const parser = new BashHistoryStream('private', vi.fn(), id);
+  expect(parser.promptContext()).toBeNull();
+  expect(parser.feed(raw(`P;${encoded('/work')};0;${encoded('/custom/home')}`))).toBe(
+    normalized(`P;${encoded('/work')};?`),
+  );
+  const first = parser.promptContext();
+  expect(first).toMatchObject({
+    directory: '/work',
+    home: '/custom/home',
+    version: expect.any(Number),
+  });
+  parser.feed(raw(`P;${encoded('/work')};0;${encoded('/new/home')}`));
+  expect(parser.promptContext()).not.toBe(first);
+  expect(parser.promptContext()!.version).toBeGreaterThan(first!.version);
+  expect(parser.promptContext()?.home).toBe('/new/home');
+  parser.invalidatePrompt();
+  expect(parser.promptContext()).toBeNull();
+  parser.feed(raw(`P;${encoded('/work')};0;invalid`));
+  expect(parser.promptContext()?.home).toBeUndefined();
+  parser.feed(raw('C'));
+  expect(parser.promptContext()).toBeNull();
+});

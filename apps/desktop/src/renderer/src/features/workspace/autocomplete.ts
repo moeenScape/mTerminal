@@ -1,3 +1,4 @@
+import type { PathCompletion } from '../../../../shared/path-completion.js';
 import type { Snippet } from '../../../../shared/snippets.js';
 import { isRecordableCommand, type CommandHistoryEntry } from '../../../../shared/history.js';
 
@@ -9,13 +10,15 @@ const LIST_PADDING = 8;
 
 export type AutocompleteSuggestion =
   | { id: string; command: string; kind: 'history' }
-  | { id: string; command: string; kind: 'snippet'; name: string; folder: string };
+  | { id: string; command: string; kind: 'snippet'; name: string; folder: string }
+  | { id: string; command: string; kind: 'path'; directory: boolean; prompt: number };
 
 /** Curated snippets first, followed by history in its existing ranked order. */
 export function autocompleteMatches(
   entries: CommandHistoryEntry[],
   prefix: string,
   snippets: Snippet[] = [],
+  paths: PathCompletion[] = [],
 ): AutocompleteSuggestion[] {
   if (!prefix || /^\s/u.test(prefix)) return [];
   const eligible = (command: string) =>
@@ -48,6 +51,15 @@ export function autocompleteMatches(
     ...entries
       .filter((entry) => eligible(entry.command))
       .map(({ id, command }) => ({ id, command, kind: 'history' as const })),
+    ...paths
+      .filter((entry) => eligible(entry.command))
+      .map(({ command, directory, prompt }) => ({
+        id: command,
+        command,
+        directory,
+        prompt,
+        kind: 'path' as const,
+      })),
   ];
   const seen = new Set<string>();
   return candidates
@@ -69,6 +81,18 @@ export function currentSnippetSuggestion(item: AutocompleteSuggestion, snippets:
         snippet.command === item.command &&
         snippet.name === item.name &&
         snippet.folder === item.folder,
+    )
+  );
+}
+
+export function currentPathSuggestion(item: AutocompleteSuggestion, paths: PathCompletion[]) {
+  return (
+    item.kind === 'path' &&
+    paths.some(
+      (path) =>
+        path.command === item.command &&
+        path.directory === item.directory &&
+        path.prompt === item.prompt,
     )
   );
 }

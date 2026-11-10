@@ -17,7 +17,7 @@ The panel includes:
 
 Type the start of a command at a Bash prompt and a list of matching commands appears beneath the
 cursor. The typed part is highlighted. **Up/Down** chooses a row, **Right Arrow** or a click
-inserts it, **Enter** runs a chosen history row or inserts a chosen **Snippet** row for review,
+inserts it, **Enter** runs a chosen history row or inserts a chosen **Snippet**, **File** or **Folder** row for review,
 and **Escape** hides the list. With no row chosen,
 **Enter** runs what you typed; **Tab** always keeps its normal shell meaning.
 
@@ -53,7 +53,7 @@ prefix. Curated snippets appear before history, sorted by folder/name, with a **
 exact duplicate commands appear once. Names/folders are available in the tooltip and accessible
 label. Selection always inserts without Enter after rechecking the saved content; it never
 runs a snippet automatically. The combined list remains capped at 20 entries. Multiline,
-control-bearing and secret-like commands are excluded. Path/argument sources are still pending.
+control-bearing and secret-like commands are excluded. F47.2 adds insert-only local File/Folder suggestions after history; argument sources remain pending.
 See [autocomplete sources](AUTOCOMPLETE.md) for lifecycle and insertion details.
 
 ## Supported shells

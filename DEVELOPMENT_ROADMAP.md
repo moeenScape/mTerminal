@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F47.1 implemented — Reviewed single-line snippet suggestions alongside history; F47 remains in progress |
-| Next feature | F47.2 — Local path autocomplete; runtime verification remains deferred |
+| Active feature | F47.2 implemented — Session-bound local path suggestions; F47 remains in progress |
+| Next feature | F47.3 — Command-specific argument suggestions; runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -193,7 +193,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F46 — Shell integration (implementation):** Local Bash 5.1+ directory, prompt/waiting/running states and paired completion exit codes; session-bound metadata, per-pane display and unsupported-shell fallback. Existing history/snippet behavior retained; regression execution/runtime acceptance deferred.
 - [ ] **F47 — Autocomplete (in progress):** Keep completed history suggestions; extend sources through the steps below.
   - [x] **F47.1 — Snippet source (implementation):** Match safe single-line saved commands by prefix, show source/name/folder, deduplicate with history and revalidate before insert-only acceptance. Existing history execution remains available; regression execution/runtime acceptance deferred.
-  - [ ] **F47.2 — Local path source:** Complete paths at a recognized local prompt through a narrow validated main-process operation.
+  - [x] **F47.2 — Local path source (implementation):** Owned local Bash prompt/cwd/HOME context, bounded names-only filesystem reads, safe literal suffixes and insert-only File/Folder suggestions. Revalidation and stale-result refusal included; regression execution/runtime acceptance deferred.
   - [ ] **F47.3 — Argument source:** Define supported commands and argument suggestions with documented limits.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
 
@@ -1522,3 +1522,42 @@ lock. Tests are written and type-checked but remain unrun at the user's request.
 `npm run check`, `npm run build` and `git diff --check` passed on Linux x64. Live PTY/keychain,
 visual/accessibility and cross-platform acceptance remain unverified. F47 remains in progress:
 next is F47.2 local path completion, followed by F47.3 command-specific argument sources.
+
+### F47.2 local path autocomplete — 2026-11-10
+
+Added File/Folder suggestions to the existing autocomplete list after curated snippets and
+ranked history, retaining the shared 20-row bound and duplicate-command rules. Simple unquoted
+arguments and explicit command paths support relative, parent, absolute and ~/ prefixes,
+including backslash-escaped names. cd filters directories; directory matches receive a slash.
+Hidden names require a dot prefix, and option-like names require an explicit ./ path. Returned
+suffixes escape Bash metacharacters literally. Right Arrow/click/highlighted Enter inserts
+paths without submitting Enter. Existing history execution and snippet review are retained.
+
+The dedicated terminal:complete-paths IPC validates sender/frame, arity, session UUID and
+prefix length. Only an owned live local integrated transport can serve it. The main process
+uses validated prompt-directory/HOME context; HOME is carried privately by the Bash hook so
+custom shell homes resolve correctly. Command submission/start, unavailable/malformed frames,
+new prompts, closure and disposal invalidate context. No renderer-supplied working directory,
+remote execution, subprocess completion, file contents or filesystem mutation.
+
+Each lookup examines up to 2,048 entries, collects at most 40 matching file/directory/link
+candidates, resolves only their types, sorts folders/names and returns at most 20. Iterator
+closure and symlink lookup bounds have regression coverage. Broken links, special files,
+control/replacement-character names, oversized commands and unreadable directories are
+omitted. Results can be incomplete for large directories. Quoted strings, expansions,
+operators, globs, other-user homes and option prefixes keep native Bash Tab behavior.
+
+Selection repeats the lookup and checks the exact command, type and session-local prompt
+revision, plus the existing prefix/session/selection/UI generation guards. The revision also
+refuses a replacement prompt before its buffered output reaches the renderer. Late filesystem
+results are discarded. Path candidates are transient, without directory caches, plaintext
+logs, profiles/exports, new dependencies or schema changes. See `docs/AUTOCOMPLETE.md`.
+
+Regression code covers parsing/escaping, files/directories, hidden/option-like names,
+relative/absolute/custom-HOME resolution, escaped directory continuation, symlinks/broken
+links, bounded scans/target checks and iterator closure, IPC ownership/arity/size, prompt
+invalidation, late result refusal, revision/type matching, the exposed bridge inventory and
+insert-only file/folder UI behavior without evaluating filenames. Tests are written and
+type-checked but remain unrun at the user's request. `npm run check`, `npm run build` and
+`git diff --check` passed on Linux x64. Live PTY/filesystem, visual/accessibility and macOS/
+Windows acceptance remain unverified. F47 remains open for F47.3 command-specific arguments.

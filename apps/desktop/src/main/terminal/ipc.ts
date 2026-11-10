@@ -1,3 +1,4 @@
+import { completeLocalPaths } from './path-completion.js';
 import { verifyKnownHost } from './known-hosts.js';
 import { knownHostAddress } from '../storage/database.js';
 import { SshChallenges } from './ssh-challenges.js';
@@ -156,7 +157,10 @@ export function attachTerminal(
             status: integration ? 'starting' : 'unsupported',
           });
         if (!integration) return pty;
+        let closed = false;
         const clean = () => {
+          closed = true;
+          parser.invalidatePrompt();
           void integration.dispose().catch(() => {});
         };
         const parser = new BashHistoryStream(
@@ -183,7 +187,23 @@ export function attachTerminal(
           id,
         );
         return {
-          write: (data) => pty.write(data),
+          completePaths: async (prefix) => {
+            const context = parser.promptContext();
+            if (closed || !context) return [];
+            const result = await completeLocalPaths(context.directory, prefix, context.home);
+            return !closed && parser.promptContext() === context
+              ? result.map((row) => ({ ...row, prompt: context.version }))
+              : [];
+          },
+          write: (data) => {
+            if (
+              Array.from(data.toString()).some((c) =>
+                [3, 4, 10, 13, 18, 26].includes(c.charCodeAt(0)),
+              )
+            )
+              parser.invalidatePrompt();
+            pty.write(data);
+          },
           resize: (cols, rows) => pty.resize(cols, rows),
           pause: () => pty.pause(),
           resume: () => pty.resume(),
@@ -208,6 +228,22 @@ export function attachTerminal(
       const code = failureCode(error, 'terminal-failed');
       diagnostics.record('terminal-open-failed', code);
       return { ok: false, code };
+    }
+  });
+  ipcMain.handle(channels.completePaths, async (event, ...args: unknown[]) => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+    const [id, prefix] = args;
+    if (
+      args.length !== 2 ||
+      !validTerminalId(id) ||
+      typeof prefix !== 'string' ||
+      prefix.length > 4096
+    )
+      return { ok: false, code: 'terminal-failed' };
+    try {
+      return { ok: true, value: await terminal.completePaths(id, prefix) };
+    } catch {
+      return { ok: false, code: 'terminal-failed' };
     }
   });
   ipcMain.handle(channels.ssh, async (event, ...args: unknown[]): Promise<TerminalOpenResult> => {
@@ -352,6 +388,7 @@ export function attachTerminal(
     for (const channel of Object.values(historyChannels)) ipcMain.removeHandler(channel);
     terminal.dispose();
     ipcMain.removeHandler(channels.open);
+    ipcMain.removeHandler(channels.completePaths);
     ipcMain.removeHandler(channels.ssh);
     ipcMain.removeHandler(channels.installPublicKey);
     ipcMain.removeAllListeners(channels.sshAnswer);

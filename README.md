@@ -174,7 +174,9 @@ even when history recording is off. Other shells and SSH show unsupported status
 F47.1 adds safe single-line saved snippets to that same autocomplete popup. Unlock the vault,
 type a snippet command's prefix, and select its **Snippet** row to insert it for review.
 Snippet selection never submits Enter; highlighted history rows retain Enter-to-run behavior.
-See [autocomplete sources](docs/AUTOCOMPLETE.md). Path and argument sources are still pending.
+F47.2 also offers local file/folder paths from the recognized prompt, with escaped literal
+filenames and insert-only acceptance. Try `cat ./rea`, `cd ../Doc`, or `cat ~/Doc`. See
+[autocomplete sources](docs/AUTOCOMPLETE.md). Command-specific argument sources remain pending.
 
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
 local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use

@@ -124,6 +124,12 @@ export class TerminalRegistry {
       throw error;
     }
   }
+  async completePaths(id: string, prefix: string) {
+    const session = this.sessions.get(id);
+    if (this.disposed || this.suspended || !session) return [];
+    const result = await session.completePaths(prefix);
+    return !this.disposed && !this.suspended && this.sessions.get(id) === session ? result : [];
+  }
   write(id: string, input: TerminalInput): void {
     this.sessions.get(id)?.write(id, input);
   }

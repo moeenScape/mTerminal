@@ -55,7 +55,9 @@ supported metadata contract. Nested programs remain foreground work of the integ
 
 Metadata is informational, not authentication, proof of process termination or permission to
 perform filesystem operations. A same-user program can inspect or imitate shell integration
-messages. File browsing and remote execution retain their existing explicit destinations.
+messages. F47.2 uses the validated local prompt directory and privately reported HOME for bounded,
+owned-session path-completion requests. File browsing and remote execution retain their
+existing explicit destinations.
 
 Regression tests cover chunked/BEL/ST frames, session isolation, malformed metadata, UTF-8 and
 bounds, start/completion pairing, custom hook preservation, working-directory changes,

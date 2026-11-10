@@ -4,6 +4,7 @@ export const TERMINAL_SCROLLBACK_LINES = 3000;
 export const MAX_TERMINAL_TABS = 16;
 export const terminalChannels = {
   shells: 'terminal:shells',
+  completePaths: 'terminal:complete-paths',
   open: 'terminal:open',
   ssh: 'terminal:ssh',
   installPublicKey: 'terminal:install-public-key',
@@ -47,6 +48,10 @@ export interface TerminalSize {
   rows: number;
 }
 export interface TerminalApi {
+  completeTerminalPaths: (
+    id: string,
+    prefix: string,
+  ) => Promise<import('./path-completion.js').PathCompletion[]>;
   onSshChallenge: (listener: (challenge: import('./ssh.js').SshChallenge) => void) => () => void;
   answerSshChallenge: (id: string, token: string, answers: string[]) => void;
   openSshTerminal: (

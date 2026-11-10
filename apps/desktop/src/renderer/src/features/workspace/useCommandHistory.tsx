@@ -14,6 +14,7 @@ import {
   autocompleteMatches,
   autocompletePosition,
   currentSnippetSuggestion,
+  currentPathSuggestion,
   type AutocompleteSuggestion,
 } from './autocomplete';
 import type { Terminal, IMarker } from '@xterm/xterm';
@@ -164,8 +165,11 @@ export function useCommandHistory(
           void Promise.all([
             window.mterminal.searchHistory(text, directory.current, 'prefix').catch(() => []),
             loadSnippets().catch(() => []),
+            session.current
+              ? window.mterminal.completeTerminalPaths(session.current, text).catch(() => [])
+              : Promise.resolve([]),
           ])
-            .then(([items, snippets]) => {
+            .then(([items, snippets, paths]) => {
               if (
                 request !== version.current ||
                 prefix() !== text ||
@@ -173,7 +177,7 @@ export function useCommandHistory(
                 !enabledRef.current
               )
                 return;
-              const matches = autocompleteMatches(items, text, snippets);
+              const matches = autocompleteMatches(items, text, snippets, paths);
               const screen = container.current?.querySelector<HTMLElement>('.xterm-screen');
               const host = container.current;
               if (!screen || !host) return;
@@ -288,10 +292,16 @@ export function useCommandHistory(
         return;
       const request = version.current;
       const selection = current.index;
-      if (item.kind === 'snippet') {
+      if (item.kind !== 'history') {
         accepting.current = request;
         try {
-          const snippets = await window.mterminal.listSnippets();
+          const matches =
+            item.kind === 'snippet'
+              ? currentSnippetSuggestion(item, await window.mterminal.listSnippets())
+              : currentPathSuggestion(
+                  item,
+                  await window.mterminal.completeTerminalPaths(target, current.prefix),
+                );
           if (
             request !== version.current ||
             session.current !== target ||
@@ -302,7 +312,7 @@ export function useCommandHistory(
             prefix() !== current.prefix
           )
             return;
-          if (!currentSnippetSuggestion(item, snippets)) {
+          if (!matches) {
             snippetCache.current = null;
             dismiss();
             lastQuery.current = '';
@@ -378,7 +388,7 @@ export function useCommandHistory(
         return false;
       }
       if (event.key === 'Enter' && current.index >= 0) {
-        // Enter runs history suggestions; snippet selections insert for review first.
+        // Enter runs history; snippets and paths insert for review first.
         event.preventDefault();
         swallowEnter.current = true;
         void accept(current.index, true);
@@ -479,7 +489,7 @@ export function useCommandHistory(
             id={listId}
             role="listbox"
             aria-label="Command suggestions"
-            aria-description="Up and Down select, Right Arrow or click inserts. Enter runs selected history or inserts a snippet for review. Escape dismisses."
+            aria-description="Up and Down select, Right Arrow or click inserts. Enter runs selected history or inserts snippets and paths for review. Escape dismisses."
             style={{
               left: popup.left,
               top: popup.top,
@@ -498,12 +508,16 @@ export function useCommandHistory(
                 title={
                   item.kind === 'snippet'
                     ? `${item.name}${item.folder ? ` (${item.folder})` : ''}\n${item.command}\nInserts only; press Enter afterward to run.`
-                    : item.command
+                    : item.kind === 'path'
+                      ? `Local ${item.directory ? 'folder' : 'file'}\n${item.command}\nInserts only; press Enter afterward to run.`
+                      : item.command
                 }
                 aria-label={
                   item.kind === 'snippet'
                     ? `Snippet ${item.name}${item.folder ? ` (${item.folder})` : ''}: ${item.command}. Inserts only.`
-                    : undefined
+                    : item.kind === 'path'
+                      ? `${item.directory ? 'Folder' : 'File'}: ${item.command}. Inserts only.`
+                      : undefined
                 }
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => {
@@ -512,13 +526,25 @@ export function useCommandHistory(
                 }}
                 onClick={() => void accept(index)}
               >
-                <Icon name={item.kind === 'snippet' ? 'rocket' : 'history'} />
+                <Icon
+                  name={
+                    item.kind === 'snippet'
+                      ? 'rocket'
+                      : item.kind === 'path'
+                        ? item.directory
+                          ? 'folder'
+                          : 'file'
+                        : 'history'
+                  }
+                />
                 <span className="command-suggestion-text">
                   <mark>{item.command.slice(0, popup.prefix.length)}</mark>
                   {item.command.slice(popup.prefix.length)}
                 </span>
-                {item.kind === 'snippet' && (
-                  <small className="command-suggestion-source">Snippet</small>
+                {item.kind !== 'history' && (
+                  <small className="command-suggestion-source">
+                    {item.kind === 'snippet' ? 'Snippet' : item.directory ? 'Folder' : 'File'}
+                  </small>
                 )}
               </div>
             ))}

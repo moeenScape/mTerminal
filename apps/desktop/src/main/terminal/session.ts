@@ -142,6 +142,9 @@ export class TerminalSession {
     if (session.queued && this.session === session)
       session.timer = setTimeout(() => this.flush(session), 16);
   }
+  async completePaths(prefix: string) {
+    return this.session?.pty.completePaths?.(prefix) ?? [];
+  }
   write(id: string, input: TerminalInput): void {
     if (this.session?.id === id)
       this.session.pty.write(

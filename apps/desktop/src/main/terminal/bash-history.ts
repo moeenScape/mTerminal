@@ -34,11 +34,12 @@ if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )
     return "$result"
   }
   __mt_history_prompt() {
-    local result=$? encoded_cwd
+    local result=$? encoded_cwd encoded_home
     __mt_cwd=$PWD
     [[ -n $__mt_marker ]] && PS1=\${PS1%"$__mt_marker"}
     encoded_cwd=$(printf %s "$PWD" | base64 | tr -d '\n')
-    __mt_marker="\[\e]777;TOKEN;P;$encoded_cwd;$__mt_exit_status\a\]"
+    encoded_home=$(printf %s "$HOME" | base64 | tr -d '\n')
+    __mt_marker="\[\e]777;TOKEN;P;$encoded_cwd;$__mt_exit_status;$encoded_home\a\]"
     PS1="$PS1$__mt_marker"
     return "$result"
   }
@@ -61,6 +62,14 @@ fi
 
 export class BashHistoryStream {
   private pending = '';
+  private promptVersion = 0;
+  private prompt: { directory: string; home: string | undefined; version: number } | null = null;
+  promptContext() {
+    return this.prompt;
+  }
+  invalidatePrompt() {
+    this.prompt = null;
+  }
   private executing = false;
   private lastExitCode: number | null = null;
   constructor(
@@ -92,6 +101,7 @@ export class BashHistoryStream {
       if (end < 0) {
         if (this.pending.length > 32768) {
           this.pending = '';
+          this.invalidatePrompt();
           this.executing = false;
           this.lastExitCode = null;
           output += `${normalized}U\x07`;
@@ -108,11 +118,13 @@ export class BashHistoryStream {
       }
       if (token !== this.token) continue;
       if (kind === 'C' && fields.length === 2) {
+        this.invalidatePrompt();
         this.executing = true;
         output += `${normalized}C\x07`;
         continue;
       }
       if (kind === 'U' && fields.length === 2) {
+        this.invalidatePrompt();
         this.executing = false;
         this.lastExitCode = null;
         output += `${normalized}U\x07`;
@@ -121,8 +133,12 @@ export class BashHistoryStream {
       if (kind !== 'H' && kind !== 'P') continue;
       const directory =
         encodedDirectory === undefined ? undefined : shellDirectory(encodedDirectory);
-      if (directory === undefined || (kind === 'P' && fields.length !== 3 && fields.length !== 4)) {
+      if (
+        directory === undefined ||
+        (kind === 'P' && fields.length !== 3 && fields.length !== 4 && fields.length !== 5)
+      ) {
         if (kind === 'P') {
+          this.invalidatePrompt();
           this.executing = false;
           this.lastExitCode = null;
           output += `${normalized}U\x07`;
@@ -132,6 +148,7 @@ export class BashHistoryStream {
       if (kind === 'P') {
         const exitCode = encodedCommand === undefined ? undefined : shellExitCode(encodedCommand);
         if (encodedCommand !== undefined && exitCode === undefined) {
+          this.invalidatePrompt();
           this.executing = false;
           this.lastExitCode = null;
           output += `${normalized}U\x07`;
@@ -139,6 +156,11 @@ export class BashHistoryStream {
         }
         if (this.executing) this.lastExitCode = exitCode ?? null;
         this.executing = false;
+        this.prompt = {
+          version: ++this.promptVersion,
+          directory,
+          home: fields[4] === undefined ? undefined : shellDirectory(fields[4]),
+        };
         output += `${normalized}P;${encodedDirectory};${this.lastExitCode ?? '?'}\x07`;
       }
       if (

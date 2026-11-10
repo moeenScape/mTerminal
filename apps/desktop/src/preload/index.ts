@@ -292,6 +292,12 @@ const api: DesktopApi = {
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
   getShells: () => ipcRenderer.invoke(channels.shells),
+  completeTerminalPaths: (id, prefix) =>
+    historyRequest<import('../shared/path-completion.js').PathCompletion[]>(
+      channels.completePaths,
+      id,
+      prefix,
+    ),
   openTerminal: async (id, size) => {
     const result: TerminalOpenResult = await ipcRenderer.invoke(channels.open, id, size);
     if (!result.ok) throw new Error(failureMessages[result.code]);

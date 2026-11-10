@@ -7,6 +7,7 @@ import { attachTerminal } from '../../src/main/terminal/ipc.js';
 
 const fixture = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
+  complete: vi.fn(async () => [{ command: 'cat ./fixture.txt', directory: false }]),
   data: (() => {}) as (value: string) => void,
 }));
 vi.mock('electron', () => ({
@@ -17,6 +18,9 @@ vi.mock('electron', () => ({
     removeHandler: vi.fn(),
     removeAllListeners: vi.fn(),
   },
+}));
+vi.mock('../../src/main/terminal/path-completion.js', () => ({
+  completeLocalPaths: fixture.complete,
 }));
 vi.mock('node-pty', () => ({
   spawn: () => ({
@@ -118,7 +122,38 @@ describe('history recording notifications', () => {
         }),
       );
       expect(record).not.toHaveBeenCalled();
-      expect(registry.count).toBe(1);
+      const complete = fixture.handlers.get('terminal:complete-paths')!;
+      expect(await complete(event, id, 'cat ./fi')).toEqual({
+        ok: true,
+        value: [{ command: 'cat ./fixture.txt', directory: false, prompt: expect.any(Number) }],
+      });
+      expect(fixture.complete).toHaveBeenCalledWith('/tmp', 'cat ./fi', undefined);
+      expect(await complete(event, '../id', 'cat ./fi')).toMatchObject({ ok: false });
+      expect(await complete(event, id, 'cat ./fi', '/arbitrary-directory')).toMatchObject({
+        ok: false,
+      });
+      expect(await complete(event, id, 'x'.repeat(4097))).toMatchObject({ ok: false });
+      await expect(complete({ sender: {}, senderFrame: frame }, id, 'cat ./fi')).rejects.toThrow();
+      registry.write(id, { kind: 'text', data: '\r' });
+      expect(await complete(event, id, 'cat ./fi')).toEqual({ ok: true, value: [] });
+      fixture.data('\x1b]777;fixture;P;L3RtcA==;0\x07');
+      fixture.data('\x1b]777;fixture;C\x07');
+      expect(await complete(event, id, 'cat ./fi')).toEqual({ ok: true, value: [] });
+      fixture.data('\x1b]777;fixture;P;L3RtcA==;0\x07');
+      let release!: (rows: { command: string; directory: boolean }[]) => void;
+      fixture.complete.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const pending = complete(event, id, 'cat ./fi');
+      fixture.data('\x1b]777;fixture;C\x07');
+      release([{ command: 'cat ./old.txt', directory: false }]);
+      expect(await pending).toEqual({ ok: true, value: [] });
+      registry.close(id);
+      expect(await complete(event, id, 'cat ./fi')).toEqual({ ok: true, value: [] });
+      expect(registry.count).toBe(0);
     } finally {
       registry.dispose();
     }
