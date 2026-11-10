@@ -1,3 +1,4 @@
+import { validateEnvironment, type EnvironmentVariable } from './environment.ts';
 export const hostChannels = {
   list: 'hosts:list',
   save: 'hosts:save',
@@ -10,6 +11,7 @@ export const hostChannels = {
   deleteIdentity: 'hosts:delete-identity',
 } as const;
 export interface HostDraft {
+  environment?: EnvironmentVariable[];
   name: string;
   address: string;
   port: number;
@@ -86,7 +88,9 @@ export function validateHost(value: unknown): HostDraft {
   const identityId = h.identityId == null || h.identityId === '' ? null : h.identityId;
   if (identityId !== null && (typeof identityId !== 'string' || !validHostId(identityId)))
     throw new Error('Invalid identity.');
+  const environment = validateEnvironment(h.environment);
   const result: HostDraft = {
+    ...(environment.length ? { environment } : {}),
     name,
     address,
     username,
@@ -113,6 +117,7 @@ export interface HostsApi {
 }
 
 export interface HostGroup {
+  environment?: EnvironmentVariable[];
   path: string;
   port: number | null;
   username: string | null;
@@ -177,7 +182,9 @@ export function validateGroup(value: unknown): HostGroup {
     username: g.username === null ? '' : g.username,
   });
   if (g.identityId != null && !validHostId(g.identityId)) throw new Error('Invalid identity.');
+  const environment = validateEnvironment(g.environment);
   return {
+    ...(environment.length ? { environment } : {}),
     path,
     port: g.port === null ? null : fields.port,
     username: g.username === null ? null : fields.username,
@@ -188,16 +195,21 @@ export function resolveHost(host: HostDraft, groups: HostGroup[]): HostDraft {
   let port = 22;
   let username = '';
   let identityId: string | null = null;
+  const environment = new Map<string, EnvironmentVariable>();
   const parts = (host.groupPath ?? '').split('/');
   for (let i = 1; i <= parts.length; i++) {
     const group = groups.find((g) => g.path === parts.slice(0, i).join('/'));
     if (group?.port != null) port = group.port;
     if (group?.username != null) username = group.username;
     if (group?.identityId) identityId = group.identityId;
+    for (const entry of group?.environment ?? []) environment.set(entry.name, entry);
   }
   identityId = host.identityId ?? identityId;
+  for (const entry of host.environment ?? []) environment.set(entry.name, entry);
+  const values = validateEnvironment([...environment.values()]);
   return {
     ...host,
+    ...(values.length ? { environment: values } : {}),
     port: host.inheritPort ? port : host.port,
     username: host.inheritUsername ? username : host.username,
     identityId,

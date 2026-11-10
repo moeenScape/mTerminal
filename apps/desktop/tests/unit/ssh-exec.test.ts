@@ -11,8 +11,11 @@ function fixture() {
   });
   const client = Object.assign(new EventEmitter(), {
     exec: vi.fn(
-      (_command: string, callback: (error: Error | undefined, stream: ClientChannel) => void) =>
-        callback(undefined, channel as unknown as ClientChannel),
+      (
+        _command: string,
+        _options: { env: Record<string, string> },
+        callback: (error: Error | undefined, stream: ClientChannel) => void,
+      ) => callback(undefined, channel as unknown as ClientChannel),
     ),
     destroy: vi.fn(),
   });
@@ -42,7 +45,7 @@ describe('bounded SSH exec channels', () => {
       exitCode: 0,
       exitSignal: null,
     });
-    expect(client.exec).toHaveBeenCalledWith('hostname', expect.any(Function));
+    expect(client.exec).toHaveBeenCalledWith('hostname', { env: {} }, expect.any(Function));
     expect(client.destroy).not.toHaveBeenCalled();
     expect(client.listenerCount('close')).toBe(0);
     expect(channel.listenerCount('data')).toBe(0);
@@ -64,7 +67,7 @@ describe('bounded SSH exec channels', () => {
   it('disposes a channel accepted after cancellation and absorbs late close errors', async () => {
     const state = fixture();
     let accepted: ((error: Error | undefined, stream: ClientChannel) => void) | undefined;
-    state.client.exec.mockImplementation((_command, callback) => {
+    state.client.exec.mockImplementation((_command, _options, callback) => {
       accepted = callback;
     });
     const pending = state.run();
@@ -121,4 +124,23 @@ describe('bounded SSH exec channels', () => {
     expect(failure.status).toBe('failed');
     expect(JSON.stringify(failure)).not.toContain('private details');
   });
+});
+
+it('passes the connection environment as SSH exec options without changing command text', async () => {
+  const state = fixture();
+  const environment = { APP_ENV: 'production', LITERAL: '$(touch marker); $HOME' };
+  const pending = executeSshCommand(
+    state.client as unknown as Client,
+    'printf test',
+    state.controller.signal,
+    environment,
+  );
+  expect(state.client.exec).toHaveBeenCalledWith(
+    'printf test',
+    { env: environment },
+    expect.any(Function),
+  );
+  state.channel.emit('exit', 0);
+  state.channel.emit('close');
+  expect(await pending).toMatchObject({ status: 'succeeded' });
 });

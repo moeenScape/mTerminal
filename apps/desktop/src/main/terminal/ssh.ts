@@ -1,3 +1,4 @@
+import { validateEnvironment } from '../../shared/environment.js';
 import { executeSshCommand } from './ssh-exec.js';
 import { createHash } from 'node:crypto';
 import { Client, type ClientChannel } from '../ssh2-module.js';
@@ -25,6 +26,9 @@ export function openSsh(
   report?: (state: SshConnectionState) => void,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
+    const environment = Object.fromEntries(
+      validateEnvironment(host.environment).map(({ name, value }) => [name, value]),
+    );
     const client = new Client();
     const files = new RemoteFileBrowser(client);
     let stream: ClientChannel | undefined;
@@ -142,6 +146,7 @@ export function openSsh(
       progress('opening-shell');
       client.shell(
         { term: 'xterm-256color', cols: size.cols, rows: size.rows },
+        { env: environment },
         (error, channel) => {
           if (error || ended) {
             channel?.destroy();
@@ -164,7 +169,8 @@ export function openSsh(
           clearTimeout(timer);
           settled = true;
           resolve({
-            executeCommand: (command, signal) => executeSshCommand(client, command, signal),
+            executeCommand: (command, signal) =>
+              executeSshCommand(client, command, signal, environment),
             inspectResume: (record, signal) => files.inspectResume(record, signal),
             recoverPartial: (record, signal, expected) =>
               files.recoverPartial(record, signal, expected),

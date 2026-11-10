@@ -258,6 +258,12 @@ review. Stop broadcast, Escape in the bar, or Ctrl+Shift+B / Command+Shift+B dis
 Ordinary pane typing stays in that pane. Disconnects, focus loss, leaving Workspace and
 vault lock also stop broadcasting. See [broadcast input](docs/BROADCAST_INPUT.md).
 
+F45 adds **Environment variables** to host and group editors. Parent group values flow down
+to child groups; host values override matching names. New SSH shells and **Run on hosts** use
+the connection's saved snapshot. Values are non-secret configuration, stored unencrypted and
+included in workspace exports. The remote server must allow the names through `AcceptEnv`;
+a successful connection does not confirm acceptance. See [environment variables](docs/ENVIRONMENT_VARIABLES.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

@@ -2,6 +2,7 @@ import {
   validateGroup,
   validateHost,
   validateIdentity,
+  resolveHost,
   validHostId,
   type HostGroup,
   type SavedHost,
@@ -100,6 +101,19 @@ export function validateWorkspaceBackup(value: unknown): WorkspaceBackup {
     const parent = group.path.includes('/') ? group.path.slice(0, group.path.lastIndexOf('/')) : '';
     if (parent && !groupPaths.has(parent)) throw new Error('Backup contains an unresolved group.');
   }
+  for (const group of groups)
+    resolveHost(
+      {
+        name: 'Group',
+        address: 'localhost',
+        port: 22,
+        username: '',
+        protocol: 'ssh',
+        groupPath: group.path,
+      },
+      groups,
+    );
+  for (const host of hosts) resolveHost(host, groups);
   return {
     format: 'mterminal-workspace',
     version: 1,

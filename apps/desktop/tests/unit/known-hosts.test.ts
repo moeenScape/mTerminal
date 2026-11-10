@@ -122,7 +122,7 @@ describe('known host trust', () => {
           INSERT INTO host_groups_v3 SELECT path,port,username FROM host_groups;
           DROP TABLE hosts; ALTER TABLE hosts_v3 RENAME TO hosts;
           DROP TABLE host_groups; ALTER TABLE host_groups_v3 RENAME TO host_groups;
-          DROP TABLE ssh_identities; DROP TABLE known_hosts;
+          DROP TABLE ssh_identities; DROP TABLE known_hosts; DROP TABLE transfer_recovery; DROP TABLE workspace_templates;
           DELETE FROM schema_migrations WHERE version>=4; PRAGMA user_version=3;`,
         ),
       );

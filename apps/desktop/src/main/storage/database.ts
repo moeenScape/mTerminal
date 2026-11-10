@@ -77,6 +77,12 @@ const migrations = [
       data TEXT NOT NULL CHECK(length(data) <= 65536)
     ) STRICT;`);
   },
+  (connection: DatabaseSync) => {
+    connection.exec(`
+      ALTER TABLE hosts ADD COLUMN environment TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE host_groups ADD COLUMN environment TEXT NOT NULL DEFAULT '[]';
+    `);
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -145,6 +151,10 @@ function validateDatabase(database: DatabaseSync): void {
     database.prepare('SELECT id,data FROM transfer_recovery LIMIT 0').all();
   if (pragmaNumber(database, 'user_version') >= 7)
     database.prepare('SELECT id,name,data FROM workspace_templates LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 8) {
+    database.prepare('SELECT environment FROM hosts LIMIT 0').all();
+    database.prepare('SELECT environment FROM host_groups LIMIT 0').all();
+  }
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -295,6 +305,7 @@ export class LocalDatabase {
           ...validateHost({
             ...row,
             tags: JSON.parse(String(row.tags)),
+            environment: JSON.parse(String(row.environment)),
             inheritPort: row.inheritPort === 1,
             inheritUsername: row.inheritUsername === 1,
             identityId: row.identityId ?? null,
@@ -319,10 +330,11 @@ export class LocalDatabase {
         !db.prepare('SELECT id FROM ssh_identities WHERE id=?').get(host.identityId)
       )
         throw new Error('Identity no longer exists.');
+      resolveHost(host, this.listHostGroups());
       if (id) {
         const result = db
           .prepare(
-            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=? WHERE id=?',
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=? WHERE id=?',
           )
           .run(
             host.name,
@@ -335,12 +347,13 @@ export class LocalDatabase {
             Number(host.inheritPort),
             Number(host.inheritUsername),
             host.identityId ?? null,
+            JSON.stringify(host.environment ?? []),
             key,
           );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           key,
           host.name,
@@ -353,6 +366,7 @@ export class LocalDatabase {
           Number(host.inheritPort),
           Number(host.inheritUsername),
           host.identityId ?? null,
+          JSON.stringify(host.environment ?? []),
         );
       }
     });
@@ -368,7 +382,7 @@ export class LocalDatabase {
     return this.connection
       .prepare('SELECT * FROM host_groups ORDER BY path COLLATE NOCASE')
       .all()
-      .map(validateGroup);
+      .map((row) => validateGroup({ ...row, environment: JSON.parse(String(row.environment)) }));
   }
 
   saveHostGroup(value: unknown): void {
@@ -385,8 +399,34 @@ export class LocalDatabase {
       )
         throw new Error('Identity no longer exists.');
       db.prepare(
-        'INSERT INTO host_groups (path,port,username,identityId) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET port=excluded.port, username=excluded.username, identityId=excluded.identityId',
-      ).run(group.path, group.port, group.username, group.identityId ?? null);
+        'INSERT INTO host_groups (path,port,username,identityId,environment) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET port=excluded.port, username=excluded.username, identityId=excluded.identityId, environment=excluded.environment',
+      ).run(
+        group.path,
+        group.port,
+        group.username,
+        group.identityId ?? null,
+        JSON.stringify(group.environment ?? []),
+      );
+      // A group edit must not make an existing host's merged environment invalid.
+      const groups = this.listHostGroups();
+      for (const item of groups.filter(
+        (item) => item.path === group.path || item.path.startsWith(group.path + '/'),
+      ))
+        resolveHost(
+          {
+            name: 'Group',
+            address: 'localhost',
+            port: 22,
+            username: '',
+            protocol: 'ssh',
+            groupPath: item.path,
+          },
+          groups,
+        );
+      for (const host of this.listHosts().filter(
+        (host) => host.groupPath === group.path || host.groupPath?.startsWith(group.path + '/'),
+      ))
+        resolveHost(host, groups);
     });
   }
 
@@ -401,8 +441,14 @@ export class LocalDatabase {
         for (const host of hosts.filter((h) => h.groupPath === group.path)) {
           const effective = resolveHost(host, groups);
           db.prepare(
-            "UPDATE hosts SET groupPath='', port=?, username=?, inheritPort=0, inheritUsername=0, identityId=? WHERE id=?",
-          ).run(effective.port, effective.username, effective.identityId ?? null, host.id);
+            "UPDATE hosts SET groupPath='', port=?, username=?, inheritPort=0, inheritUsername=0, identityId=?, environment=? WHERE id=?",
+          ).run(
+            effective.port,
+            effective.username,
+            effective.identityId ?? null,
+            JSON.stringify(effective.environment ?? []),
+            host.id,
+          );
         }
       }
       for (const group of descendants)
@@ -515,15 +561,18 @@ export class LocalDatabase {
       for (const group of [...data.groups].sort(
         (a, b) => a.path.split('/').length - b.path.split('/').length,
       ))
-        db.prepare('INSERT INTO host_groups (path,port,username,identityId) VALUES (?,?,?,?)').run(
+        db.prepare(
+          'INSERT INTO host_groups (path,port,username,identityId,environment) VALUES (?,?,?,?,?)',
+        ).run(
           group.path,
           group.port,
           group.username,
           group.identityId ?? null,
+          JSON.stringify(group.environment ?? []),
         );
       for (const host of data.hosts)
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         ).run(
           host.id,
           host.name,
@@ -536,6 +585,7 @@ export class LocalDatabase {
           Number(host.inheritPort),
           Number(host.inheritUsername),
           host.identityId ?? null,
+          JSON.stringify(host.environment ?? []),
         );
       for (const known of data.knownHosts)
         db.prepare(

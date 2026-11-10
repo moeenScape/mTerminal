@@ -3431,3 +3431,60 @@ test('broadcast input reviews recipients, sends deliberately and disarms without
   await expect(bar).not.toBeVisible();
   expect(await sent()).toHaveLength(4);
 });
+
+test('edits SSH environment rows, persists overrides and rejects malformed IPC settings', async () => {
+  await page.getByRole('button', { name: 'New group', exact: true }).click();
+  const form = page.getByRole('dialog');
+  await form.getByLabel('Group path').fill('Environment');
+  await form.getByRole('button', { name: 'Add variable', exact: true }).click();
+  await form.getByLabel('Variable name 1', { exact: true }).fill('APP_ENV');
+  await form.getByLabel('Variable value 1', { exact: true }).fill('production');
+  await form.getByRole('button', { name: 'Save group', exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await page.getByRole('button', { name: 'New host', exact: true }).click();
+  await form.getByLabel('Name', { exact: true }).fill('Environment host');
+  await form.getByLabel('Address', { exact: true }).fill('environment.example.internal');
+  await form.getByLabel('Group', { exact: true }).selectOption('Environment');
+  await form.getByText('Group values (1)', { exact: true }).click();
+  await expect(form).toContainText('production');
+  await expect(form).toContainText('stored unencrypted');
+  await expect(form).toContainText('AcceptEnv');
+  await form.getByRole('button', { name: 'Add variable', exact: true }).click();
+  await form.getByLabel('Variable name 1', { exact: true }).fill('APP_ENV');
+  // An empty string is a deliberate override, not an instruction to inherit.
+  await form.getByRole('button', { name: 'Save host', exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await page.reload();
+  await page.getByLabel('Search hosts').fill('Environment host');
+  await page.getByRole('button', { name: 'Edit Environment host', exact: true }).click();
+  await expect(form.getByLabel('Variable name 1', { exact: true })).toHaveValue('APP_ENV');
+  await expect(form.getByLabel('Variable value 1', { exact: true })).toHaveValue('');
+  await form.getByRole('button', { name: 'Add variable', exact: true }).click();
+  await form.getByLabel('Variable name 2', { exact: true }).fill('APP_ENV');
+  await form.getByLabel('Variable value 2', { exact: true }).fill('duplicate');
+  await form.getByRole('button', { name: 'Save host', exact: true }).click();
+  await expect(form.getByRole('alert')).toContainText('unique identifiers');
+  await form.getByRole('button', { name: 'Remove variable 2', exact: true }).click();
+  await form.getByRole('button', { name: 'Remove variable 1', exact: true }).click();
+  await form.getByRole('button', { name: 'Save host', exact: true }).click();
+  await expect(form).not.toBeVisible();
+  const result = await page.evaluate(async () => {
+    const hosts = await window.mterminal.listHosts();
+    const host = hosts.find((host) => host.name === 'Environment host')!;
+    let rejected = false;
+    try {
+      await window.mterminal.saveHost(
+        { ...host, environment: [{ name: 'BAD-NAME', value: 'private' }] },
+        host.id,
+      );
+    } catch {
+      rejected = true;
+    }
+    return {
+      rejected,
+      unchanged: JSON.stringify(hosts) === JSON.stringify(await window.mterminal.listHosts()),
+      environment: host.environment ?? [],
+    };
+  });
+  expect(result).toEqual({ rejected: true, unchanged: true, environment: [] });
+});

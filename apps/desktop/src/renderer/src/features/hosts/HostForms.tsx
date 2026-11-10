@@ -1,3 +1,7 @@
+import {
+  MAX_ENVIRONMENT_VARIABLES,
+  type EnvironmentVariable,
+} from '../../../../shared/environment';
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
   resolveHost,
@@ -138,6 +142,108 @@ function Field({
   );
 }
 
+function EnvironmentFields({
+  entries,
+  onChange,
+  inherited = [],
+}: {
+  entries: EnvironmentVariable[];
+  onChange: (entries: EnvironmentVariable[]) => void;
+  inherited?: EnvironmentVariable[];
+}) {
+  return (
+    <Section title="Environment variables">
+      <p className="field-hint">
+        For new SSH connections and Run on hosts. Parent groups → child groups → host; matching
+        names override earlier values. An empty value overrides with empty text; removing a row
+        restores inheritance.
+      </p>
+      {inherited.length > 0 && (
+        <details className="environment-inherited">
+          <summary>Group values ({inherited.length})</summary>
+          <dl>
+            {inherited.map(({ name, value }) => (
+              <div key={name}>
+                <dt>{name}</dt>
+                <dd>{value || '(empty)'}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
+      {entries.map((entry, index) => (
+        <div className="environment-row" key={index}>
+          <Field label={`Variable name ${index + 1}`}>
+            {(props) => (
+              <input
+                {...props}
+                value={entry.name}
+                required
+                maxLength={64}
+                pattern="[A-Za-z_][A-Za-z0-9_]*"
+                placeholder="APP_ENV"
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) =>
+                  onChange(
+                    entries.map((item, n) =>
+                      n === index ? { ...item, name: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+            )}
+          </Field>
+          <Field label={`Variable value ${index + 1}`}>
+            {(props) => (
+              <input
+                {...props}
+                value={entry.value}
+                maxLength={1024}
+                placeholder="production"
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) =>
+                  onChange(
+                    entries.map((item, n) =>
+                      n === index ? { ...item, value: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+            )}
+          </Field>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Remove variable ${index + 1}`}
+            onClick={() => onChange(entries.filter((_, n) => n !== index))}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={entries.length >= MAX_ENVIRONMENT_VARIABLES}
+        onClick={() => onChange([...entries, { name: '', value: '' }])}
+      >
+        Add variable
+      </button>
+      <p className="field-hint">
+        Non-secret settings only: values are stored unencrypted and included in workspace backups.
+        Up to 32 effective variables; TERM is managed by the terminal. Values are literal text,
+        without shell expansion.
+      </p>
+      <p className="field-hint">
+        The SSH server must allow these names through AcceptEnv. A connection can succeed while
+        values are ignored; check them in the remote shell. Saving does not change open sessions.
+      </p>
+    </Section>
+  );
+}
+
 function identityLabel(identities: SshIdentity[], id: string | null | undefined) {
   const identity = identities.find((item) => item.id === id);
   return identity ? `${identity.name} · ${identity.username}` : undefined;
@@ -152,6 +258,7 @@ function hostValidationMessage(cause: unknown): string {
   if (message === 'Invalid tag.' || message === 'Invalid tags.')
     return 'Tags can be up to 32 characters, without commas or slashes, and at most 20 per host.';
   if (message === 'Invalid group path.') return groupPathMessage;
+  if (message.startsWith('Environment')) return message;
   return 'Check the address, port and username. The address and username cannot contain spaces or “@”, and the port must be 1–65535.';
 }
 
@@ -186,6 +293,7 @@ export function HostForm({
   const [identityId, setIdentityId] = useState(host?.identityId ?? '');
   const [groupPath, setGroupPath] = useState(host?.groupPath ?? initialGroup);
   const [tags, setTags] = useState(host?.tags?.join(', ') ?? '');
+  const [environment, setEnvironment] = useState(host?.environment ?? []);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
@@ -233,6 +341,7 @@ export function HostForm({
   /** Saves the host and its password; with `connect`, then opens a session to it. */
   async function save(connect = false) {
     let draft;
+    let effective;
     try {
       draft = validateHost({
         name: name.trim() || address.trim(),
@@ -248,12 +357,13 @@ export function HostForm({
         inheritPort,
         inheritUsername,
         identityId: identityId || null,
+        environment,
       });
+      effective = resolveHost(draft, groups);
     } catch (cause) {
       setError(hostValidationMessage(cause));
       return;
     }
-    const effective = resolveHost(draft, groups);
     const loginUsername =
       identities.find((identity) => identity.id === effective.identityId)?.username ||
       effective.username;
@@ -507,6 +617,11 @@ export function HostForm({
           )}
         </Field>
       </Section>
+      <EnvironmentFields
+        entries={environment}
+        onChange={setEnvironment}
+        inherited={inherited.environment ?? []}
+      />
     </SidePanel>
   );
 }
@@ -529,6 +644,7 @@ export function GroupForm({
   const [port, setPort] = useState(group?.port == null ? '' : String(group.port));
   const [username, setUsername] = useState(group?.username ?? '');
   const [identityId, setIdentityId] = useState(group?.identityId ?? '');
+  const [environment, setEnvironment] = useState(group?.environment ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -540,12 +656,15 @@ export function GroupForm({
         port: port ? Number(port) : null,
         username: username || null,
         identityId: identityId || null,
+        environment,
       });
     } catch (cause) {
       setError(
-        cause instanceof Error && cause.message === 'Invalid group path.'
-          ? groupPathMessage
-          : 'Check the defaults: the port must be 1–65535 and the username cannot contain spaces or “@”.',
+        cause instanceof Error && cause.message.startsWith('Environment')
+          ? cause.message
+          : cause instanceof Error && cause.message === 'Invalid group path.'
+            ? groupPathMessage
+            : 'Check the defaults: the port must be 1–65535 and the username cannot contain spaces or “@”.',
       );
       return;
     }
@@ -556,7 +675,7 @@ export function GroupForm({
       onSaved();
     } catch {
       setError(
-        'Unable to save the group. Make sure its parent group exists, then check local storage.',
+        'Unable to save the group. Check the parent group, the 32-variable inherited limit for descendant hosts, and local storage.',
       );
       setBusy(false);
     }
@@ -648,6 +767,7 @@ export function GroupForm({
           )}
         </Field>
       </Section>
+      <EnvironmentFields entries={environment} onChange={setEnvironment} />
     </SidePanel>
   );
 }

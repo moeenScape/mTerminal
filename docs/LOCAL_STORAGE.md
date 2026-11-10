@@ -36,6 +36,14 @@ ordered migrations. Each migration and version update commits together; failed
 transactions roll back. Transaction callbacks must be synchronous and must not
 start asynchronous work. SQLite foreign keys are enabled.
 
+Schema v8 adds JSON `environment` columns to `hosts` and `host_groups`, defaulting to
+empty arrays. These contain non-secret name/value configuration and are included in workspace
+exports; passwords and tokens still belong outside this database. The existing pre-upgrade
+snapshot and transactional migration preserve host IDs, connection settings and other tables.
+Older version-1 workspace exports without environment entries still import normally. Group
+removal materializes effective environment values alongside the existing connection defaults.
+A group edit that would exceed the 32-variable effective limit rolls back completely.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates

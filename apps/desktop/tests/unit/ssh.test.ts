@@ -23,6 +23,7 @@ async function fixture(
     authCount: () => number,
     windows: number[][],
     connectionCount: () => number,
+    environmentRequests: { name: string; value: string }[],
   ) => Promise<void>,
   authenticate?: (context: AuthContext) => void,
 ) {
@@ -38,6 +39,7 @@ async function fixture(
   const connections = new Set<Connection>();
   let authCount = 0;
   const windows: number[][] = [];
+  const environmentRequests: { name: string; value: string }[] = [];
   const server = new Server({ hostKeys: [key] }, (connection) => {
     connections.add(connection);
     connection.on('error', () => {});
@@ -59,6 +61,10 @@ async function fixture(
     connection.on('ready', () =>
       connection.on('session', (accept) => {
         const session = accept();
+        session.on('env', (accept, _reject, info) => {
+          environmentRequests.push({ name: info.key, value: info.val });
+          accept?.();
+        });
         session.on('sftp', (acceptSftp) => {
           const sftp = acceptSftp();
           const attrs = {
@@ -120,6 +126,7 @@ async function fixture(
       () => authCount,
       windows,
       () => connections.size,
+      environmentRequests,
     );
   } finally {
     for (const connection of connections) connection.end();
@@ -217,6 +224,37 @@ describe('SSH terminal transport', () => {
         transport.kill();
       }
     });
+  });
+  it('sends literal environment requests and keeps PTY dimensions intact', async () => {
+    await fixture(async (port, fingerprint, _auth, windows, _connections, requests) => {
+      const environment = [
+        { name: 'APP_ENV', value: 'production' },
+        { name: 'LITERAL', value: "$(touch marker); 'quoted' $HOME" },
+        { name: 'EMPTY', value: '' },
+      ];
+      const transport = await openSsh(
+        { ...host, port, environment },
+        { username: 'user', password: 'test-password', fingerprint },
+        size,
+        new AbortController().signal,
+      );
+      try {
+        expect(requests).toEqual(environment);
+        expect(windows).toContainEqual([size.cols, size.rows]);
+      } finally {
+        transport.kill();
+      }
+    });
+  });
+  it('refuses invalid environment data before attempting an SSH connection', async () => {
+    await expect(
+      openSsh(
+        { ...host, environment: [{ name: 'BAD-NAME', value: 'private' }] },
+        { username: 'user', password: 'test-password', fingerprint: '' },
+        size,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Environment');
   });
   it('rejects a mismatched host key before authentication', async () => {
     await fixture(async (port, _fingerprint, authCount) => {

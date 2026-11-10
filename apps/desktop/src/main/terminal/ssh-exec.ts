@@ -14,6 +14,7 @@ export function executeSshCommand(
   client: Client,
   command: string,
   signal: AbortSignal,
+  environment: Record<string, string> = {},
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     let stream: ClientChannel | undefined;
@@ -83,7 +84,7 @@ export function executeSshCommand(
     };
     client.once('close', release);
     try {
-      client.exec(command, (error, channel) => {
+      client.exec(command, { env: environment }, (error, channel) => {
         if (channel) channel.once('close', release);
         else release();
         if (settled || error) {

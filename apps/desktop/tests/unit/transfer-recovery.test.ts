@@ -123,7 +123,7 @@ describe('durable transfer evidence', () => {
       });
       db.transaction((connection) =>
         connection.exec(
-          'DROP TABLE workspace_templates; DROP TABLE transfer_recovery; DELETE FROM schema_migrations WHERE version>=6; PRAGMA user_version=5;',
+          'ALTER TABLE hosts DROP COLUMN environment; ALTER TABLE host_groups DROP COLUMN environment; DROP TABLE workspace_templates; DROP TABLE transfer_recovery; DELETE FROM schema_migrations WHERE version>=6; PRAGMA user_version=5;',
         ),
       );
       db.close();

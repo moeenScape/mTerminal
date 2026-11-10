@@ -88,7 +88,7 @@ describe('host organization', () => {
         ) STRICT;
         INSERT INTO hosts_v2 SELECT id,name,address,port,username,protocol FROM hosts;
         DROP TABLE hosts; ALTER TABLE hosts_v2 RENAME TO hosts;
-        DROP TABLE host_groups; DROP TABLE known_hosts; DROP TABLE ssh_identities;
+        DROP TABLE host_groups; DROP TABLE known_hosts; DROP TABLE transfer_recovery; DROP TABLE workspace_templates; DROP TABLE ssh_identities;
         DELETE FROM schema_migrations WHERE version>=3;
         PRAGMA user_version=2;
       `),

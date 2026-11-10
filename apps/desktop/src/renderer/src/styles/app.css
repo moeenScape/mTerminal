@@ -2924,3 +2924,30 @@ p.field-hint {
   margin: 0 12px 8px;
   font-size: 12px;
 }
+
+.environment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.environment-row .field {
+  min-width: 0;
+}
+.environment-row .icon-button {
+  margin-bottom: 4px;
+}
+.environment-inherited {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.environment-inherited dl {
+  font-family: var(--terminal-font);
+  overflow-wrap: anywhere;
+}
+.environment-inherited dd {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}

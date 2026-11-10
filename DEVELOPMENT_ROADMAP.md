@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F43 implemented — Explicit SSH session broadcast input with visible recipients and immediate stop; acceptance pending |
-| Next feature | F45 — Environment variables (F44 local history already implemented); runtime verification remains deferred |
+| Active feature | F45 implemented — Host/group SSH environment values with inheritance and server-support guidance; acceptance pending |
+| Next feature | F46 — Shell integration (extend the existing local Bash integration); runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -189,7 +189,7 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F42 — Multiple-host execution (implementation):** Select connected verified SSH accounts, review full command/destinations, execute via independent channels and inspect per-host output/exit status. One-use previews, bounded concurrency/output/time and cancellation included; regression execution/runtime acceptance deferred.
 - [x] **F43 — Broadcast input (implementation):** Reviewed SSH session recipients, dedicated text composer, multiline confirmation, Enter/Interrupt controls and immediate stop. Disconnect/focus/navigation/vault lifecycle disarms the mode; regression execution/runtime acceptance deferred.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
-- [ ] **F45 — Environment variables:** Host/group values and server-support requirements.
+- [x] **F45 — Environment variables (implementation):** Host/group editors, parent → child → host overrides, literal SSH shell/exec env requests, schema-v8 persistence and backup round-trips. Server AcceptEnv requirements and unconfirmed acceptance are documented; regression execution/runtime acceptance deferred.
 - [ ] **F46 — Shell integration:** Supported working-directory and command-state detection.
 - [ ] **F47 — Autocomplete:** History suggestions already implemented in CH04, including keyboard/click insertion and popup bounds. Reuse that implementation; snippet, path and argument sources remain future work.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
@@ -1409,3 +1409,42 @@ and type-checked but remain unrun at the user's request. `npm run check`, `npm r
 and `git diff --check` passed on Linux x64. Live SSH, visual/accessibility and Windows/macOS
 acceptance remain unverified. Next is F45 — Environment variables; F44 local command history
 is already implemented and additional shell/SSH capture remains tracked under CH05.
+
+### F45 host/group SSH environment values — 2026-11-10
+
+Added Environment variables to the existing host/group side panels, with labelled name/value
+rows, add/remove controls and inherited group-value disclosure on hosts. Settings merge from
+parent groups to child groups to host overrides. Empty strings override explicitly; removing
+an override restores inheritance. Validation bounds each profile/effective environment to 32
+unique names, names to 64 identifier characters and literal single-line values to 1,024
+characters. TERM remains owned by the terminal. No shell interpolation or command injection.
+
+Schema v8 adds JSON columns with empty defaults using the existing migration snapshot and
+transaction mechanism. Host/group CRUD, workspace version-1 exports/imports and old exports
+without variables remain compatible. Removing a group subtree materializes effective values
+on its affected hosts. Invalid group edits roll back across all affected descendants rather
+than leaving existing hosts with unusable environments. Migration fixtures now remove later
+schema additions when reconstructing old versions.
+
+The main process resolves and snapshots settings before SSH setup, requests them for the
+interactive shell while retaining PTY dimensions, and reuses the connection snapshot for
+Run on hosts exec channels. Edits apply to new connections; there is no input replay or live
+mutation of open terminals. Local PTYs, SFTP subsystems and key installation remain outside
+this feature. Existing IPC ownership and payload validation are retained; no new bridge
+channels or dependencies. These are unencrypted non-secret profile settings included in
+backups, separate from credential vault entries.
+
+OpenSSH must permit names through AcceptEnv. The installed ssh2 shell/exec implementation
+requests variables without individual replies, so successful connection never claims
+acceptance. Editors and `docs/ENVIRONMENT_VARIABLES.md` explain how to check a non-secret
+value remotely, snapshot behavior and server requirements. No remote configuration changed.
+
+Regression code covers validation, case-sensitive/literal values, parent/child/host merging,
+empty overrides, quota rollback, persistence, workspace round-trips/conflicts, schema-v7
+migration preservation/snapshots, group deletion, SSH env requests and PTY dimensions, exec
+options, UI row editing/removal and invalid IPC refusal. Tests are written and type-checked
+but remain unrun at the user's request. `npm run check`, `npm run build` and `git diff --check`
+passed on Linux x64. Real migration/restore execution, live OpenSSH acceptance, visual/
+accessibility and Windows/macOS acceptance remain unverified. Next is F46 — Shell integration;
+extend the current local Bash working-directory/command-state implementation rather than
+replacing completed history/autocomplete work.
