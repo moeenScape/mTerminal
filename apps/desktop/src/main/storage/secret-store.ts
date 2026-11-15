@@ -1,4 +1,11 @@
 import {
+  MAX_SESSION_LOGS,
+  LOG_RETENTION_MS,
+  validateSessionLog,
+  validateLogAnnotation,
+  type SessionLog,
+} from '../../shared/session-logs.js';
+import {
   MAX_SNIPPETS,
   validateSnippet,
   validateSnippetCatalog,
@@ -200,6 +207,7 @@ export class SshSecretStore {
             name === 'vault.master' ||
             name === 'history.enc' ||
             name === 'snippets.enc' ||
+            name === 'session-logs.enc' ||
             /^[0-9a-f-]{36}\.(password|key|login)\.enc$/.test(name),
         );
         if (!files.length) return;
@@ -409,6 +417,73 @@ export class SshSecretStore {
     return this.serialize(async () => {
       const entries = await this.readHistory();
       await this.writeHistory(id ? entries.filter((entry) => entry.id !== id) : []);
+    });
+  }
+
+  private async writeSessionLogs(logs: SessionLog[]): Promise<void> {
+    if (logs.length > MAX_SESSION_LOGS) throw new Error('Session log limit reached.');
+    const plaintext = JSON.stringify({ version: 1, logs });
+    if (Buffer.byteLength(plaintext) > 512 * 1024) throw new Error('Session log limit reached.');
+    await this.writeEncrypted(
+      join(this.directory, 'session-logs.enc'),
+      await this.storage.encryptStringAsync(await this.protect(plaintext)),
+    );
+  }
+  private async readSessionLogs(): Promise<SessionLog[]> {
+    this.requireUnlocked();
+    await this.requireSecureStorage();
+    try {
+      const path = join(this.directory, 'session-logs.enc');
+      const info = await lstat(path);
+      if (!info.isFile() || info.size < 1 || info.size > 2 * 1024 * 1024)
+        throw new AppFailure('vault-corrupt');
+      const decrypted = await this.storage.decryptStringAsync(await readFile(path));
+      const plaintext = await this.reveal(decrypted.result);
+      if (Buffer.byteLength(plaintext) > 512 * 1024) throw new AppFailure('vault-corrupt');
+      const data = JSON.parse(plaintext) as { version: number; logs: unknown[] };
+      if (data.version !== 1 || !Array.isArray(data.logs) || data.logs.length > MAX_SESSION_LOGS)
+        throw new AppFailure('vault-corrupt');
+      const logs = Array.from(data.logs).map(validateSessionLog);
+      if (new Set(logs.map((log) => log.id)).size !== logs.length)
+        throw new AppFailure('vault-corrupt');
+      const recent = logs.filter((log) => log.createdAt > Date.now() - LOG_RETENTION_MS);
+      if (recent.length !== logs.length || decrypted.shouldReEncrypt)
+        await this.writeSessionLogs(recent);
+      return recent;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if (error instanceof AppFailure) throw error;
+      throw new AppFailure('vault-corrupt');
+    }
+  }
+  listSessionLogs(): Promise<SessionLog[]> {
+    return this.serialize(() => this.readSessionLogs());
+  }
+  saveSessionLog(value: unknown): Promise<void> {
+    const log = validateSessionLog(value);
+    return this.serialize(async () => {
+      if (log.createdAt <= Date.now() - LOG_RETENTION_MS) throw new Error('Session log expired.');
+      const logs = await this.readSessionLogs();
+      if (!logs.some((item) => item.id === log.id) && logs.length >= MAX_SESSION_LOGS)
+        throw new Error('Delete a saved log before recording another.');
+      await this.writeSessionLogs([log, ...logs.filter((item) => item.id !== log.id)]);
+    });
+  }
+  annotateSessionLog(id: string, value: unknown): Promise<void> {
+    if (!validHostId(id)) throw new Error('Invalid log ID.');
+    return this.serialize(async () => {
+      const logs = await this.readSessionLogs();
+      const log = logs.find((item) => item.id === id);
+      if (!log) throw new Error('Session log missing.');
+      Object.assign(log, validateLogAnnotation(value, log.text.length));
+      await this.writeSessionLogs(logs);
+    });
+  }
+  deleteSessionLog(id: string): Promise<void> {
+    if (!validHostId(id)) throw new Error('Invalid log ID.');
+    return this.serialize(async () => {
+      const logs = await this.readSessionLogs();
+      await this.writeSessionLogs(logs.filter((log) => log.id !== id));
     });
   }
 

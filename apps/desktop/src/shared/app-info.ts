@@ -1,3 +1,4 @@
+import type { SessionLogsApi } from './session-logs.js';
 import type { BroadcastApi } from './broadcast.js';
 import type { BatchApi } from './batch.js';
 import type { SnippetsApi } from './snippets.js';
@@ -31,7 +32,8 @@ export interface DesktopApi
     TemplatesApi,
     SnippetsApi,
     BatchApi,
-    BroadcastApi {
+    BroadcastApi,
+    SessionLogsApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;

@@ -2977,3 +2977,48 @@ p.field-hint {
   font-size: 10px;
   color: var(--muted);
 }
+
+.session-logs-button {
+  width: auto;
+  gap: 5px;
+  padding-inline: 8px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.session-log-list {
+  list-style: none;
+  padding: 0;
+}
+.session-log-list li {
+  display: flex;
+  gap: 8px;
+  margin-block: 8px;
+}
+.session-log-list li > button:first-child {
+  flex: 1;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.session-log-detail pre {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--terminal-font);
+  user-select: text;
+}
+.session-log-detail fieldset,
+.session-logs-dialog label {
+  display: grid;
+  gap: 8px;
+  margin-block: 10px;
+}
+.session-logs-dialog input,
+.session-logs-dialog select {
+  max-width: 100%;
+  color: var(--text);
+  background: var(--raised);
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

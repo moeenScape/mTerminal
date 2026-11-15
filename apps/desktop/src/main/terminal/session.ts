@@ -142,6 +142,9 @@ export class TerminalSession {
     if (session.queued && this.session === session)
       session.timer = setTimeout(() => this.flush(session), 16);
   }
+  get ready(): boolean {
+    return !this.disposed && !!this.session;
+  }
   async completePaths(prefix: string) {
     return this.session?.pty.completePaths?.(prefix) ?? [];
   }

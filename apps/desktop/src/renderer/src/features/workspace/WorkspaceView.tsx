@@ -1,3 +1,4 @@
+import { SessionLogs } from './SessionLogs';
 import { BroadcastControls } from './BroadcastControls';
 import { BatchCommands } from './BatchCommands';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
@@ -406,6 +407,12 @@ export function WorkspaceView({
           ))}
         </div>
       )}
+      <SessionLogs
+        onActivate={onActivate}
+        panes={state.tabs
+          .filter((tab) => tab.sessionId && (tab.phase === 'running' || tab.phase === 'connected'))
+          .map((tab) => ({ sessionId: tab.sessionId!, title: tab.title }))}
+      />
       <button
         type="button"
         className="session-new"

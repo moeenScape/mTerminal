@@ -100,6 +100,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
   expect(exposed).toEqual({
     methods: [
       'ackTerminal',
+      'annotateSessionLog',
       'answerSshChallenge',
       'cancelBatch',
       'cancelTransfer',
@@ -111,6 +112,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteHistory',
       'deleteHost',
       'deleteHostGroup',
+      'deleteSessionLog',
       'deleteSnippet',
       'deleteSshIdentity',
       'deleteSshKey',
@@ -124,8 +126,10 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'getAppInfo',
       'getBatchState',
       'getBroadcastState',
+      'getLogRecordingState',
       'getPreferences',
       'getRemoteEdit',
+      'getSessionLog',
       'getShells',
       'getSshKeyStatus',
       'getSshPasswordStatus',
@@ -141,6 +145,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'listDirectory',
       'listHostGroups',
       'listHosts',
+      'listSessionLogs',
       'listSnippets',
       'listSshIdentities',
       'listTransferRecovery',
@@ -152,6 +157,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'onBroadcastChanged',
       'onHistoryChanged',
       'onRemoteEditChanged',
+      'onSessionLogsChanged',
       'onSnippetsChanged',
       'onSshChallenge',
       'onTerminalEvent',
@@ -181,7 +187,9 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'startBatch',
       'startBroadcast',
       'startRemoteEdit',
+      'startSessionLog',
       'stopBroadcast',
+      'stopSessionLog',
       'unlockVault',
       'uploadRemoteEdit',
       'writeClipboardText',
@@ -3871,4 +3879,111 @@ test('inserts command arguments for review and keeps native completion and promp
   const panel = await openTools('Autocomplete');
   await panel.getByRole('combobox', { name: 'Autocomplete' }).selectOption('off');
   await expect(list).not.toBeVisible();
+});
+
+test('records approved output, saves annotations, seals on vault lock and confirms deletion', async () => {
+  test.skip(process.platform !== 'linux', 'Linux local-terminal acceptance fixture.');
+  const vault = await page.evaluate(() => window.mterminal.getVaultState());
+  test.skip(!vault.available, 'A secure OS storage backend is required.');
+  await page.evaluate(async () => {
+    await window.mterminal.setupVault('e2e session logs passphrase');
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: '/bin/bash' });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  const panel = page.getByRole('dialog', { name: 'Session logs', exact: true });
+  await page.getByRole('button', { name: 'Session logs', exact: true }).click();
+  await panel.getByLabel('Terminal to record').selectOption({ index: 1 });
+  await panel.getByRole('button', { name: 'Review recording', exact: true }).click();
+  let approval = page.getByRole('dialog', { name: "Record this terminal's output?", exact: true });
+  await expect(approval).toContainText('Secrets are not automatically redacted');
+  await approval.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await page.evaluate(() => window.mterminal.listSessionLogs())).toEqual([]);
+  await panel.getByRole('button', { name: 'Review recording', exact: true }).click();
+  approval = page.getByRole('dialog', { name: "Record this terminal's output?", exact: true });
+  await approval.getByRole('button', { name: 'Start recording', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Stop recording', exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Close panel', exact: true }).click();
+  const terminal = page.locator('.terminal-pane[data-active="true"] .xterm-helper-textarea');
+  await terminal.focus();
+  await page.keyboard.type("printf 'F48_%s\\n' OUTPUT");
+  await page.keyboard.press('Enter');
+  const logId = await page.evaluate(
+    async () => (await window.mterminal.getLogRecordingState()).active!.logId,
+  );
+  await expect
+    .poll(
+      () =>
+        page.evaluate((id) => window.mterminal.getSessionLog(id).then((log) => log.text), logId),
+      { timeout: 10000 },
+    )
+    .toContain('F48_OUTPUT');
+  await page.getByRole('button', { name: 'Session logs', exact: true }).click();
+  await panel.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await panel.locator('.session-log-list li > button:first-child').click();
+  await expect(panel.getByLabel('Recorded output')).toContainText('F48_OUTPUT');
+  await panel.getByLabel('Log notes', { exact: true }).fill('Reviewed locally');
+  await panel.getByLabel('Bookmark line', { exact: true }).fill('1');
+  await panel.getByLabel('Bookmark comment', { exact: true }).fill('Start');
+  await panel.getByRole('button', { name: 'Add bookmark', exact: true }).click();
+  await panel.getByRole('button', { name: 'Save annotations', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate((id) => window.mterminal.getSessionLog(id).then((log) => log.notes), logId),
+    )
+    .toBe('Reviewed locally');
+  await panel.getByRole('button', { name: 'Line 1: Start', exact: true }).click();
+  await expect(panel.locator('mark')).toBeVisible();
+  // Lock during a second recording must seal capture and remove decrypted viewer state.
+  await panel.getByRole('button', { name: 'Review recording', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: "Record this terminal's output?", exact: true })
+    .getByRole('button', { name: 'Start recording', exact: true })
+    .click();
+  await expect(panel.getByRole('button', { name: 'Stop recording', exact: true })).toBeVisible();
+  await page.evaluate(() => window.mterminal.lockVault());
+  await expect(panel).toBeHidden();
+  expect((await page.evaluate(() => window.mterminal.getLogRecordingState())).active).toBeNull();
+  expect(
+    await page.evaluate(
+      (id) =>
+        window.mterminal.getSessionLog(id).then(
+          () => false,
+          () => true,
+        ),
+      logId,
+    ),
+  ).toBe(true);
+  await page.evaluate(() => window.mterminal.unlockVault('e2e session logs passphrase'));
+  const saved = await page.evaluate((id) => window.mterminal.getSessionLog(id), logId);
+  expect(saved.bookmarks).toEqual([expect.objectContaining({ offset: 0, comment: 'Start' })]);
+  expect(saved.text).not.toContain('\x1b');
+  await page.getByRole('button', { name: 'Session logs', exact: true }).click();
+  // The older log is the second row because newly created logs appear first.
+  await panel
+    .locator('.session-log-list li')
+    .nth(1)
+    .getByRole('button', { name: /^Delete log / })
+    .click();
+  let deletion = page.getByRole('dialog', { name: /^Delete log “/ });
+  await deletion.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await page.evaluate(() => window.mterminal.listSessionLogs())).toHaveLength(2);
+  await panel
+    .locator('.session-log-list li')
+    .nth(1)
+    .getByRole('button', { name: /^Delete log / })
+    .click();
+  deletion = page.getByRole('dialog', { name: /^Delete log “/ });
+  await deletion.getByRole('button', { name: 'Delete log', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.mterminal.listSessionLogs().then((logs) => logs.length)))
+    .toBe(1);
+  expect(
+    await page.evaluate(
+      (id) => window.mterminal.listSessionLogs().then((logs) => logs.some((log) => log.id === id)),
+      logId,
+    ),
+  ).toBe(false);
 });

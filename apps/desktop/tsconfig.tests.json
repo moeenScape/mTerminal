@@ -37,6 +37,8 @@
     "src/renderer/src/features/hosts/host-browser.ts",
     "src/main/clipboard.ts",
     "src/main/snippets.ts",
+    "src/main/session-logs.ts",
+    "src/main/terminal/session-logs.ts",
     "src/renderer/src/features/workspace/terminal-search.ts",
     "src/renderer/src/features/workspace/appearance.ts",
     "src/renderer/src/features/workspace/autocomplete.ts",

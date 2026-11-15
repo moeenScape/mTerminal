@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F47 implemented — History, snippets, local paths and scoped command arguments; acceptance pending |
-| Next feature | F48 — Session logs; runtime verification remains deferred |
+| Active feature | F48 implemented — Encrypted session output logs, notes and bookmarks; acceptance pending |
+| Next feature | F49 — Port forwarding; Phase 5 regression/runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-09 |
+| Last roadmap update | 2026-11-15 |
 
 ## Selected technology stack
 
@@ -195,7 +195,7 @@ Dependencies: Stable sessions, storage, and credential handling.
   - [x] **F47.1 — Snippet source (implementation):** Match safe single-line saved commands by prefix, show source/name/folder, deduplicate with history and revalidate before insert-only acceptance. Existing history execution remains available; regression execution/runtime acceptance deferred.
   - [x] **F47.2 — Local path source (implementation):** Owned local Bash prompt/cwd/HOME context, bounded names-only filesystem reads, safe literal suffixes and insert-only File/Folder suggestions. Revalidation and stale-result refusal included; regression execution/runtime acceptance deferred.
   - [x] **F47.3 — Argument source (implementation):** Static Git/npm/ls subcommand and standalone-flag catalogs, explicit grammar limits, source labels/descriptions and insert-only acceptance. No command discovery/execution; regression execution/runtime acceptance deferred.
-- [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
+- [x] **F48 — Session logs (implementation):** Explicit local/SSH output recording, encrypted checkpoints, saved transcript viewer, notes/bookmarks/comments, access-based 30-day retention and confirmed deletion. Quotas, vault/window lifecycle and regression code included; test execution/runtime/platform acceptance deferred.
 
 Completion criteria: Workspace restoration does not silently repeat destructive commands. Broadcast destinations remain visible. Verify log limits and deletion, including sensitive-output handling. Unsupported shell integration must degrade gracefully.
 
@@ -1596,3 +1596,39 @@ Tests are written and type-checked but remain unrun at the user's request. `npm 
 visual/accessibility and macOS/Windows acceptance remain unverified. F47 implementation is
 complete within the documented four-source contract; Phase 5 verification remains pending.
 Next is F48 — Session logs.
+
+
+### F48 encrypted session output logs — 2026-11-15
+
+Added explicit per-terminal recording for owned ready local and SSH sessions, with a sensitive-
+output confirmation and a persistent session-strip Recording indicator. Closing the viewer
+keeps recording; stop, disconnect, reload, renderer failure, vault lock/reset, window close or
+the character limit seals capture. Old scrollback is excluded; no automatic resume, input
+callback capture, redaction, plaintext export or terminal replay is introduced.
+
+Main-process output observation follows existing shell-protocol filtering. A bounded streaming
+filter strips ANSI/OSC/DCS sequences across chunks and normalizes line endings. Plain transcripts
+are persisted through the existing vault and OS secure-storage backend as session-logs.enc,
+with an initial checkpoint, changed-output checkpoints every two seconds and final writes.
+Failure stops recording, preserves the prior ciphertext and reports possible unsaved-tail loss.
+Restarted checkpoints remain inactive and are labeled Interrupted checkpoint.
+
+The viewer provides saved output, 512-character notes, up to 20 line bookmarks with 256-character
+comments, jump/highlight, annotation saving and confirmed deletion. Pending/active/finalizing
+logs reject annotation/deletion. Lock/reset clears the decrypted viewer and prevents racing
+starts. Window close drains recording before the vault key is cleared. Existing vault reset
+archives the encrypted file with other recovery data; backups/recovery copies are not deleted.
+
+Four logs maximum, 32,768 UTF-16 code units each, and 512 KiB total collection JSON. A fifth start
+requires deletion rather than silent eviction. Thirty-day expiry is measured from creation and
+pruned on unlocked collection access/save; it is not a background secure-erasure guarantee.
+Validated owner/frame, UUID, arity and annotation boundaries keep transcript writes main-owned;
+change events contain no output. No dependencies, schema changes or server implementation.
+
+Regression code covers chunked control filtering, Unicode boundaries, consent/session isolation,
+checkpoint/stop/disconnect/limit/failure behavior, cancelled starts/final-write mutation races,
+IPC ownership/arity and safe failures, encrypted persistence/restart/lock/reset, quotas, retention,
+annotations and the desktop consent/read/bookmark/lock/deletion flow. Tests are written and
+remain unrun at the user's request. `npm run check`, `npm run build` and
+`git diff --check` passed on Linux x64. Live local/SSH capture, OS secure-storage persistence,
+visual/accessibility and macOS/Windows acceptance remain unverified. Phase 5 verification remains pending. Next is F49 — Port forwarding.

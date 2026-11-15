@@ -1,3 +1,10 @@
+import {
+  sessionLogChannels,
+  SESSION_LOGS_CHANGED,
+  type SessionLog,
+  type SessionLogSummary,
+  type LogRecordingState,
+} from '../shared/session-logs.js';
 import { broadcastChannels, BROADCAST_CHANGED, type BroadcastState } from '../shared/broadcast.js';
 import {
   batchChannels,
@@ -67,6 +74,19 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  listSessionLogs: () => historyRequest<SessionLogSummary[]>(sessionLogChannels.list),
+  getSessionLog: (id) => historyRequest<SessionLog>(sessionLogChannels.read, id),
+  getLogRecordingState: () => historyRequest<LogRecordingState>(sessionLogChannels.state),
+  startSessionLog: (id, title) => historyRequest<void>(sessionLogChannels.start, id, title),
+  stopSessionLog: () => historyRequest<void>(sessionLogChannels.stop),
+  annotateSessionLog: (id, annotation) =>
+    historyRequest<void>(sessionLogChannels.annotate, id, annotation),
+  deleteSessionLog: (id) => historyRequest<void>(sessionLogChannels.delete, id),
+  onSessionLogsChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(SESSION_LOGS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(SESSION_LOGS_CHANGED, handler);
+  },
   listBroadcastTargets: () => historyRequest<BatchTarget[]>(broadcastChannels.targets),
   getBroadcastState: () => historyRequest<BroadcastState>(broadcastChannels.state),
   startBroadcast: (targets) => historyRequest<BroadcastState>(broadcastChannels.start, targets),

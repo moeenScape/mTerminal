@@ -1,4 +1,6 @@
 export const failureMessages = {
+  'session-log-failed':
+    'Session log operation failed. Unlock the vault, check storage and the four-log limit, then retry. Saved checkpoints are preserved.',
   'broadcast-failed':
     'Broadcast could not start or send input. Check the recipients and select them again; input is never replayed automatically.',
   'batch-failed':

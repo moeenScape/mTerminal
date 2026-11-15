@@ -156,6 +156,17 @@ The main process initializes `mterminal.sqlite` under Electron’s user data dir
 If you forget the vault passphrase, **Reset vault** preserves the encrypted source files under
 `vault/recovery-*` and lets you create a new vault; it does not recover those saved credentials.
 
+## Session output logs (F48)
+
+Unlock the vault, open **Logs** in the session strip, choose a running local or connected SSH
+terminal, and review the sensitive-output warning before starting. The **Recording** indicator
+stays visible while capture runs. Reopen Logs to stop, read output, save notes/bookmarks, or
+confirm deletion. Closing the panel keeps recording; locking the vault stops it.
+
+Output can include secrets and is not automatically redacted. Logs are encrypted, bounded to
+four recordings of 32,768 characters each, checkpointed every two seconds, and expire after
+30 days when accessed. See [session log usage, privacy and limits](docs/SESSION_LOGS.md).
+
 ## Diagnostics
 
 Startup and storage failures show fixed recovery instructions and an event code. Diagnostics are stored under `userData/logs/diagnostics.log`, with bounded rotation and no raw error messages or application payloads. See [diagnostics and troubleshooting](docs/DIAGNOSTICS.md).

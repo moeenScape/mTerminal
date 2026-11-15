@@ -4,6 +4,7 @@ import { TerminalRegistry } from '../../src/main/terminal/registry.js';
 import { MAX_TERMINAL_TABS } from '../../src/shared/terminal.js';
 
 function fakePty() {
+  let data: (text: string) => void = () => {};
   let exit: (event: { exitCode: number }) => void = () => {};
   const process = {
     write: vi.fn(),
@@ -12,7 +13,10 @@ function fakePty() {
     destroy: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
-    onData: () => ({ dispose: vi.fn() }),
+    onData: (callback: typeof data) => {
+      data = callback;
+      return { dispose: vi.fn() };
+    },
     onExit: (callback: typeof exit) => {
       exit = callback;
       return { dispose: vi.fn() };
@@ -22,10 +26,46 @@ function fakePty() {
     pty: process as unknown as IPty,
     destroy: process.destroy,
     exit: () => exit({ exitCode: 0 }),
+    data: (text: string) => data(text),
   };
 }
 const size = { cols: 80, rows: 24 };
 describe('owned terminal registry', () => {
+  it('observes owned output batches and reports readiness without retaining unsubscribed listeners', async () => {
+    vi.useFakeTimers();
+    const registry = new TerminalRegistry(() => {});
+    try {
+      const one = fakePty(),
+        two = fakePty(),
+        output = vi.fn();
+      const off = registry.onOutput(output);
+      expect(registry.isReady('one')).toBe(false);
+      await registry.open('one', size, async () => one.pty);
+      await registry.open('two', size, async () => two.pty);
+      expect(registry.isReady('one')).toBe(true);
+      registry.suspend(true);
+      expect(registry.isReady('one')).toBe(false);
+      registry.suspend(false);
+      one.data('first');
+      two.data('second');
+      await vi.advanceTimersByTimeAsync(16);
+      expect(output.mock.calls).toEqual([
+        ['one', 'first'],
+        ['two', 'second'],
+      ]);
+      off();
+      one.data('unsubscribed');
+      await vi.advanceTimersByTimeAsync(16);
+      expect(output).toHaveBeenCalledTimes(2);
+      registry.close('one');
+      one.data('late');
+      expect(registry.isReady('one')).toBe(false);
+    } finally {
+      registry.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('notifies file-transfer owners when sessions close, exit or reset', async () => {
     const registry = new TerminalRegistry(() => {});
     const closed = vi.fn();

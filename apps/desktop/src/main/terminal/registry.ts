@@ -14,6 +14,16 @@ export class TerminalRegistry {
   private readonly sessions = new Map<string, TerminalSession>();
   private disposed = false;
   private suspended = false;
+  private readonly outputListeners = new Set<(id: string, data: string) => void>();
+  onOutput(listener: (id: string, data: string) => void) {
+    this.outputListeners.add(listener);
+    return () => {
+      this.outputListeners.delete(listener);
+    };
+  }
+  isReady(id: string) {
+    return !this.disposed && !this.suspended && this.sessions.get(id)?.ready === true;
+  }
   private readonly closedListeners = new Set<(id: string) => void>();
   onSessionClosed(listener: (id: string) => void): () => void {
     this.closedListeners.add(listener);
@@ -103,6 +113,8 @@ export class TerminalRegistry {
     if (this.sessions.size >= MAX_TERMINAL_TABS) throw new AppFailure('terminal-limit');
     const session = new TerminalSession((event) => {
       if (this.sessions.get(id) !== session) return;
+      if (event.kind === 'data')
+        for (const listener of this.outputListeners) listener(id, event.data);
       if (event.kind === 'exit' || event.kind === 'error') {
         this.sessions.delete(id);
         session.dispose();

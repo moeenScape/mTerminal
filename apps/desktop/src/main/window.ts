@@ -1,3 +1,4 @@
+import { attachSessionLogs } from './session-logs.js';
 import { attachBroadcast } from './terminal/broadcast-ipc.js';
 import { attachBatch } from './terminal/batch-ipc.js';
 import { attachSnippets } from './snippets.js';
@@ -226,7 +227,13 @@ export async function createMainWindow(
         }
         if (channel === vaultChannels.lock && args.length === 0) {
           broadcasts.stop('Broadcast stopped when the vault was locked.');
-          await secrets.lockVault();
+          logs.suspend(true);
+          try {
+            await logs.stop().catch(() => {});
+            await secrets.lockVault();
+          } finally {
+            logs.suspend(false);
+          }
           broadcasts.stop('Broadcast stopped when the vault was locked.');
           if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
           return { ok: true, value: undefined };
@@ -241,10 +248,17 @@ export async function createMainWindow(
             title: 'Reset local vault',
             message: 'Create a new vault without the current passphrase?',
             detail:
-              'Saved passwords, keys, history and snippets will no longer be available. Their encrypted files will be preserved in a recovery folder under the vault directory. Host and identity records will remain.',
+              'Saved passwords, keys, history, snippets and session logs will no longer be available. Their encrypted files will be preserved in a recovery folder under the vault directory. Host and identity records will remain.',
           });
           if (confirmation.response !== 0) return { ok: true, value: false };
-          await secrets.resetVault();
+          logs.suspend(true);
+          try {
+            await logs.stop().catch(() => {});
+            await secrets.resetVault();
+          } finally {
+            logs.suspend(false);
+          }
+          if (!window.webContents.isDestroyed()) window.webContents.send(vaultEvents.locked);
           broadcasts.stop('Broadcast stopped for vault reset.');
           return { ok: true, value: true };
         }
@@ -344,6 +358,7 @@ export async function createMainWindow(
     secrets,
     () => store.preferences.recordHistory,
   );
+  const logs = attachSessionLogs(window, rendererUrl, terminals, secrets);
   const batches = attachBatch(window, rendererUrl, terminals);
   const broadcasts = attachBroadcast(window, rendererUrl, terminals);
   attachFiles(
@@ -396,6 +411,8 @@ export async function createMainWindow(
     if (saved.maximized) window.maximize();
     window.show();
   });
+  let logsFlushed = false;
+  let flushingLogs = false;
   let closing = false;
   let confirmed = false;
   let confirming = false;
@@ -417,8 +434,8 @@ export async function createMainWindow(
             ? 'Close the window with an active command batch?'
             : `Close ${terminals.count} active terminal session${terminals.count === 1 ? '' : 's'}?`,
           detail: batches.running
-            ? 'Queued commands will be cancelled and exec channels closed. Remote processes may continue. Active terminals and file transfers may be interrupted; terminal output and batch results will be discarded.'
-            : 'Running commands and file transfers may be interrupted. Terminal output will be discarded.',
+            ? 'Queued commands will be cancelled and exec channels closed. Remote processes may continue. Active terminals and file transfers may be interrupted; unrecorded terminal output and batch results will be discarded. Approved logs retain saved checkpoints.'
+            : 'Running commands and file transfers may be interrupted. Unrecorded terminal output will be discarded. Approved logs retain saved checkpoints.',
         })
         .then(({ response }) => {
           confirming = false;
@@ -430,6 +447,21 @@ export async function createMainWindow(
         })
         .catch(() => {
           confirming = false;
+        });
+      return;
+    }
+    if (!logsFlushed) {
+      event.preventDefault();
+      if (flushingLogs) return;
+      flushingLogs = true;
+      terminals.suspend(true);
+      void logs
+        .stop('closed')
+        .catch(() => {})
+        .then(() => {
+          logsFlushed = true;
+          flushingLogs = false;
+          if (!window.isDestroyed()) window.close();
         });
       return;
     }
@@ -449,6 +481,7 @@ export async function createMainWindow(
         const code = failureCode(error, 'preferences-save');
         diagnostics.record('window-state-save-failed', code);
         closing = false;
+        logsFlushed = false;
         confirmed = false;
         terminals.suspend(false);
         // Keep the window open so a failed write cannot silently discard the saved state.
