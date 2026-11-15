@@ -40,6 +40,7 @@
     "src/renderer/src/features/workspace/terminal-search.ts",
     "src/renderer/src/features/workspace/appearance.ts",
     "src/renderer/src/features/workspace/autocomplete.ts",
+    "src/renderer/src/features/workspace/argument-completion.ts",
     "src/main/terminal/transport.ts",
     "src/main/terminal/ssh.ts",
     "src/main/terminal/bash-history.ts",

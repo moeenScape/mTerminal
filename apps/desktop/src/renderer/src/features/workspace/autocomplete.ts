@@ -1,3 +1,4 @@
+import { argumentCompletions } from './argument-completion.js';
 import type { PathCompletion } from '../../../../shared/path-completion.js';
 import type { Snippet } from '../../../../shared/snippets.js';
 import { isRecordableCommand, type CommandHistoryEntry } from '../../../../shared/history.js';
@@ -10,10 +11,11 @@ const LIST_PADDING = 8;
 
 export type AutocompleteSuggestion =
   | { id: string; command: string; kind: 'history' }
+  | { id: string; command: string; kind: 'argument'; description: string }
   | { id: string; command: string; kind: 'snippet'; name: string; folder: string }
   | { id: string; command: string; kind: 'path'; directory: boolean; prompt: number };
 
-/** Curated snippets first, followed by history in its existing ranked order. */
+/** Preserve snippet/history priority, then offer argument and path hints. */
 export function autocompleteMatches(
   entries: CommandHistoryEntry[],
   prefix: string,
@@ -51,6 +53,14 @@ export function autocompleteMatches(
     ...entries
       .filter((entry) => eligible(entry.command))
       .map(({ id, command }) => ({ id, command, kind: 'history' as const })),
+    ...argumentCompletions(prefix)
+      .filter((entry) => eligible(entry.command))
+      .map(({ command, description }) => ({
+        id: command,
+        command,
+        description,
+        kind: 'argument' as const,
+      })),
     ...paths
       .filter((entry) => eligible(entry.command))
       .map(({ command, directory, prompt }) => ({
@@ -81,6 +91,15 @@ export function currentSnippetSuggestion(item: AutocompleteSuggestion, snippets:
         snippet.command === item.command &&
         snippet.name === item.name &&
         snippet.folder === item.folder,
+    )
+  );
+}
+
+export function currentArgumentSuggestion(item: AutocompleteSuggestion, prefix: string) {
+  return (
+    item.kind === 'argument' &&
+    argumentCompletions(prefix).some(
+      (entry) => entry.command === item.command && entry.description === item.description,
     )
   );
 }

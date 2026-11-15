@@ -1,7 +1,7 @@
 # Autocomplete sources (F47)
 
-F47 is in progress. History suggestions are retained; **F47.1** adds the saved-snippet source.
-F47.2 adds local path completion. Command-specific argument completion (F47.3) is pending.
+F47 has four implemented sources: history, saved snippets (F47.1), local paths (F47.2),
+and scoped command arguments (F47.3). Phase regression/runtime acceptance remains pending.
 
 ## Using snippet suggestions
 
@@ -12,14 +12,14 @@ Snippets**. Type the beginning of a snippet's
 `git status --short`. Names are labels, not replacement aliases. No text is erased or expanded.
 
 Matching is case-sensitive. Eligible snippets appear first, sorted by folder/name, followed
-by history in its existing ranked order, then local path matches. Exact duplicate commands appear once, preferring
+by history in its existing ranked order, then argument and local path matches. Exact duplicate commands appear once, preferring
 the snippet's insert-only action. The combined list contains at most 20 rows and uses the
 existing cursor-relative, scrollable popup. A rocket icon and **Snippet** badge identify the
 source; the tooltip and accessible label include its name, folder and complete command.
 
 - **Up/Down** selects a row; **Escape** dismisses the list. Tab keeps its shell behavior.
 - **Right Arrow** or clicking inserts the remaining suffix for either source.
-- **Enter on a selected snippet or path** inserts its suffix without submitting Enter. Review the
+- **Enter on a selected snippet, path or argument** inserts its suffix without submitting Enter. Review the
   resulting command, then press Enter again to execute it yourself.
 - **Enter on selected history** retains the existing submit behavior. With nothing selected,
   Enter submits only what you typed.
@@ -53,8 +53,8 @@ and manual snippet execution are unchanged.
 
 Suggestions require local Bash 5.1+ integration with `base64` and `tr`, a clean recognized prompt,
 and the selected visible pane. Running programs, unsupported shells and SSH do not receive
-this source. Neither source adds shell execution, an argument generator, alias replacement or multiline
-insertion.
+this source. No source adds shell execution, alias replacement or multiline insertion. Argument hints
+use the static catalog below, not a command-driven generator.
 
 ## Local path completion (F47.2)
 
@@ -97,6 +97,52 @@ submission or closure; they are never redirected. This checks names/type, not im
 identity. Review the completed command before running it; files can change afterward.
 No directory caches, plaintext logs, profile/export fields or storage migrations are added.
 
+## Command argument hints (F47.3)
+
+Type `git st`, `git status --sh`, `npm install --save-d`, or `ls -` at a recognized local Bash
+prompt. **Argument** rows use a chevron icon and show descriptions in their tooltip and
+accessible label. Right Arrow, click or highlighted Enter inserts the missing text without
+submitting Enter. Review it and press Enter separately to run the command.
+
+The following static contexts are supported; this is a reference catalog, not installation,
+repository, script, package or CLI-version detection.
+
+| Context | Suggested words |
+| --- | --- |
+| `git ` | `status`, `log`, `diff`, `show`, `branch`, `help`, `--help`, `--version` |
+| `git status ` | `--short`, `--branch`, `--porcelain`, `--ignored` |
+| `git log ` | `--oneline`, `--graph`, `--all`, `--decorate`, `--stat` |
+| `git diff ` | `--stat`, `--name-only`, `--name-status`, `--cached`, `--check` |
+| `git show ` | `--stat`, `--name-only`, `--oneline` |
+| `git branch ` | `--all`, `--remotes`, `--verbose` |
+| `npm ` | `install`, `ci`, `run`, `test`, `outdated`, `list`, `help` |
+| `npm install ` | `--save-dev`, `--ignore-scripts`, `--package-lock-only` |
+| `npm ci ` | `--ignore-scripts`, `--no-audit` |
+| `npm run ` | `--if-present`, `--silent` |
+| `npm test ` | `--silent` |
+| `ls ` | `-a`, `-l`, `-h`, `-d`, `-R` |
+
+Matching is case-sensitive and retains the exact spaces already typed. Completed flags are
+not offered again. Only the final word is extended, and it must belong to a listed context.
+Standalone flags can precede more supported flags. Once an operand, unknown/value-taking
+option, combined short flag or end-of-options `--` has been completed, this source stops.
+For example, `git status --short --b` can offer `--branch`, while `git log HEAD --o`,
+`git -C repo status --s`, `ls -la -` and `npm run dev -- --s` yield no argument hints.
+
+Quoted strings, escaped words, shell operators, expansions, command paths, wrappers such as
+sudo, aliases, `--option=value` and dynamic values remain outside this grammar. Native Tab
+and other eligible autocomplete sources keep their existing behavior. No program is run to
+load completions; Git config, npm scripts/extensions and shell completion scripts are not
+inspected. Hints are recomputed against the current prefix at acceptance and share the
+existing active-session, prompt, selection and preference guards. No new IPC, filesystem
+reads, dependencies or persisted configuration are introduced by this source.
+
+The catalog uses documented command options: [Git status](https://git-scm.com/docs/git-status),
+[Git log](https://git-scm.com/docs/git-log), [Git diff](https://git-scm.com/docs/git-diff),
+[npm install](https://docs.npmjs.com/cli/v11/commands/npm-install/),
+[npm run](https://docs.npmjs.com/cli/v11/commands/npm-run/), and
+[ls](https://www.gnu.org/software/coreutils/manual/html_node/ls-invocation.html).
+
 ## Verification boundary
 
 Regression tests cover source ordering, deduplication, bounds, unsafe-command exclusion,
@@ -104,6 +150,9 @@ exact saved-content revalidation, mixed history/snippet UI behavior, insert-only
 edit/delete refresh and a delayed acceptance after vault lock. Path regression code also
 covers parsing/escaping, hidden/option-like names, cwd/HOME resolution, symlinks, traversal
 bounds and iterator closure, IPC ownership/arity, invalidated prompts, delayed lookup
-refusal and insert-only file/folder UI behavior. Tests are written and
+refusal and insert-only file/folder UI behavior. Argument tests cover supported contexts,
+exact-prefix extension, duplicate suppression, operand/option boundaries, unsupported syntax,
+prototype-key rejection, mixed-source ordering, revalidation, insert-only keyboard/click
+acceptance, native Tab forwarding, running-program exclusion and disabled autocomplete. Tests are written and
 type-checked; execution is deferred at the user's request. Live PTY/keychain, visual/
 accessibility and cross-platform behavior remain pending the phase acceptance gate.

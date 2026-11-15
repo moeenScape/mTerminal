@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F47.2 implemented — Session-bound local path suggestions; F47 remains in progress |
-| Next feature | F47.3 — Command-specific argument suggestions; runtime verification remains deferred |
+| Active feature | F47 implemented — History, snippets, local paths and scoped command arguments; acceptance pending |
+| Next feature | F48 — Session logs; runtime verification remains deferred |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -191,10 +191,10 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [x] **F45 — Environment variables (implementation):** Host/group editors, parent → child → host overrides, literal SSH shell/exec env requests, schema-v8 persistence and backup round-trips. Server AcceptEnv requirements and unconfirmed acceptance are documented; regression execution/runtime acceptance deferred.
 - [x] **F46 — Shell integration (implementation):** Local Bash 5.1+ directory, prompt/waiting/running states and paired completion exit codes; session-bound metadata, per-pane display and unsupported-shell fallback. Existing history/snippet behavior retained; regression execution/runtime acceptance deferred.
-- [ ] **F47 — Autocomplete (in progress):** Keep completed history suggestions; extend sources through the steps below.
+- [x] **F47 — Autocomplete (implementation):** Completed history, snippet, local path and scoped command-argument sources below; phase regression/runtime acceptance remains pending.
   - [x] **F47.1 — Snippet source (implementation):** Match safe single-line saved commands by prefix, show source/name/folder, deduplicate with history and revalidate before insert-only acceptance. Existing history execution remains available; regression execution/runtime acceptance deferred.
   - [x] **F47.2 — Local path source (implementation):** Owned local Bash prompt/cwd/HOME context, bounded names-only filesystem reads, safe literal suffixes and insert-only File/Folder suggestions. Revalidation and stale-result refusal included; regression execution/runtime acceptance deferred.
-  - [ ] **F47.3 — Argument source:** Define supported commands and argument suggestions with documented limits.
+  - [x] **F47.3 — Argument source (implementation):** Static Git/npm/ls subcommand and standalone-flag catalogs, explicit grammar limits, source labels/descriptions and insert-only acceptance. No command discovery/execution; regression execution/runtime acceptance deferred.
 - [ ] **F48 — Session logs:** Recording, bookmarks, comments, retention, and deletion.
 
 Completion criteria: Workspace restoration does not silently repeat destructive commands. Broadcast destinations remain visible. Verify log limits and deletion, including sensitive-output handling. Unsupported shell integration must degrade gracefully.
@@ -1561,3 +1561,38 @@ insert-only file/folder UI behavior without evaluating filenames. Tests are writ
 type-checked but remain unrun at the user's request. `npm run check`, `npm run build` and
 `git diff --check` passed on Linux x64. Live PTY/filesystem, visual/accessibility and macOS/
 Windows acceptance remain unverified. F47 remains open for F47.3 command-specific arguments.
+
+### F47.3 scoped command-argument autocomplete — 2026-11-15
+
+Added a static argument source for Git, npm and ls to the existing recognized local Bash
+prompt popup. Supported contexts are documented in `docs/AUTOCOMPLETE.md`: Git subcommands
+and common status/log/diff/show/branch flags, npm subcommands and selected install/ci/run/test
+flags, and standalone ls flags. Argument rows have a chevron, explicit badge, tooltip and
+accessible description. Existing snippets/history retain priority, followed by arguments and
+paths, with exact-command deduplication and the shared 20-row bound.
+
+Selection via Right Arrow, click or highlighted Enter inserts only the missing suffix,
+without submitting Enter. Recompute the exact catalog entry/description at acceptance and
+retain the current prefix, active ready session, selection, preference and generation guards.
+Existing highlighted history still submits when selected; snippets/paths remain insert-only.
+Native Tab is forwarded unchanged. No program is executed to discover completions and no
+repository config, package scripts/extensions or completion scripts are inspected by this
+source. No new IPC, filesystem reads, dependencies, persistence or schema changes.
+
+The bounded literal parser preserves typed spacing, matches case-sensitively and suppresses
+already supplied flags. It stops after operands, unknown/value-taking options, combined
+short flags or completed end-of-options --. Quoted/escaped input, variables, shell operators,
+command wrappers/paths, aliases, dynamic values and --option=value remain outside the declared
+grammar. These are reference hints, not proof a command or option exists on the installed CLI.
+The documented catalog references official Git/npm/Coreutils manuals.
+
+Regression code covers supported contexts, exact-prefix extension, spacing, duplicate flags,
+operand/end-of-options/unknown-grammar boundaries, private/control/complex input, prototype
+keys, cross-source order/deduplication, exact argument revalidation, insert-only keyboard and
+click acceptance, native Tab forwarding, running-program exclusion and disabled autocomplete.
+The existing history desktop fixture now accounts for the additional Git subcommand row.
+Tests are written and type-checked but remain unrun at the user's request. `npm run check`,
+`npm run build` and `git diff --check` passed on Linux x64. Live PTY/CLI compatibility,
+visual/accessibility and macOS/Windows acceptance remain unverified. F47 implementation is
+complete within the documented four-source contract; Phase 5 verification remains pending.
+Next is F48 — Session logs.

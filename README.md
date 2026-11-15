@@ -176,7 +176,9 @@ type a snippet command's prefix, and select its **Snippet** row to insert it for
 Snippet selection never submits Enter; highlighted history rows retain Enter-to-run behavior.
 F47.2 also offers local file/folder paths from the recognized prompt, with escaped literal
 filenames and insert-only acceptance. Try `cat ./rea`, `cd ../Doc`, or `cat ~/Doc`. See
-[autocomplete sources](docs/AUTOCOMPLETE.md). Command-specific argument sources remain pending.
+[autocomplete sources](docs/AUTOCOMPLETE.md). F47.3 adds insert-only Git/npm/ls subcommand
+and flag hints, such as `git status --sh` and `npm install --save-d`, with a documented static
+catalog and grammar limits. These hints do not run commands or verify installed CLI versions.
 
 Run `npm run dev` from the repository root, open **Workspace**, and choose **Start
 local shell** or **New terminal**. Input goes to the real shell; output is rendered by xterm.js. Use

@@ -15,6 +15,7 @@ import {
   autocompletePosition,
   currentSnippetSuggestion,
   currentPathSuggestion,
+  currentArgumentSuggestion,
   type AutocompleteSuggestion,
 } from './autocomplete';
 import type { Terminal, IMarker } from '@xterm/xterm';
@@ -298,10 +299,12 @@ export function useCommandHistory(
           const matches =
             item.kind === 'snippet'
               ? currentSnippetSuggestion(item, await window.mterminal.listSnippets())
-              : currentPathSuggestion(
-                  item,
-                  await window.mterminal.completeTerminalPaths(target, current.prefix),
-                );
+              : item.kind === 'argument'
+                ? currentArgumentSuggestion(item, current.prefix)
+                : currentPathSuggestion(
+                    item,
+                    await window.mterminal.completeTerminalPaths(target, current.prefix),
+                  );
           if (
             request !== version.current ||
             session.current !== target ||
@@ -489,7 +492,7 @@ export function useCommandHistory(
             id={listId}
             role="listbox"
             aria-label="Command suggestions"
-            aria-description="Up and Down select, Right Arrow or click inserts. Enter runs selected history or inserts snippets and paths for review. Escape dismisses."
+            aria-description="Up and Down select, Right Arrow or click inserts. Enter runs selected history or inserts snippets, paths and arguments for review. Escape dismisses."
             style={{
               left: popup.left,
               top: popup.top,
@@ -508,16 +511,20 @@ export function useCommandHistory(
                 title={
                   item.kind === 'snippet'
                     ? `${item.name}${item.folder ? ` (${item.folder})` : ''}\n${item.command}\nInserts only; press Enter afterward to run.`
-                    : item.kind === 'path'
-                      ? `Local ${item.directory ? 'folder' : 'file'}\n${item.command}\nInserts only; press Enter afterward to run.`
-                      : item.command
+                    : item.kind === 'argument'
+                      ? `${item.description}\n${item.command}\nInserts only; press Enter afterward to run.`
+                      : item.kind === 'path'
+                        ? `Local ${item.directory ? 'folder' : 'file'}\n${item.command}\nInserts only; press Enter afterward to run.`
+                        : item.command
                 }
                 aria-label={
                   item.kind === 'snippet'
                     ? `Snippet ${item.name}${item.folder ? ` (${item.folder})` : ''}: ${item.command}. Inserts only.`
-                    : item.kind === 'path'
-                      ? `${item.directory ? 'Folder' : 'File'}: ${item.command}. Inserts only.`
-                      : undefined
+                    : item.kind === 'argument'
+                      ? `Argument: ${item.command}. ${item.description}. Inserts only.`
+                      : item.kind === 'path'
+                        ? `${item.directory ? 'Folder' : 'File'}: ${item.command}. Inserts only.`
+                        : undefined
                 }
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => {
@@ -530,11 +537,13 @@ export function useCommandHistory(
                   name={
                     item.kind === 'snippet'
                       ? 'rocket'
-                      : item.kind === 'path'
-                        ? item.directory
-                          ? 'folder'
-                          : 'file'
-                        : 'history'
+                      : item.kind === 'argument'
+                        ? 'chevron'
+                        : item.kind === 'path'
+                          ? item.directory
+                            ? 'folder'
+                            : 'file'
+                          : 'history'
                   }
                 />
                 <span className="command-suggestion-text">
@@ -543,7 +552,13 @@ export function useCommandHistory(
                 </span>
                 {item.kind !== 'history' && (
                   <small className="command-suggestion-source">
-                    {item.kind === 'snippet' ? 'Snippet' : item.directory ? 'Folder' : 'File'}
+                    {item.kind === 'snippet'
+                      ? 'Snippet'
+                      : item.kind === 'argument'
+                        ? 'Argument'
+                        : item.directory
+                          ? 'Folder'
+                          : 'File'}
                   </small>
                 )}
               </div>

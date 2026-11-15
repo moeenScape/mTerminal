@@ -2267,7 +2267,8 @@ test('lists Bash history, searches anywhere in a command and suggests while typi
   await page.locator('.terminal-pane:not([hidden]) .xterm-helper-textarea').focus();
   await page.keyboard.type('git l');
   const suggestions = page.getByRole('listbox', { name: 'Command suggestions' });
-  await expect(suggestions.getByRole('option')).toHaveText(['git log --oneline']);
+  await expect(suggestions.getByRole('option').first()).toHaveText('git log --oneline');
+  await expect(suggestions.getByRole('option', { name: /^Argument: git log\./ })).toBeVisible();
   await page.keyboard.press('ArrowRight');
   await expect(suggestions).toBeHidden();
   await expect(page.locator('.terminal-pane:not([hidden]) .xterm-rows')).toContainText(
@@ -3798,4 +3799,76 @@ test('completes literal local files and folders without submitting Enter or eval
   ).toEqual([]);
   await page.keyboard.press('Control+C');
   await expect(state).toContainText('At shell prompt');
+});
+
+test('inserts command arguments for review and keeps native completion and prompt lifecycle intact', async () => {
+  test.skip(process.platform !== 'linux', 'Requires the Bash 5.1+ PTY acceptance environment.');
+  await snippetFixture();
+  await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({
+      ...preferences,
+      defaultShell: '/bin/bash',
+      autocomplete: true,
+      recordHistory: false,
+    });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status', exact: true });
+  await expect(state).toContainText('At shell prompt');
+  const terminal = pane.locator('.xterm-helper-textarea');
+  await terminal.focus();
+  await page.keyboard.type('git status --sh');
+  const list = page.getByRole('listbox', { name: 'Command suggestions' });
+  const option = list.getByRole('option', { name: /^Argument: git status --short\./ });
+  await expect(option).toHaveText('git status --shortArgument');
+  await expect(option).toHaveAttribute('title', /short status output/);
+  const start = (await snippetWrites()).length;
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(list).not.toBeVisible();
+  await expect
+    .poll(async () => (await snippetWrites()).slice(start))
+    .toEqual([{ id: expect.any(String), data: 'ort' }]);
+  await expect(state).toContainText('At shell prompt');
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('npm install --save-d');
+  const npm = list.getByRole('option', { name: /^Argument: npm install --save-dev\./ });
+  await expect(npm).toBeVisible();
+  const npmStart = (await snippetWrites()).length;
+  await npm.click();
+  await expect
+    .poll(async () => (await snippetWrites()).slice(npmStart))
+    .toEqual([{ id: expect.any(String), data: 'ev' }]);
+  await expect(state).toContainText('At shell prompt');
+  // Do not run the package command: this test verifies text insertion only.
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('ls -');
+  await expect(list.getByRole('option', { name: /^Argument:/ })).toHaveCount(5);
+  const tabStart = (await snippetWrites()).length;
+  await page.keyboard.press('Tab');
+  await expect
+    .poll(async () => (await snippetWrites()).slice(tabStart))
+    .toContainEqual({ id: expect.any(String), data: '\t' });
+  await page.keyboard.press('Escape');
+  await expect(list).not.toBeVisible();
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('git status -- --sh');
+  await expect(list.getByRole('option', { name: /^Argument:/ })).toHaveCount(0);
+  await page.keyboard.press('Control+U');
+  await page.keyboard.type('read -r __argument_wait');
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('Command running');
+  await page.keyboard.type('git status --sh');
+  await expect(list).not.toBeVisible();
+  await page.keyboard.press('Control+C');
+  await expect(state).toContainText('At shell prompt');
+  await terminal.focus();
+  await page.keyboard.type('git status --sh');
+  await expect(option).toBeVisible();
+  const panel = await openTools('Autocomplete');
+  await panel.getByRole('combobox', { name: 'Autocomplete' }).selectOption('off');
+  await expect(list).not.toBeVisible();
 });
