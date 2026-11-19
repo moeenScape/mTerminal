@@ -28,6 +28,7 @@ import {
   validatePortForward,
   type PortForwardRule,
 } from '../../shared/port-forwarding.ts';
+import { MAX_PROXIES, validateProxy, type SavedProxy } from '../../shared/proxies.ts';
 
 const APPLICATION_ID = 0x4d544552;
 const migrations = [
@@ -98,6 +99,13 @@ const migrations = [
   (connection: DatabaseSync) => {
     // No foreign key: deleteHost clears references, and the column stays droppable.
     connection.exec('ALTER TABLE hosts ADD COLUMN jumpHostId TEXT;');
+  },
+  (connection: DatabaseSync) => {
+    // Hosts reference proxies without a foreign key; deleteProxy clears references.
+    connection.exec(`
+      CREATE TABLE proxies (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(length(data) <= 2048)) STRICT;
+      ALTER TABLE hosts ADD COLUMN proxyId TEXT;
+    `);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -175,6 +183,10 @@ function validateDatabase(database: DatabaseSync): void {
     database.prepare('SELECT id,hostId,data FROM port_forwards LIMIT 0').all();
   if (pragmaNumber(database, 'user_version') >= 10)
     database.prepare('SELECT jumpHostId FROM hosts LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 11) {
+    database.prepare('SELECT id,data FROM proxies LIMIT 0').all();
+    database.prepare('SELECT proxyId FROM hosts LIMIT 0').all();
+  }
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -315,6 +327,44 @@ export class LocalDatabase {
     this.connection.prepare('DELETE FROM workspace_templates WHERE id=?').run(id);
   }
 
+  listProxies(): SavedProxy[] {
+    const rows = this.connection
+      .prepare('SELECT id,data FROM proxies ORDER BY rowid LIMIT 51')
+      .all();
+    if (rows.length > MAX_PROXIES) throw new Error('Too many saved proxies.');
+    return rows.map((row) => {
+      if (!validHostId(row.id) || typeof row.data !== 'string' || row.data.length > 2048)
+        throw new Error('Invalid saved proxy.');
+      return { ...validateProxy(JSON.parse(row.data)), id: row.id };
+    });
+  }
+  saveProxy(value: unknown, id?: unknown): SavedProxy {
+    if (id !== undefined && !validHostId(id)) throw new Error('Invalid proxy ID.');
+    const draft = validateProxy(value);
+    const key = (id as string | undefined) ?? randomUUID();
+    this.transaction((db) => {
+      if (id !== undefined) {
+        const result = db
+          .prepare('UPDATE proxies SET data=? WHERE id=?')
+          .run(JSON.stringify(draft), key);
+        if (result.changes !== 1) throw new Error('Proxy no longer exists.');
+      } else {
+        const count = Number(db.prepare('SELECT count(*) AS n FROM proxies').get()?.n);
+        if (count >= MAX_PROXIES) throw new Error('Too many saved proxies.');
+        db.prepare('INSERT INTO proxies (id,data) VALUES (?,?)').run(key, JSON.stringify(draft));
+      }
+    });
+    return { ...draft, id: key };
+  }
+  deleteProxy(id: unknown): void {
+    if (!validHostId(id)) throw new Error('Invalid proxy ID.');
+    this.transaction((db) => {
+      // Hosts that used this proxy connect directly afterwards.
+      db.prepare('UPDATE hosts SET proxyId=NULL WHERE proxyId=?').run(id);
+      db.prepare('DELETE FROM proxies WHERE id=?').run(id);
+    });
+  }
+
   listPortForwards(hostId: unknown): PortForwardRule[] {
     if (!validHostId(hostId)) throw new Error('Invalid host ID.');
     const rows = this.connection
@@ -378,6 +428,7 @@ export class LocalDatabase {
             inheritUsername: row.inheritUsername === 1,
             identityId: row.identityId ?? null,
             jumpHostId: row.jumpHostId ?? null,
+            proxyId: row.proxyId ?? null,
           }),
           id: row.id,
         };
@@ -404,10 +455,12 @@ export class LocalDatabase {
         const others = this.listHosts().filter((item) => item.id !== key);
         jumpChain({ id: key, jumpHostId: host.jumpHostId }, others);
       }
+      if (host.proxyId && !db.prepare('SELECT id FROM proxies WHERE id=?').get(host.proxyId))
+        throw new Error('Proxy no longer exists.');
       if (id) {
         const result = db
           .prepare(
-            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=?, jumpHostId=? WHERE id=?',
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=?, jumpHostId=?, proxyId=? WHERE id=?',
           )
           .run(
             host.name,
@@ -422,12 +475,13 @@ export class LocalDatabase {
             host.identityId ?? null,
             JSON.stringify(host.environment ?? []),
             host.jumpHostId ?? null,
+            host.proxyId ?? null,
             key,
           );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,jumpHostId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,jumpHostId,proxyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           key,
           host.name,
@@ -442,6 +496,7 @@ export class LocalDatabase {
           host.identityId ?? null,
           JSON.stringify(host.environment ?? []),
           host.jumpHostId ?? null,
+          host.proxyId ?? null,
         );
       }
     });
@@ -670,6 +725,9 @@ export class LocalDatabase {
       for (const host of data.hosts)
         if (host.jumpHostId)
           db.prepare('UPDATE hosts SET jumpHostId=? WHERE id=?').run(host.jumpHostId, host.id);
+      for (const host of data.hosts)
+        if (host.proxyId && db.prepare('SELECT id FROM proxies WHERE id=?').get(host.proxyId))
+          db.prepare('UPDATE hosts SET proxyId=? WHERE id=?').run(host.proxyId, host.id);
       const merged = this.listHosts();
       for (const host of data.hosts) jumpChain(host, merged);
       for (const known of data.knownHosts)

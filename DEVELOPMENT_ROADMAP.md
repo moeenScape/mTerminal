@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F50 implemented — Jump hosts; Phase 6 tests deferred to the end of the phase |
-| Next feature | F51 — Proxies |
+| Active feature | F51 implemented — Proxies; Phase 6 tests deferred to the end of the phase |
+| Next feature | F52 — SSH agents |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -207,7 +207,7 @@ Dependencies: Stable SSH and session lifecycle. Prototype each adapter before se
 
 - [x] **F49 — Port forwarding (implementation):** Local, remote, and dynamic (SOCKS5) forwarding with saved per-host rules and start/stop/status on the connected SSH session. Tests written, execution deferred to the phase run; live server acceptance pending.
 - [x] **F50 — Jump hosts (implementation):** Per-host jump host chains up to three hops, saved-login authentication and host-key verification per hop, and cleanup of every hop with the session. Tests written, execution deferred to the phase run; live server acceptance pending.
-- [ ] **F51 — Proxies:** SOCKS/HTTP routing for supported connection types.
+- [x] **F51 — Proxies (implementation):** Saved SOCKS5 (optional login), SOCKS4/4a and HTTP CONNECT proxies with vault-stored passwords, chosen per host for the first SSH connection, including in front of jump hosts. Tests written, execution deferred to the phase run; live proxy acceptance pending.
 - [ ] **F52 — SSH agents:** Supported agent discovery and explicit forwarding.
 - [ ] **F53 — SSH certificates:** Formats, algorithms, expiry, and interoperability.
 - [ ] **F54 — Hardware and biometric keys:** Platform integration and physical-device verification.
@@ -1668,3 +1668,17 @@ Workspace exports include jump references, and imports resolve them in any order
 downgrade tests were updated. New tests in `tests/unit/jump-hosts.test.ts` are written and not
 run, per the phase workflow. `npm run check` and `npm run build` pass. Live server, visual and
 macOS/Windows acceptance pending. Next is F51 — Proxies.
+
+### 2026-11-19 — F51 Proxies
+
+**Settings → Proxies** manages saved SOCKS5, SOCKS4/4a and HTTP CONNECT proxies (schema v11
+`proxies`, max 50; passwords only in the vault under the proxy ID). Hosts gain **Connect through
+proxy** (`hosts.proxyId`, no foreign key; deleteProxy clears references transactionally). The
+proxy carries the first network connection: to the target, or to the first jump host, using
+that hop's proxy if it has one. A new `proxying` connection state appears on the progress
+screen. Handshakes are bounded (20 s, 16 KiB HTTP response) and cancellable; errors distinguish
+unreachable, login rejected and connection refused. Proxies are excluded from workspace exports;
+imports keep only links to existing proxies. Existing downgrade tests were updated. New tests in
+`tests/unit/proxies.test.ts` are written and not run, per the phase workflow. `npm run check`
+and `npm run build` pass. Live proxy, visual and macOS/Windows acceptance pending. Next is
+F52 — SSH agents.

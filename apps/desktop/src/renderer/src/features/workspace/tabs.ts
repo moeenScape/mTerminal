@@ -22,6 +22,7 @@ export const tabPhaseLabels: Record<TabPhase, string> = {
   running: 'Running',
   exited: 'Exited',
   error: 'Error',
+  proxying: 'Via proxy',
   jumping: 'Via jump host',
   connecting: 'Connecting',
   verifying: 'Verifying key',
@@ -35,6 +36,7 @@ export function isLiveTab(phase: TabPhase): boolean {
   return [
     'starting',
     'running',
+    'proxying',
     'jumping',
     'connecting',
     'verifying',

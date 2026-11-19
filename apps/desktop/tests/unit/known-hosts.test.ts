@@ -110,7 +110,7 @@ describe('known host trust', () => {
       });
       db.transaction((connection) =>
         connection.exec(
-          `DROP TABLE port_forwards;
+          `DROP TABLE proxies; DROP TABLE port_forwards;
           CREATE TABLE hosts_v3 (
             id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL,
             port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535), username TEXT NOT NULL,

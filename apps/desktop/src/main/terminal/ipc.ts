@@ -2,8 +2,9 @@ import { completeLocalPaths } from './path-completion.js';
 import { verifyKnownHost } from './known-hosts.js';
 import { knownHostAddress } from '../storage/database.js';
 import { SshChallenges } from './ssh-challenges.js';
-import { openSsh } from './ssh.js';
+import { openSsh, type SshVia } from './ssh.js';
 import { openJumpChain, prepareJumpHops } from './jump.js';
+import { connectThroughProxy } from './proxy.js';
 import { resolveSshCredentials } from './credentials.js';
 import { validHostId, resolveHost, jumpChain } from '../../shared/hosts.js';
 import type { LocalDatabase } from '../storage/database.js';
@@ -276,17 +277,41 @@ export function attachTerminal(
         throw new AppFailure('ssh-jump-invalid');
       }
       const hops = await prepareJumpHops(chain, database, secrets);
+      // The proxy carries the first network connection: to the first jump host, or the target.
+      const proxyId = chain[0]?.proxyId ?? host.proxyId;
+      const proxy = proxyId ? database.listProxies().find((item) => item.id === proxyId) : null;
+      let proxyPassword: string | undefined;
+      if (proxy?.username) {
+        try {
+          proxyPassword = await secrets.getPassword(proxy.id);
+        } catch {
+          throw new AppFailure('ssh-proxy-auth-failed');
+        }
+      }
       let reportReady: ((state: SshConnectionState) => void) | undefined;
       await terminal.open(id, size, async (signal, report) => {
         reportReady = report;
-        let via;
+        let via: SshVia | undefined;
+        let sock;
+        if (proxy) {
+          report('proxying');
+          sock = await connectThroughProxy(proxy, proxyPassword, hops[0] ?? effective, signal);
+        }
         if (hops.length) {
           report('jumping');
-          via = await openJumpChain(hops, effective, signal, (hop, key) =>
-            verifyKnownHost(database, hop.address, hop.port, key, '', signal, (question) =>
-              challenges.ask(id, question, signal),
-            ),
+          via = await openJumpChain(
+            hops,
+            effective,
+            signal,
+            (hop, key) =>
+              verifyKnownHost(database, hop.address, hop.port, key, '', signal, (question) =>
+                challenges.ask(id, question, signal),
+              ),
+            sock,
           );
+        } else if (sock) {
+          const direct = sock;
+          via = { sock: direct, close: () => direct.destroy() };
         }
         return openSsh(
           effective,

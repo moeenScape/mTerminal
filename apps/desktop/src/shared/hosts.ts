@@ -24,6 +24,8 @@ export interface HostDraft {
   identityId?: string | null;
   /** Saved host to connect through first (ProxyJump); it may have its own jump host. */
   jumpHostId?: string | null;
+  /** Saved proxy for the first network connection of this host. */
+  proxyId?: string | null;
 }
 /** Jump hosts allowed in front of a target. */
 export const MAX_JUMP_HOPS = 3;
@@ -116,6 +118,8 @@ export function validateHost(value: unknown): HostDraft {
   const environment = validateEnvironment(h.environment);
   const jumpHostId = h.jumpHostId == null || h.jumpHostId === '' ? null : h.jumpHostId;
   if (jumpHostId !== null && !validHostId(jumpHostId)) throw new Error('Invalid jump host.');
+  const proxyId = h.proxyId == null || h.proxyId === '' ? null : h.proxyId;
+  if (proxyId !== null && !validHostId(proxyId)) throw new Error('Invalid proxy.');
   const result: HostDraft = {
     ...(environment.length ? { environment } : {}),
     name,
@@ -129,6 +133,7 @@ export function validateHost(value: unknown): HostDraft {
     inheritUsername: h.inheritUsername === true,
     identityId,
     ...(jumpHostId ? { jumpHostId } : {}),
+    ...(proxyId ? { proxyId } : {}),
   };
   return result;
 }

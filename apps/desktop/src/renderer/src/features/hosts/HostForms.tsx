@@ -12,6 +12,7 @@ import {
   type SavedHost,
   type SshIdentity,
 } from '../../../../shared/hosts';
+import { describeProxy, type ProxySummary } from '../../../../shared/proxies';
 import { useModalDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 
@@ -296,6 +297,20 @@ export function HostForm({
   const [inheritUsername, setInheritUsername] = useState(host?.inheritUsername ?? false);
   const [identityId, setIdentityId] = useState(host?.identityId ?? '');
   const [jumpHostId, setJumpHostId] = useState(host?.jumpHostId ?? '');
+  const [proxyId, setProxyId] = useState(host?.proxyId ?? '');
+  const [proxies, setProxies] = useState<ProxySummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.mterminal
+      .listProxies()
+      .then((value) => {
+        if (!cancelled) setProxies(value);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [groupPath, setGroupPath] = useState(host?.groupPath ?? initialGroup);
   const [tags, setTags] = useState(host?.tags?.join(', ') ?? '');
   const [environment, setEnvironment] = useState(host?.environment ?? []);
@@ -363,6 +378,7 @@ export function HostForm({
         inheritUsername,
         identityId: identityId || null,
         jumpHostId: jumpHostId || null,
+        proxyId: proxyId || null,
         environment,
       });
       effective = resolveHost(draft, groups);
@@ -617,6 +633,33 @@ export function HostForm({
                     {item.name} · {item.address}
                   </option>
                 ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Connect through proxy"
+          hint={
+            proxies.length
+              ? 'Optional. With a jump host, the proxy carries the connection to the first jump host unless that host sets its own.'
+              : 'Optional. Add proxies in Settings → Proxies.'
+          }
+        >
+          {(props) => (
+            <select
+              {...props}
+              name="proxyId"
+              value={proxyId}
+              onChange={(event) => setProxyId(event.target.value)}
+            >
+              <option value="">None — connect directly</option>
+              {proxies.map((proxy) => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name} · {describeProxy(proxy)}
+                </option>
+              ))}
+              {proxyId && !proxies.some((proxy) => proxy.id === proxyId) && (
+                <option value={proxyId}>Saved proxy</option>
+              )}
             </select>
           )}
         </Field>

@@ -29,6 +29,12 @@ export const failureMessages = {
   'ssh-key-install-failed':
     'The public key could not be installed. Check the remote account and its SFTP permissions, then retry.',
   'ssh-cancelled': 'SSH connection cancelled.',
+  'ssh-proxy-failed':
+    'Could not connect through the proxy. Check its address and port, that it is running, and that this network can reach it.',
+  'ssh-proxy-auth-failed':
+    'The proxy rejected its login. Check the proxy username and saved password in Settings, and unlock the vault if it is locked.',
+  'ssh-proxy-refused':
+    'The proxy refused to connect to the server. It may block this address or port; check with your network administrator.',
   'ssh-jump-failed':
     'Could not connect through the jump host. Check the jump host’s address, its saved login and server identity, and that it allows TCP forwarding to the target.',
   'ssh-jump-login-missing':

@@ -54,6 +54,12 @@ first. Saves reject missing jump hosts, loops and chains longer than three hops.
 host clears references to it in the same transaction, so those hosts connect directly again.
 Jump references are included in workspace exports and must resolve within the backup.
 
+Schema v11 adds `proxies` (UUID plus JSON name, type, address, port and optional username; at
+most 50) and a nullable `hosts.proxyId` without a foreign key. Deleting a proxy clears host
+references in the same transaction. Proxy passwords are stored only in the vault under the
+proxy ID. Proxies are not included in workspace exports; an import keeps a host's proxy link
+only when a proxy with that ID already exists locally.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates

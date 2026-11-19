@@ -315,6 +315,11 @@ host in turn (up to three hops, like `ssh -J`) using its saved login and verifie
 then reaches the target through it. Files, port forwarding and Run on hosts work through the
 chain, and closing the tab closes every hop. See [jump hosts](docs/JUMP_HOSTS.md).
 
+F51 adds **Settings → Proxies** (SOCKS5, SOCKS4/4a and HTTP CONNECT, with optional login whose
+password stays in the vault) and **Connect through proxy** in the host editor, for networks
+that block direct SSH. With a jump host, the proxy carries the connection to the first hop.
+See [proxies](docs/PROXIES.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

@@ -84,6 +84,8 @@ export function openJumpChain(
   target: { address: string; port: number },
   signal: AbortSignal,
   verifyKey: (hop: JumpHop, key: Buffer) => Promise<boolean>,
+  /** Already-open connection to the first hop, e.g. through a proxy. */
+  firstSock?: Duplex,
 ): Promise<SshVia> {
   return new Promise((resolve, reject) => {
     const clients: SshClient[] = [];
@@ -97,6 +99,7 @@ export function openJumpChain(
       signal.removeEventListener('abort', aborted);
       tunnel?.destroy();
       for (const client of clients.reverse()) client.destroy();
+      firstSock?.destroy();
     };
     const fail = (code: 'ssh-jump-failed' | 'ssh-cancelled' | 'ssh-key-mismatch') => {
       closeAll();
@@ -170,6 +173,6 @@ export function openJumpChain(
         fail('ssh-jump-failed');
       }
     };
-    connectHop(0);
+    connectHop(0, firstSock);
   });
 }

@@ -21,6 +21,7 @@ import {
   type ForwardError,
   type PortForwardRule,
 } from '../shared/port-forwarding.js';
+import { proxyChannels, type ProxySummary, type SavedProxy } from '../shared/proxies.js';
 import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import type { SshChallenge } from '../shared/ssh.js';
@@ -81,6 +82,14 @@ async function forwardRequest<T>(channel: string, ...args: unknown[]): Promise<T
   if (!result.ok) throw new Error(forwardErrorMessages[result.code]);
   return result.value;
 }
+async function proxyRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result: { ok: true; value: T } | { ok: false; message: string } = await ipcRenderer.invoke(
+    channel,
+    ...args,
+  );
+  if (!result.ok) throw new Error(result.message);
+  return result.value;
+}
 async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: TransferResponse<T> = await ipcRenderer.invoke(channel, ...args);
   if (!result.ok) throw new Error(fileErrorMessages[result.code]);
@@ -121,6 +130,15 @@ const api: DesktopApi = {
     ipcRenderer.on(BATCH_CHANGED, handler);
     return () => ipcRenderer.removeListener(BATCH_CHANGED, handler);
   },
+  listProxies: () => proxyRequest<ProxySummary[]>(proxyChannels.list),
+  saveProxy: (draft, password, id) =>
+    proxyRequest<SavedProxy>(
+      proxyChannels.save,
+      draft,
+      password,
+      ...(id === undefined ? [] : [id]),
+    ),
+  deleteProxy: (id) => proxyRequest<void>(proxyChannels.delete, id),
   listForwardRules: (hostId) => forwardRequest<PortForwardRule[]>(forwardChannels.rules, hostId),
   saveForwardRule: (hostId, draft, id) =>
     forwardRequest<PortForwardRule>(

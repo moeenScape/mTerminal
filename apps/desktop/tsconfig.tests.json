@@ -57,6 +57,8 @@
     "src/main/terminal/install-public-key.ts",
     "src/main/terminal/port-forward.ts",
     "src/main/terminal/forwards-ipc.ts",
-    "src/main/terminal/jump.ts"
+    "src/main/terminal/jump.ts",
+    "src/main/terminal/proxy.ts",
+    "src/main/proxies-ipc.ts"
   ]
 }

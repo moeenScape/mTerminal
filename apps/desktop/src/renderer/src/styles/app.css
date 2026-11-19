@@ -3236,3 +3236,71 @@ p.field-hint {
     align-items: stretch;
   }
 }
+
+/* Proxies (F51) */
+.proxy-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.proxy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
+}
+.proxy-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.proxy-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+.proxy-row .settings-actions {
+  margin: 0;
+  flex-shrink: 0;
+}
+.proxy-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
+}
+.proxy-form h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.proxy-form > label,
+.proxy-endpoint label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.proxy-form > label.check-row {
+  flex-direction: row;
+  align-items: center;
+}
+.proxy-endpoint {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: 8px;
+}

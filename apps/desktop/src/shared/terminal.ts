@@ -22,6 +22,7 @@ export interface ShellInfo {
   name: string;
 }
 export const sshStateMessages = {
+  proxying: 'SSH connecting through the proxy…',
   jumping: 'SSH connecting through the jump host…',
   connecting: 'SSH connecting…',
   verifying: 'SSH verifying server identity…',

@@ -109,7 +109,7 @@ describe('environment persistence and migration', () => {
       const groups = db.listHostGroups();
       db.transaction((connection) =>
         connection.exec(
-          'DROP TABLE port_forwards; ALTER TABLE hosts DROP COLUMN jumpHostId; ALTER TABLE hosts DROP COLUMN environment; ALTER TABLE host_groups DROP COLUMN environment; DELETE FROM schema_migrations WHERE version>=8; PRAGMA user_version=7;',
+          'DROP TABLE proxies; ALTER TABLE hosts DROP COLUMN proxyId; DROP TABLE port_forwards; ALTER TABLE hosts DROP COLUMN jumpHostId; ALTER TABLE hosts DROP COLUMN environment; ALTER TABLE host_groups DROP COLUMN environment; DELETE FROM schema_migrations WHERE version>=8; PRAGMA user_version=7;',
         ),
       );
       db.close();
@@ -120,7 +120,7 @@ describe('environment persistence and migration', () => {
         expect(db.listHostGroups()).toEqual(groups);
         expect((await readdir(join(directory, 'backups'))).length).toBeGreaterThan(1);
         db.transaction((connection) =>
-          expect(connection.prepare('PRAGMA user_version').get()?.user_version).toBe(10),
+          expect(connection.prepare('PRAGMA user_version').get()?.user_version).toBe(11),
         );
       } finally {
         db.close();

@@ -2,6 +2,7 @@ import { attachSessionLogs } from './session-logs.js';
 import { attachBroadcast } from './terminal/broadcast-ipc.js';
 import { attachBatch } from './terminal/batch-ipc.js';
 import { attachForwards } from './terminal/forwards-ipc.js';
+import { attachProxies } from './proxies-ipc.js';
 import { attachSnippets } from './snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import { hostChannels, validHostId } from '../shared/hosts.js';
@@ -137,6 +138,7 @@ export async function createMainWindow(
   });
 
   attachSnippets(window, rendererUrl, secrets, database);
+  attachProxies(window, rendererUrl, database, secrets);
 
   for (const channel of Object.values(templateChannels)) {
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
