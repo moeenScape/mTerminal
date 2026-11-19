@@ -425,6 +425,7 @@ export function HostsView({
           <HostForm
             key={editor.host?.id ?? 'new'}
             host={editor.host}
+            hosts={hosts}
             groups={groups}
             identities={identities}
             initialGroup={groupFilter}

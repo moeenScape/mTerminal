@@ -49,6 +49,11 @@ destination) keyed by UUID, at most 20 per host, each referencing its host with
 `ON DELETE CASCADE`. Rules contain no credentials. They are not yet included in workspace
 exports. Running forwards are never stored; they exist only while their SSH session is open.
 
+Schema v10 adds a nullable `jumpHostId` column to `hosts`: the saved host to connect through
+first. Saves reject missing jump hosts, loops and chains longer than three hops. Deleting a
+host clears references to it in the same transaction, so those hosts connect directly again.
+Jump references are included in workspace exports and must resolve within the backup.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates

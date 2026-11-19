@@ -3,8 +3,9 @@ import { verifyKnownHost } from './known-hosts.js';
 import { knownHostAddress } from '../storage/database.js';
 import { SshChallenges } from './ssh-challenges.js';
 import { openSsh } from './ssh.js';
+import { openJumpChain, prepareJumpHops } from './jump.js';
 import { resolveSshCredentials } from './credentials.js';
-import { validHostId, resolveHost } from '../../shared/hosts.js';
+import { validHostId, resolveHost, jumpChain } from '../../shared/hosts.js';
 import type { LocalDatabase } from '../storage/database.js';
 import type { SshSecretStore } from '../storage/secret-store.js';
 import { validTerminalInput } from '../../shared/terminal-input.js';
@@ -268,9 +269,25 @@ export function attachTerminal(
         secrets,
         hostId,
       );
+      let chain;
+      try {
+        chain = jumpChain(host, database.listHosts());
+      } catch {
+        throw new AppFailure('ssh-jump-invalid');
+      }
+      const hops = await prepareJumpHops(chain, database, secrets);
       let reportReady: ((state: SshConnectionState) => void) | undefined;
-      await terminal.open(id, size, (signal, report) => {
+      await terminal.open(id, size, async (signal, report) => {
         reportReady = report;
+        let via;
+        if (hops.length) {
+          report('jumping');
+          via = await openJumpChain(hops, effective, signal, (hop, key) =>
+            verifyKnownHost(database, hop.address, hop.port, key, '', signal, (question) =>
+              challenges.ask(id, question, signal),
+            ),
+          );
+        }
         return openSsh(
           effective,
           credentials,
@@ -288,6 +305,7 @@ export function attachTerminal(
               (question) => challenges.ask(id, question, signal),
             ),
           report,
+          via,
         );
       });
       reportReady?.('connected');

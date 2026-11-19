@@ -11,6 +11,7 @@ import {
   validateGroupPath,
   resolveHost,
   validateIdentity,
+  jumpChain,
   type HostGroup,
   type SavedHost,
   type SshIdentity,
@@ -94,6 +95,10 @@ const migrations = [
       data TEXT NOT NULL CHECK(length(data) <= 4096)
     ) STRICT;`);
   },
+  (connection: DatabaseSync) => {
+    // No foreign key: deleteHost clears references, and the column stays droppable.
+    connection.exec('ALTER TABLE hosts ADD COLUMN jumpHostId TEXT;');
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -168,6 +173,8 @@ function validateDatabase(database: DatabaseSync): void {
   }
   if (pragmaNumber(database, 'user_version') >= 9)
     database.prepare('SELECT id,hostId,data FROM port_forwards LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 10)
+    database.prepare('SELECT jumpHostId FROM hosts LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -370,6 +377,7 @@ export class LocalDatabase {
             inheritPort: row.inheritPort === 1,
             inheritUsername: row.inheritUsername === 1,
             identityId: row.identityId ?? null,
+            jumpHostId: row.jumpHostId ?? null,
           }),
           id: row.id,
         };
@@ -392,10 +400,14 @@ export class LocalDatabase {
       )
         throw new Error('Identity no longer exists.');
       resolveHost(host, this.listHostGroups());
+      if (host.jumpHostId) {
+        const others = this.listHosts().filter((item) => item.id !== key);
+        jumpChain({ id: key, jumpHostId: host.jumpHostId }, others);
+      }
       if (id) {
         const result = db
           .prepare(
-            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=? WHERE id=?',
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=?, jumpHostId=? WHERE id=?',
           )
           .run(
             host.name,
@@ -409,12 +421,13 @@ export class LocalDatabase {
             Number(host.inheritUsername),
             host.identityId ?? null,
             JSON.stringify(host.environment ?? []),
+            host.jumpHostId ?? null,
             key,
           );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,jumpHostId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           key,
           host.name,
@@ -428,6 +441,7 @@ export class LocalDatabase {
           Number(host.inheritUsername),
           host.identityId ?? null,
           JSON.stringify(host.environment ?? []),
+          host.jumpHostId ?? null,
         );
       }
     });
@@ -436,7 +450,11 @@ export class LocalDatabase {
 
   deleteHost(id: unknown): void {
     if (!validHostId(id)) throw new Error('Invalid host ID.');
-    this.connection.prepare('DELETE FROM hosts WHERE id=?').run(id);
+    this.transaction((db) => {
+      // Hosts that jumped through this one connect directly afterwards.
+      db.prepare('UPDATE hosts SET jumpHostId=NULL WHERE jumpHostId=?').run(id);
+      db.prepare('DELETE FROM hosts WHERE id=?').run(id);
+    });
   }
 
   listHostGroups(): HostGroup[] {
@@ -648,6 +666,12 @@ export class LocalDatabase {
           host.identityId ?? null,
           JSON.stringify(host.environment ?? []),
         );
+      // Jump references may point at hosts inserted later in the same import.
+      for (const host of data.hosts)
+        if (host.jumpHostId)
+          db.prepare('UPDATE hosts SET jumpHostId=? WHERE id=?').run(host.jumpHostId, host.id);
+      const merged = this.listHosts();
+      for (const host of data.hosts) jumpChain(host, merged);
       for (const known of data.knownHosts)
         db.prepare(
           'INSERT OR IGNORE INTO known_hosts (address,port,fingerprint) VALUES (?,?,?)',

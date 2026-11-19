@@ -29,6 +29,12 @@ export const failureMessages = {
   'ssh-key-install-failed':
     'The public key could not be installed. Check the remote account and its SFTP permissions, then retry.',
   'ssh-cancelled': 'SSH connection cancelled.',
+  'ssh-jump-failed':
+    'Could not connect through the jump host. Check the jump host’s address, its saved login and server identity, and that it allows TCP forwarding to the target.',
+  'ssh-jump-login-missing':
+    'A jump host has no saved login. Connect to the jump host directly once and save its password, or assign it an identity with a managed key. Unlock the vault if it is locked.',
+  'ssh-jump-invalid':
+    'The jump host chain is invalid: a jump host is missing, loops back, or exceeds three hops. Edit the host and choose another jump host.',
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',
   'ssh-auth-failed': 'The server rejected the username or password. Check them and try again.',

@@ -65,6 +65,9 @@ export function validateWorkspaceBackup(value: unknown): WorkspaceBackup {
       throw new Error('Backup contains an unresolved host reference.');
     return { ...host, id };
   });
+  const hostIds = new Set(hosts.map(({ id }) => id));
+  if (hosts.some((host) => host.jumpHostId && !hostIds.has(host.jumpHostId)))
+    throw new Error('Backup contains an unresolved jump host reference.');
   const knownHosts = backup.knownHosts.map((item) => {
     if (!item || typeof item !== 'object') throw new Error('Backup contains an invalid host key.');
     const { address, port, fingerprint } = item as Record<string, unknown>;

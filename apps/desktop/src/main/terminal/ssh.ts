@@ -2,6 +2,8 @@ import { validateEnvironment } from '../../shared/environment.js';
 import { executeSshCommand } from './ssh-exec.js';
 import { startForward } from './port-forward.js';
 import { createHash } from 'node:crypto';
+import type { Duplex } from 'node:stream';
+import type { AuthenticationType, ConnectConfig } from 'ssh2';
 import { Client, type ClientChannel } from '../ssh2-module.js';
 import type { TerminalTransport, TerminalExit } from './transport.js';
 import type { HostDraft } from '../../shared/hosts.js';
@@ -17,6 +19,41 @@ export function fingerprintMatches(key: Buffer, expected: string): boolean {
   return keyFingerprint(key) === expected;
 }
 
+/** Username and authentication options shared by direct and jump-host connections. */
+export function sshAuthConfig(
+  credentials: SshCredentials,
+): Pick<
+  ConnectConfig,
+  'username' | 'password' | 'privateKey' | 'passphrase' | 'tryKeyboard' | 'authHandler'
+> {
+  const interactive =
+    credentials.method === 'keyboard-interactive' || credentials.keyboardInteractive === true;
+  return {
+    username: credentials.username,
+    ...(credentials.method === 'privateKey'
+      ? { privateKey: credentials.privateKey!, passphrase: credentials.passphrase! }
+      : credentials.method === 'keyboard-interactive'
+        ? {}
+        : { password: credentials.password! }),
+    tryKeyboard: interactive,
+    authHandler: (credentials.method === 'keyboard-interactive'
+      ? ['keyboard-interactive']
+      : credentials.method === 'privateKey'
+        ? interactive
+          ? ['publickey', 'keyboard-interactive']
+          : ['publickey']
+        : interactive
+          ? ['password', 'keyboard-interactive']
+          : ['password']) as AuthenticationType[],
+  };
+}
+
+/** An already-open tunnel to the target, e.g. through jump hosts; closed with the session. */
+export interface SshVia {
+  sock: Duplex;
+  close: () => void;
+}
+
 export function openSsh(
   host: HostDraft,
   credentials: SshCredentials,
@@ -25,6 +62,7 @@ export function openSsh(
   ask?: (question: SshQuestion) => Promise<string[]>,
   verifyKey?: (key: Buffer) => Promise<boolean>,
   report?: (state: SshConnectionState) => void,
+  via?: SshVia,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const environment = Object.fromEntries(
@@ -87,6 +125,7 @@ export function openSsh(
       } else for (const listener of exitListeners) listener(outcome());
       stream?.destroy();
       client.destroy();
+      via?.close();
     };
     const fail = (error?: unknown) => {
       if (!ended) {
@@ -234,25 +273,10 @@ export function openSsh(
       client.connect({
         host: host.address,
         port: host.port,
-        username: credentials.username,
+        ...(via ? { sock: via.sock } : {}),
         keepaliveInterval: 15000,
         keepaliveCountMax: 3,
-        ...(credentials.method === 'privateKey'
-          ? { privateKey: credentials.privateKey!, passphrase: credentials.passphrase! }
-          : credentials.method === 'keyboard-interactive'
-            ? {}
-            : { password: credentials.password! }),
-        tryKeyboard: interactive,
-        authHandler:
-          credentials.method === 'keyboard-interactive'
-            ? ['keyboard-interactive']
-            : credentials.method === 'privateKey'
-              ? interactive
-                ? ['publickey', 'keyboard-interactive']
-                : ['publickey']
-              : interactive
-                ? ['password', 'keyboard-interactive']
-                : ['password'],
+        ...sshAuthConfig(credentials),
         readyTimeout: humanVerification ? 120000 : 15000,
         hostVerifier: (key: Buffer, verify: (accepted: boolean) => void) => {
           progress('verifying');

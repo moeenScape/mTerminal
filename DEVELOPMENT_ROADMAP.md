@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F49 implemented — Port forwarding; Phase 6 tests deferred to the end of the phase |
-| Next feature | F50 — Jump hosts |
+| Active feature | F50 implemented — Jump hosts; Phase 6 tests deferred to the end of the phase |
+| Next feature | F51 — Proxies |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -206,7 +206,7 @@ Phase 5 verification: user-tested on Linux (2026-11-19). macOS/Windows acceptanc
 Dependencies: Stable SSH and session lifecycle. Prototype each adapter before selecting its implementation.
 
 - [x] **F49 — Port forwarding (implementation):** Local, remote, and dynamic (SOCKS5) forwarding with saved per-host rules and start/stop/status on the connected SSH session. Tests written, execution deferred to the phase run; live server acceptance pending.
-- [ ] **F50 — Jump hosts:** Connection chains, per-hop authentication, and cleanup.
+- [x] **F50 — Jump hosts (implementation):** Per-host jump host chains up to three hops, saved-login authentication and host-key verification per hop, and cleanup of every hop with the session. Tests written, execution deferred to the phase run; live server acceptance pending.
 - [ ] **F51 — Proxies:** SOCKS/HTTP routing for supported connection types.
 - [ ] **F52 — SSH agents:** Supported agent discovery and explicit forwarding.
 - [ ] **F53 — SSH certificates:** Formats, algorithms, expiry, and interoperability.
@@ -1655,3 +1655,16 @@ schema-downgrade tests were updated for the new table. New tests in
 `tests/unit/port-forwarding.test.ts` are written and not run, per the phase workflow.
 `npm run check` and `npm run build` pass. Live server, visual and macOS/Windows acceptance
 pending. Next is F50 — Jump hosts.
+
+### 2026-11-19 — F50 Jump hosts
+
+Hosts gain **Connect through (jump host)** (schema v10 `hosts.jumpHostId`, no foreign key;
+deleteHost clears references transactionally). Connections resolve the chain (max three hops,
+loops refused), use each hop's saved login without prompting, verify each hop's server key with
+the existing trust flow, and tunnel the target connection over the last hop's `forwardOut`
+stream. The new `jumping` connection state appears on the progress screen and tab. Every hop
+closes with the session. SSH authentication options are shared between hops and targets.
+Workspace exports include jump references, and imports resolve them in any order. Existing
+downgrade tests were updated. New tests in `tests/unit/jump-hosts.test.ts` are written and not
+run, per the phase workflow. `npm run check` and `npm run build` pass. Live server, visual and
+macOS/Windows acceptance pending. Next is F51 — Proxies.

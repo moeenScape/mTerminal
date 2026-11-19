@@ -22,9 +22,34 @@ export interface HostDraft {
   inheritPort?: boolean;
   inheritUsername?: boolean;
   identityId?: string | null;
+  /** Saved host to connect through first (ProxyJump); it may have its own jump host. */
+  jumpHostId?: string | null;
 }
+/** Jump hosts allowed in front of a target. */
+export const MAX_JUMP_HOPS = 3;
 export interface SavedHost extends HostDraft {
   id: string;
+}
+/**
+ * Jump hosts in front of a host, in connection order (the first one is connected directly).
+ * Throws when a jump host is missing, the chain loops, or it exceeds MAX_JUMP_HOPS.
+ */
+export function jumpChain(
+  host: Pick<SavedHost, 'id' | 'jumpHostId'>,
+  hosts: readonly SavedHost[],
+): SavedHost[] {
+  const chain: SavedHost[] = [];
+  const seen = new Set([host.id]);
+  let next = host.jumpHostId;
+  while (next) {
+    const jump = hosts.find((item) => item.id === next);
+    if (!jump || seen.has(jump.id) || chain.length >= MAX_JUMP_HOPS)
+      throw new Error('Invalid jump host chain.');
+    seen.add(jump.id);
+    chain.unshift(jump);
+    next = jump.jumpHostId;
+  }
+  return chain;
 }
 export function validHostId(id: unknown): id is string {
   return (
@@ -89,6 +114,8 @@ export function validateHost(value: unknown): HostDraft {
   if (identityId !== null && (typeof identityId !== 'string' || !validHostId(identityId)))
     throw new Error('Invalid identity.');
   const environment = validateEnvironment(h.environment);
+  const jumpHostId = h.jumpHostId == null || h.jumpHostId === '' ? null : h.jumpHostId;
+  if (jumpHostId !== null && !validHostId(jumpHostId)) throw new Error('Invalid jump host.');
   const result: HostDraft = {
     ...(environment.length ? { environment } : {}),
     name,
@@ -101,6 +128,7 @@ export function validateHost(value: unknown): HostDraft {
     inheritPort: h.inheritPort === true,
     inheritUsername: h.inheritUsername === true,
     identityId,
+    ...(jumpHostId ? { jumpHostId } : {}),
   };
   return result;
 }

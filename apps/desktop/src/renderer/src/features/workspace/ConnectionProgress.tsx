@@ -14,7 +14,7 @@ const steps: {
   states: (SshConnectionState | 'lookup')[];
   icon: 'hosts' | 'lock' | 'terminal';
 }[] = [
-  { label: 'Connect', states: ['lookup', 'connecting', 'verifying'], icon: 'hosts' },
+  { label: 'Connect', states: ['lookup', 'jumping', 'connecting', 'verifying'], icon: 'hosts' },
   { label: 'Authenticate', states: ['authenticating'], icon: 'lock' },
   { label: 'Open shell', states: ['opening-shell', 'connected'], icon: 'terminal' },
 ];

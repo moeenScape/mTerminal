@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
   resolveHost,
+  jumpChain,
   validateGroup,
   validateHost,
   type HostGroup,
@@ -264,6 +265,7 @@ function hostValidationMessage(cause: unknown): string {
 
 export function HostForm({
   host,
+  hosts,
   groups,
   identities,
   initialGroup,
@@ -273,6 +275,8 @@ export function HostForm({
   onConnect,
 }: {
   host: SavedHost | undefined;
+  /** All saved hosts, offered as jump hosts. */
+  hosts: SavedHost[];
   groups: HostGroup[];
   identities: SshIdentity[];
   /** Group to preselect for a new host, usually the folder being viewed. */
@@ -291,6 +295,7 @@ export function HostForm({
   const [inheritPort, setInheritPort] = useState(host?.inheritPort ?? false);
   const [inheritUsername, setInheritUsername] = useState(host?.inheritUsername ?? false);
   const [identityId, setIdentityId] = useState(host?.identityId ?? '');
+  const [jumpHostId, setJumpHostId] = useState(host?.jumpHostId ?? '');
   const [groupPath, setGroupPath] = useState(host?.groupPath ?? initialGroup);
   const [tags, setTags] = useState(host?.tags?.join(', ') ?? '');
   const [environment, setEnvironment] = useState(host?.environment ?? []);
@@ -357,10 +362,18 @@ export function HostForm({
         inheritPort,
         inheritUsername,
         identityId: identityId || null,
+        jumpHostId: jumpHostId || null,
         environment,
       });
       effective = resolveHost(draft, groups);
+      if (draft.jumpHostId) jumpChain({ id: host?.id ?? '', jumpHostId: draft.jumpHostId }, hosts);
     } catch (cause) {
+      if (cause instanceof Error && cause.message === 'Invalid jump host chain.') {
+        setError(
+          'This jump host would loop back to this host or need more than three hops. Choose another jump host.',
+        );
+        return;
+      }
       setError(hostValidationMessage(cause));
       return;
     }
@@ -582,6 +595,28 @@ export function HostForm({
                   {identity.name} · {identity.username}
                 </option>
               ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Connect through (jump host)"
+          hint="Optional. Connect to this saved host first, then reach this server from it (ProxyJump). The jump host needs a saved login."
+        >
+          {(props) => (
+            <select
+              {...props}
+              name="jumpHostId"
+              value={jumpHostId}
+              onChange={(event) => setJumpHostId(event.target.value)}
+            >
+              <option value="">None — connect directly</option>
+              {hosts
+                .filter((item) => item.id !== host?.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.address}
+                  </option>
+                ))}
             </select>
           )}
         </Field>
