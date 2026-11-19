@@ -9,6 +9,8 @@ export interface Preferences {
   recordHistory: boolean;
   /** Show history suggestions beneath the cursor while typing. */
   autocomplete: boolean;
+  /** Copy terminal text to the clipboard as soon as it is selected with the mouse. */
+  copyOnSelect: boolean;
 }
 export const defaultPreferences: Preferences = {
   appearance: 'dark',
@@ -17,10 +19,11 @@ export const defaultPreferences: Preferences = {
   rememberWindow: true,
   recordHistory: false,
   autocomplete: true,
+  copyOnSelect: true,
 };
 const required = ['appearance', 'defaultShell', 'navigationShortcuts', 'rememberWindow'];
 /** Added later; settings files written before they existed fall back to the defaults. */
-const optional = ['recordHistory', 'autocomplete'] as const;
+const optional = ['recordHistory', 'autocomplete', 'copyOnSelect'] as const;
 
 export function validatePreferences(value: unknown): Preferences {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -47,5 +50,6 @@ export function validatePreferences(value: unknown): Preferences {
     rememberWindow: p.rememberWindow,
     recordHistory: (p.recordHistory as boolean | undefined) ?? defaultPreferences.recordHistory,
     autocomplete: (p.autocomplete as boolean | undefined) ?? defaultPreferences.autocomplete,
+    copyOnSelect: (p.copyOnSelect as boolean | undefined) ?? defaultPreferences.copyOnSelect,
   };
 }

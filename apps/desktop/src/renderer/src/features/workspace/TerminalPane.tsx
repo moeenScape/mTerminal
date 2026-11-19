@@ -208,6 +208,7 @@ export function TerminalPane({
     session,
     container,
     inputReady,
+    toolsPreferences.copyOnSelect,
   );
 
   useEffect(() => {

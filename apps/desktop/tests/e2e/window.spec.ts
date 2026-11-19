@@ -1747,6 +1747,57 @@ test('supports terminal tab keyboard navigation, rename, and reorder', async () 
   await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-label', 'Keyboard shell');
 });
 
+test('copies terminal text as soon as it is selected with the mouse', async () => {
+  const info = await page.evaluate(() => window.mterminal.getAppInfo());
+  test.skip(info.platform === 'win32', 'This fixture uses a Unix shell.');
+  // Replace clipboard IO only inside this isolated Electron test process.
+  await application.evaluate(({ clipboard }) => {
+    const copies: string[] = [];
+    Reflect.set(globalThis, '__selectionCopies', copies);
+    clipboard.writeText = async (text) => {
+      copies.push(`clipboard:${text}`);
+    };
+    if (clipboard.selection)
+      clipboard.selection.writeText = async (text) => {
+        copies.push(`selection:${text}`);
+      };
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Local shell running' })).toBeVisible();
+  await page.keyboard.type('clear; printf "COPY_ON_SELECT_42\\n"');
+  await page.keyboard.press('Enter');
+  const firstRow = page.locator('.terminal-pane:not([hidden]) .xterm-rows > div').first();
+  await expect(firstRow).toHaveText(/^COPY_ON_SELECT_42/);
+  const box = (await firstRow.boundingBox())!;
+  await page.mouse.move(box.x + 1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 300, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByRole('status').filter({ hasText: 'Copied to clipboard.' })).toBeVisible();
+  const copies = await application.evaluate(
+    () => Reflect.get(globalThis, '__selectionCopies') as string[],
+  );
+  expect(copies[0]).toMatch(/^clipboard:COPY_ON_SELECT_42/);
+  if (info.platform === 'linux') expect(copies[1]).toMatch(/^selection:COPY_ON_SELECT_42/);
+
+  // Turned off in Settings, selecting no longer copies.
+  await navButton('Settings').click();
+  await page.getByLabel('Copy terminal text when selected with the mouse').uncheck();
+  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Preferences saved.' })).toBeVisible();
+  await navButton('Workspace').click();
+  await page.mouse.move(box.x + 1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 200, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const after = await application.evaluate(
+    () => (Reflect.get(globalThis, '__selectionCopies') as string[]).length,
+  );
+  expect(after).toBe(copies.length);
+});
+
 test('copies selection and confirms/cancels multiline paste without touching the real OS clipboard', async () => {
   // Replace clipboard IO only inside this isolated Electron test process.
   await application.evaluate(({ clipboard }) => {

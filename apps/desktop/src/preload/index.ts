@@ -307,8 +307,12 @@ const api: DesktopApi = {
     if (!result.ok) throw new Error(failureMessages[result.code]);
     return result.text;
   },
-  writeClipboardText: async (text) => {
-    const result: ClipboardWriteResult = await ipcRenderer.invoke(clipboardChannels.write, text);
+  writeClipboardText: async (text, options) => {
+    const result: ClipboardWriteResult = await ipcRenderer.invoke(
+      clipboardChannels.write,
+      text,
+      ...(options ? [{ primary: options.primary === true }] : []),
+    );
     if (!result.ok) throw new Error(failureMessages[result.code]);
   },
   getShells: () => ipcRenderer.invoke(channels.shells),

@@ -20,7 +20,7 @@ describe('preferences', () => {
   it('fills in newer settings for files saved before they existed', () => {
     const older = Object.fromEntries(
       Object.entries(defaultPreferences).filter(
-        ([key]) => key !== 'recordHistory' && key !== 'autocomplete',
+        ([key]) => !['recordHistory', 'autocomplete', 'copyOnSelect'].includes(key),
       ),
     );
     expect(validatePreferences(older)).toEqual(defaultPreferences);

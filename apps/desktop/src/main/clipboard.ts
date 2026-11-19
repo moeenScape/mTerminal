@@ -36,11 +36,20 @@ export function attachClipboard(
     clipboardChannels.write,
     async (event, ...args: unknown[]): Promise<ClipboardWriteResult> => {
       validateAppInfoRequest(event, window.webContents, rendererUrl, []);
-      if (args.length !== 1 || !validClipboardText(args[0]))
-        return { ok: false, code: 'clipboard-too-large' };
-      if (!args[0] || !window.isFocused()) return { ok: false, code: 'clipboard-unavailable' };
+      const [text, options] = args;
+      if (
+        args.length < 1 ||
+        args.length > 2 ||
+        (args.length === 2 && (typeof options !== 'object' || options === null))
+      )
+        return { ok: false, code: 'clipboard-unavailable' };
+      if (!validClipboardText(text)) return { ok: false, code: 'clipboard-too-large' };
+      if (!text || !window.isFocused()) return { ok: false, code: 'clipboard-unavailable' };
       try {
-        await clipboard.writeText(args[0]);
+        await clipboard.writeText(text);
+        // Linux terminals also fill the primary selection, pasted with the middle mouse button.
+        if ((options as { primary?: unknown } | undefined)?.primary === true)
+          await clipboard.selection?.writeText(text);
         return { ok: true };
       } catch {
         diagnostics.record('clipboard-failed', 'clipboard-unavailable');

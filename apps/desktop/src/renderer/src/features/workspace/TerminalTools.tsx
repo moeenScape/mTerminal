@@ -27,6 +27,7 @@ const tabs: { id: ToolTab; label: string; icon: IconName }[] = [
 ];
 
 export interface ToolsPreferences {
+  copyOnSelect: boolean;
   recordHistory: boolean;
   autocomplete: boolean;
 }

@@ -126,8 +126,12 @@ export function App() {
     setPreferences(saved);
   }, []);
   const toolsPreferences = useMemo(
-    () => ({ recordHistory: preferences.recordHistory, autocomplete: preferences.autocomplete }),
-    [preferences.recordHistory, preferences.autocomplete],
+    () => ({
+      recordHistory: preferences.recordHistory,
+      autocomplete: preferences.autocomplete,
+      copyOnSelect: preferences.copyOnSelect,
+    }),
+    [preferences.recordHistory, preferences.autocomplete, preferences.copyOnSelect],
   );
   const vaultLabel =
     vaultState === null

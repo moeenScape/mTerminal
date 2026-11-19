@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { Terminal } from '@xterm/xterm';
 import { preparePaste, validClipboardText, type PreparedPaste } from '../../../../shared/clipboard';
 import { failureMessages } from '../../../../shared/failures';
@@ -17,7 +17,13 @@ export function useTerminalClipboard(
   session: RefObject<string | null>,
   host: RefObject<HTMLElement | null>,
   ready: RefObject<boolean>,
+  /** Copy as soon as a mouse selection ends, like many Linux terminals. */
+  copyOnSelect = false,
 ) {
+  const copyOnSelectRef = useRef(copyOnSelect);
+  useEffect(() => {
+    copyOnSelectRef.current = copyOnSelect;
+  }, [copyOnSelect]);
   const [selected, setSelected] = useState(false);
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState<PendingPaste | null>(null);
@@ -139,10 +145,45 @@ export function useTerminalClipboard(
           setNotice('Selection copied.');
         } else void copy();
       };
+      // A selection ends when the mouse is released, possibly outside the terminal.
+      let selecting = false;
+      let copyTimer: ReturnType<typeof setTimeout> | undefined;
+      const onMouseDown = (event: MouseEvent) => {
+        selecting = event.button === 0;
+      };
+      const onMouseUp = (event: MouseEvent) => {
+        if (!selecting || event.button !== 0) return;
+        selecting = false;
+        if (!copyOnSelectRef.current) return;
+        // xterm finalises the selection in its own mouseup handler, so read it afterwards.
+        clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => {
+          if (terminal.current !== term || !term.hasSelection()) return;
+          const text = term.getSelection();
+          if (!text) return;
+          if (!validClipboardText(text)) {
+            setNotice(failureMessages['clipboard-too-large']);
+            return;
+          }
+          window.mterminal
+            .writeClipboardText(text, { primary: true })
+            .then(() => {
+              if (terminal.current === term) setNotice('Copied to clipboard.');
+            })
+            .catch((error: unknown) => {
+              if (terminal.current === term) setNotice(clipboardFailure(error));
+            });
+        }, 0);
+      };
+      element.addEventListener('mousedown', onMouseDown, true);
+      window.addEventListener('mouseup', onMouseUp, true);
       element.addEventListener('paste', onPaste, true);
       element.addEventListener('copy', onCopy, true);
       element.addEventListener('cut', onCopy, true);
       return () => {
+        clearTimeout(copyTimer);
+        element.removeEventListener('mousedown', onMouseDown, true);
+        window.removeEventListener('mouseup', onMouseUp, true);
         generation.current++;
         if (focusFrame.current !== undefined) cancelAnimationFrame(focusFrame.current);
         selection.dispose();
@@ -152,7 +193,7 @@ export function useTerminalClipboard(
         element.removeEventListener('cut', onCopy, true);
       };
     },
-    [session, ready, pasteText, paste, copy],
+    [terminal, session, ready, pasteText, paste, copy],
   );
   return {
     selected,

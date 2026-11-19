@@ -118,6 +118,14 @@ export function SettingsView({
               <label className="check-row">
                 <input
                   type="checkbox"
+                  checked={draft.copyOnSelect}
+                  onChange={(event) => setDraft({ ...draft, copyOnSelect: event.target.checked })}
+                />
+                Copy terminal text when selected with the mouse
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
                   checked={draft.autocomplete}
                   onChange={(event) => setDraft({ ...draft, autocomplete: event.target.checked })}
                 />

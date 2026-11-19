@@ -35,7 +35,8 @@ export interface DesktopApi
     BroadcastApi,
     SessionLogsApi {
   readClipboardText: () => Promise<string>;
-  writeClipboardText: (text: string) => Promise<void>;
+  /** `primary` also fills the Linux middle-click selection. */
+  writeClipboardText: (text: string, options?: { primary?: boolean }) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
   getPreferences: () => Promise<import('./preferences.js').Preferences>;
   savePreferences: (
