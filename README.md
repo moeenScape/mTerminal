@@ -106,6 +106,7 @@ npm run dev
 | `npm run format` | Format desktop source/configuration and root JSON/JS configuration |
 | `npm run build` | Type-check and compile main, preload, and renderer code |
 | `npm start` | Launch the compiled app after a build |
+| `npm run dist` | Type-check, build, and package a Linux `.deb` installer into `apps/desktop/dist/` |
 | `npm run test:unit` | Execute security, preferences, storage, and diagnostic unit tests |
 | `npm run test:e2e` | Build and execute Electron window/bridge tests using Playwright |
 | `npm test` | Run both test suites at the phase completion gate |
@@ -122,7 +123,22 @@ An earlier agent-run launch aborted with `The SUID sandbox helper binary was fou
 
 The production build, static checks, and 37 unit tests pass. The sandbox-enabled desktop suite stops at launch because the chrome-sandbox helper is not configured correctly in this environment. Phase 0 implementation is complete; desktop/visual and Windows/macOS verification remain pending. Roadmap checkboxes indicate implementation delivery; phase verification is recorded separately.
 
-`npm run build` produces compiled application files, not distributable installers. Windows/macOS runtime checks, installer configuration, signing, and native terminal integration remain future work. Only the desktop workspace is enabled; the server and shared package will be added when implemented.
+### Linux installer
+
+`npm run dist` packages mTerminal with electron-builder (`apps/desktop/electron-builder.yml`) and
+writes `apps/desktop/dist/mterminal_<version>_amd64.deb`. Install or upgrade it with:
+
+```
+sudo apt install ./apps/desktop/dist/mterminal_0.1.0_amd64.deb
+```
+
+mTerminal then appears in the application menu. Uninstall with `sudo apt remove mterminal`. The
+installed app uses the same data directory as development runs (`~/.config/mTerminal`). Packaging
+reuses the `node-pty` build that `npm install` compiles for Electron; run `npm run rebuild:native`
+first if Electron was upgraded. The icon source is `apps/desktop/build/icon.png` (512×512). Raise
+`version` in `apps/desktop/package.json` before building an upgrade.
+
+`npm run build` alone produces compiled application files, not installers. Windows/macOS installers, signing, and native terminal integration remain future work. Only the desktop workspace is enabled; the server and shared package will be added when implemented.
 
 Expected generated directories are `out/` for compiled code, `dist/` or `release/` for distributables, and the test-report directories listed in `.gitignore`. These names are ignored within each app/package as well as at the root. Committed desktop assets belong in `apps/desktop/assets/`; avoid mixing them with generated output.
 

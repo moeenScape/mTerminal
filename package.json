@@ -14,6 +14,7 @@
     "dev": "npm run dev --workspace=@mterminal/desktop",
     "start": "npm run start --workspace=@mterminal/desktop",
     "build": "npm run typecheck && npm run build --workspace=@mterminal/desktop",
+    "dist": "npm run typecheck && npm run dist --workspace=@mterminal/desktop",
     "typecheck": "npm run typecheck --workspace=@mterminal/desktop",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write \"apps/desktop/**/*.{ts,tsx,css,html,json,mjs}\" \"*.{json,mjs}\"",

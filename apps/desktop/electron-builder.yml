@@ -1,0 +1,32 @@
+# Packages mTerminal as a Linux .deb. Run from the repository root:
+#   npm run dist
+appId: com.mterminal.desktop
+productName: mTerminal
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# The native terminal module must stay outside the app archive to load.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+# node-pty is already compiled for this Electron version by `npm install` (scripts/rebuild.mjs).
+npmRebuild: false
+linux:
+  target: deb
+  category: System
+  executableName: mterminal
+  # Lets the dock match the running window to the menu entry and its icon.
+  syncDesktopName: true
+  icon: build/icon.png
+  artifactName: mterminal_${version}_${arch}.${ext}
+  synopsis: Terminal and SSH client
+  description: mTerminal is a local terminal and SSH client with saved hosts, an encrypted vault, command history and autocomplete.
+  maintainer: Moeen Ahmmed
+  desktop:
+    entry:
+      Name: mTerminal
+      Comment: Terminal and SSH client
+      Categories: System;TerminalEmulator;
+      Keywords: terminal;shell;ssh;console;
