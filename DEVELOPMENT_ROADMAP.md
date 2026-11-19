@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | Phase 5 (F38–F48) complete and user-tested on Linux |
-| Next feature | F49 — Port forwarding (Phase 6) |
+| Active feature | F49 implemented — Port forwarding; Phase 6 tests deferred to the end of the phase |
+| Next feature | F50 — Jump hosts |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -205,7 +205,7 @@ Phase 5 verification: user-tested on Linux (2026-11-19). macOS/Windows acceptanc
 
 Dependencies: Stable SSH and session lifecycle. Prototype each adapter before selecting its implementation.
 
-- [ ] **F49 — Port forwarding:** Local, remote, and dynamic forwarding with start/stop/status.
+- [x] **F49 — Port forwarding (implementation):** Local, remote, and dynamic (SOCKS5) forwarding with saved per-host rules and start/stop/status on the connected SSH session. Tests written, execution deferred to the phase run; live server acceptance pending.
 - [ ] **F50 — Jump hosts:** Connection chains, per-hop authentication, and cleanup.
 - [ ] **F51 — Proxies:** SOCKS/HTTP routing for supported connection types.
 - [ ] **F52 — SSH agents:** Supported agent discovery and explicit forwarding.
@@ -1642,3 +1642,16 @@ macOS/Windows acceptance remains unverified. Added opt-out copy-on-select (clipb
 Linux primary selection) and `npm run dist`, which builds an installable `.deb` with an app icon
 and desktop entry. The packaged app was launched and ran a shell on Linux x64. SSH inline
 autocomplete stays deferred as CH05. Next is F49 — Port forwarding.
+
+### 2026-11-19 — F49 Port forwarding
+
+SSH tabs gain **Port forwarding…**: saved per-host local, remote and dynamic (SOCKS5 CONNECT)
+rules in schema v9 `port_forwards` (cascade-deleted with the host, 20 per host), started and
+stopped on the tab's existing SSH connection. Listeners default to 127.0.0.1 with a warning for
+other addresses; 32 running forwards per window and 64 connections per forward. Forwards stop
+on session close, reconnect, renderer reload and window close; editing a rule stops it. Errors
+are reported per rule (port in use, permission, address, server refusal, disconnect). Existing
+schema-downgrade tests were updated for the new table. New tests in
+`tests/unit/port-forwarding.test.ts` are written and not run, per the phase workflow.
+`npm run check` and `npm run build` pass. Live server, visual and macOS/Windows acceptance
+pending. Next is F50 — Jump hosts.

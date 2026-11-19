@@ -54,6 +54,8 @@
     "src/main/terminal/ssh-challenges.ts",
     "src/main/terminal/known-hosts.ts",
     "src/main/terminal/credentials.ts",
-    "src/main/terminal/install-public-key.ts"
+    "src/main/terminal/install-public-key.ts",
+    "src/main/terminal/port-forward.ts",
+    "src/main/terminal/forwards-ipc.ts"
   ]
 }

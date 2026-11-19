@@ -22,6 +22,11 @@ import { chmod, mkdir, rename, rm, stat, open, link } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { validateWorkspaceBackup, type WorkspaceBackup } from '../../shared/backup.ts';
+import {
+  MAX_FORWARD_RULES,
+  validatePortForward,
+  type PortForwardRule,
+} from '../../shared/port-forwarding.ts';
 
 const APPLICATION_ID = 0x4d544552;
 const migrations = [
@@ -82,6 +87,12 @@ const migrations = [
       ALTER TABLE hosts ADD COLUMN environment TEXT NOT NULL DEFAULT '[]';
       ALTER TABLE host_groups ADD COLUMN environment TEXT NOT NULL DEFAULT '[]';
     `);
+  },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE port_forwards (
+      id TEXT PRIMARY KEY, hostId TEXT NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+      data TEXT NOT NULL CHECK(length(data) <= 4096)
+    ) STRICT;`);
   },
 ];
 const SCHEMA_VERSION = migrations.length;
@@ -155,6 +166,8 @@ function validateDatabase(database: DatabaseSync): void {
     database.prepare('SELECT environment FROM hosts LIMIT 0').all();
     database.prepare('SELECT environment FROM host_groups LIMIT 0').all();
   }
+  if (pragmaNumber(database, 'user_version') >= 9)
+    database.prepare('SELECT id,hostId,data FROM port_forwards LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -293,6 +306,54 @@ export class LocalDatabase {
   deleteWorkspaceTemplate(id: unknown): void {
     if (!validHostId(id)) throw new Error('Invalid template ID.');
     this.connection.prepare('DELETE FROM workspace_templates WHERE id=?').run(id);
+  }
+
+  listPortForwards(hostId: unknown): PortForwardRule[] {
+    if (!validHostId(hostId)) throw new Error('Invalid host ID.');
+    const rows = this.connection
+      .prepare('SELECT id,hostId,data FROM port_forwards WHERE hostId=? ORDER BY rowid LIMIT 21')
+      .all(hostId);
+    if (rows.length > MAX_FORWARD_RULES) throw new Error('Too many saved forwards.');
+    return rows.map((row) => {
+      if (!validHostId(row.id) || typeof row.data !== 'string' || row.data.length > 4096)
+        throw new Error('Invalid saved forward.');
+      return { ...validatePortForward(JSON.parse(row.data)), id: row.id, hostId };
+    });
+  }
+  savePortForward(hostId: unknown, value: unknown, id?: unknown): PortForwardRule {
+    if (!validHostId(hostId) || (id !== undefined && !validHostId(id)))
+      throw new Error('Invalid forward ID.');
+    const draft = validatePortForward(value);
+    const key = (id as string | undefined) ?? randomUUID();
+    this.transaction((db) => {
+      if (!db.prepare('SELECT id FROM hosts WHERE id=?').get(hostId))
+        throw new Error('Host no longer exists.');
+      if (id !== undefined) {
+        const result = db
+          .prepare('UPDATE port_forwards SET data=? WHERE id=? AND hostId=?')
+          .run(JSON.stringify(draft), key, hostId);
+        if (result.changes !== 1) throw new Error('Forward no longer exists.');
+      } else {
+        const count = Number(
+          db.prepare('SELECT count(*) AS n FROM port_forwards WHERE hostId=?').get(hostId)?.n,
+        );
+        if (count >= MAX_FORWARD_RULES) throw new Error('Too many saved forwards.');
+        db.prepare('INSERT INTO port_forwards (id,hostId,data) VALUES (?,?,?)').run(
+          key,
+          hostId,
+          JSON.stringify(draft),
+        );
+      }
+    });
+    return { ...draft, id: key, hostId };
+  }
+  deletePortForward(id: unknown): void {
+    if (!validHostId(id)) throw new Error('Invalid forward ID.');
+    this.connection.prepare('DELETE FROM port_forwards WHERE id=?').run(id);
+  }
+  portForward(id: string): PortForwardRule | undefined {
+    const row = this.connection.prepare('SELECT hostId FROM port_forwards WHERE id=?').get(id);
+    return row ? this.listPortForwards(row.hostId).find((rule) => rule.id === id) : undefined;
   }
 
   listHosts(): SavedHost[] {

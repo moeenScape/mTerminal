@@ -3022,3 +3022,217 @@ p.field-hint {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+/* Port forwarding (F49) */
+.forward-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.forward-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.forward-body h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.forward-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.forward-toolbar p,
+.forward-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.forward-toolbar .primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.forward-notice,
+.forward-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.forward-notice {
+  background: var(--raised);
+  color: var(--muted);
+}
+.forward-warning {
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  color: var(--warning);
+}
+.forward-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
+}
+.forward-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.forward-form fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.forward-form legend {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+.forward-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.forward-kinds label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+.forward-kinds label[data-selected='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.forward-kinds input {
+  margin: 0;
+}
+.forward-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+.forward-empty h3 {
+  margin-bottom: 6px;
+}
+.forward-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.forward-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
+}
+.forward-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.forward-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.forward-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.forward-kind {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 11px;
+}
+.forward-route {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--terminal-font);
+  font-size: 11px;
+}
+.forward-error {
+  color: var(--error);
+  font-size: 12px;
+}
+.forward-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.forward-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.forward-row[data-status='active'] .forward-dot {
+  background: var(--accent);
+}
+.forward-row[data-status='active'] .forward-status {
+  color: var(--accent);
+}
+.forward-row[data-status='starting'] .forward-dot {
+  background: var(--warning);
+}
+.forward-row[data-status='failed'] .forward-dot {
+  background: var(--danger);
+}
+.forward-actions {
+  display: flex;
+  gap: 6px;
+}
+.forward-actions button {
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .forward-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .forward-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

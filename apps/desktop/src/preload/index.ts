@@ -13,6 +13,14 @@ import {
   type BatchPreview,
   type BatchState,
 } from '../shared/batch.js';
+import {
+  forwardChannels,
+  FORWARDS_CHANGED,
+  forwardErrorMessages,
+  type ActiveForward,
+  type ForwardError,
+  type PortForwardRule,
+} from '../shared/port-forwarding.js';
 import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import type { SshChallenge } from '../shared/ssh.js';
@@ -67,6 +75,12 @@ async function historyRequest<T>(channel: string, ...args: unknown[]): Promise<T
   if (!result.ok) throw new Error(failureMessages[result.code]);
   return result.value;
 }
+async function forwardRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result: { ok: true; value: T } | { ok: false; code: ForwardError } =
+    await ipcRenderer.invoke(channel, ...args);
+  if (!result.ok) throw new Error(forwardErrorMessages[result.code]);
+  return result.value;
+}
 async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: TransferResponse<T> = await ipcRenderer.invoke(channel, ...args);
   if (!result.ok) throw new Error(fileErrorMessages[result.code]);
@@ -106,6 +120,24 @@ const api: DesktopApi = {
     const handler = () => listener();
     ipcRenderer.on(BATCH_CHANGED, handler);
     return () => ipcRenderer.removeListener(BATCH_CHANGED, handler);
+  },
+  listForwardRules: (hostId) => forwardRequest<PortForwardRule[]>(forwardChannels.rules, hostId),
+  saveForwardRule: (hostId, draft, id) =>
+    forwardRequest<PortForwardRule>(
+      forwardChannels.saveRule,
+      hostId,
+      draft,
+      ...(id === undefined ? [] : [id]),
+    ),
+  deleteForwardRule: (id) => forwardRequest<void>(forwardChannels.deleteRule, id),
+  getForwardState: () => forwardRequest<ActiveForward[]>(forwardChannels.state),
+  startForward: (sessionId, ruleId) =>
+    forwardRequest<void>(forwardChannels.start, sessionId, ruleId),
+  stopForward: (sessionId, ruleId) => forwardRequest<void>(forwardChannels.stop, sessionId, ruleId),
+  onForwardsChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(FORWARDS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(FORWARDS_CHANGED, handler);
   },
   getStartupSnippet: (target) => historyRequest<Snippet | null>(snippetChannels.startup, target),
   setStartupSnippet: (target, snippetId) =>

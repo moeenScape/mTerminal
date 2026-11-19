@@ -44,6 +44,11 @@ Older version-1 workspace exports without environment entries still import norma
 removal materializes effective environment values alongside the existing connection defaults.
 A group edit that would exceed the 32-variable effective limit rolls back completely.
 
+Schema v9 adds `port_forwards`: saved forwarding rules (type, listen address/port,
+destination) keyed by UUID, at most 20 per host, each referencing its host with
+`ON DELETE CASCADE`. Rules contain no credentials. They are not yet included in workspace
+exports. Running forwards are never stored; they exist only while their SSH session is open.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates

@@ -20,6 +20,10 @@ export type TerminalTransport = Pick<
     expected?: import('../../shared/transfers.js').PartialInspection,
   ) => Promise<import('../../shared/transfers.js').PartialInspection>;
   transferPeer?: import('../../shared/transfers.js').TransferPeer;
+  startForward?: (
+    rule: import('../../shared/port-forwarding.js').PortForwardDraft,
+    events: import('./port-forward.js').ForwardEvents,
+  ) => Promise<import('./port-forward.js').ForwardHandle>;
   onExit: (listener: (event: TerminalExit) => void) => IDisposable;
   listDirectory?: (path: string) => Promise<import('../../shared/files.js').DirectoryListing>;
   prepareRemoteEdit?: (

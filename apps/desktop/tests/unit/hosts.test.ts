@@ -59,7 +59,7 @@ describe('saved host profiles', () => {
       const id = db.workspaceId;
       db.transaction((connection) =>
         connection.exec(
-          'DROP TABLE hosts; DROP TABLE host_groups; DROP TABLE known_hosts; DROP TABLE transfer_recovery; DROP TABLE workspace_templates; DROP TABLE ssh_identities; DELETE FROM schema_migrations WHERE version>=2; PRAGMA user_version=1;',
+          'DROP TABLE port_forwards; DROP TABLE hosts; DROP TABLE host_groups; DROP TABLE known_hosts; DROP TABLE transfer_recovery; DROP TABLE workspace_templates; DROP TABLE ssh_identities; DELETE FROM schema_migrations WHERE version>=2; PRAGMA user_version=1;',
         ),
       );
       db.close();

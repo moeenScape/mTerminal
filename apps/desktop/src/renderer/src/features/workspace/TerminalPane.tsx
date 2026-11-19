@@ -41,6 +41,7 @@ import { failureMessages } from '../../../../shared/failures';
 import { mirrorTerminalStyles } from './xterm-styles';
 import { useCommandHistory } from './useCommandHistory';
 import { FileBrowser } from '../files/FileBrowser';
+import { PortForwarding } from './PortForwarding';
 
 type StartupNotice = {
   sessionId: string;
@@ -97,11 +98,15 @@ export function TerminalPane({
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [forwardsOpen, setForwardsOpen] = useState(false);
+  /** A full-pane view (files or port forwarding) covers the terminal. */
+  const overlayOpen = filesOpen || forwardsOpen;
   const [query, setQuery] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [results, setResults] = useState<SearchSummary>({ index: -1, count: 0 });
   const openSearch = useCallback(() => {
     setFilesOpen(false);
+    setForwardsOpen(false);
     setSearchOpen(true);
     if (searchFrame.current !== undefined) cancelAnimationFrame(searchFrame.current);
     searchFrame.current = requestAnimationFrame(() => {
@@ -117,7 +122,7 @@ export function TerminalPane({
   const [terminalAppearance, setTerminalAppearance] = useState(defaultTerminalAppearance);
   const options = terminalOptions(terminalAppearance, appearance);
   const history = useCommandHistory(
-    active && !filesOpen,
+    active && !overlayOpen,
     !hostId,
     session,
     inputReady,
@@ -566,7 +571,7 @@ export function TerminalPane({
   }
 
   function insertSnippet(command: string): string | undefined {
-    if (!active || filesOpen || !inputReady.current || !session.current)
+    if (!active || overlayOpen || !inputReady.current || !session.current)
       return 'Select a running terminal before inserting a snippet.';
     try {
       validateSnippet({ name: 'Insert', command, folder: '', tags: [] });
@@ -577,7 +582,7 @@ export function TerminalPane({
   }
   function requestSnippetRun(snippet: Snippet, startupRun = false): string | undefined {
     const term = terminal.current;
-    if (!active || filesOpen || !inputReady.current || !session.current || !term)
+    if (!active || overlayOpen || !inputReady.current || !session.current || !term)
       return 'Select a running terminal before running a snippet.';
     const error = history.insertionError();
     if (error) return error;
@@ -648,6 +653,7 @@ export function TerminalPane({
       separator: true,
       onSelect: () => {
         setFilesOpen(false);
+        setForwardsOpen(false);
         setTools('history');
       },
     },
@@ -655,6 +661,7 @@ export function TerminalPane({
       label: 'Snippets',
       onSelect: () => {
         setFilesOpen(false);
+        setForwardsOpen(false);
         setTools('snippets');
       },
     },
@@ -662,6 +669,7 @@ export function TerminalPane({
       label: 'Terminal appearance…',
       onSelect: () => {
         setFilesOpen(false);
+        setForwardsOpen(false);
         setTools('themes');
       },
     },
@@ -669,9 +677,22 @@ export function TerminalPane({
       label: 'Browse files',
       onSelect: () => {
         setTools(null);
+        setForwardsOpen(false);
         setFilesOpen(true);
       },
     },
+    ...(hostId
+      ? [
+          {
+            label: 'Port forwarding…',
+            onSelect: () => {
+              setTools(null);
+              setFilesOpen(false);
+              setForwardsOpen(true);
+            },
+          },
+        ]
+      : []),
     {
       label: 'Split right',
       separator: true,
@@ -783,6 +804,7 @@ export function TerminalPane({
           title="Autocomplete, history, snippets and themes"
           onClick={() => {
             setFilesOpen(false);
+            setForwardsOpen(false);
             setTools((value) => (value ? null : 'history'));
           }}
         >
@@ -797,6 +819,7 @@ export function TerminalPane({
           aria-controls={`files-${id}`}
           onClick={() => {
             setFilesOpen((value) => !value);
+            setForwardsOpen(false);
             setTools(null);
           }}
         >
@@ -827,7 +850,7 @@ export function TerminalPane({
             <>
               <button
                 type="button"
-                disabled={!running || !active || filesOpen}
+                disabled={!running || !active || overlayOpen}
                 onClick={() => void reviewStartup(startup.sessionId)}
               >
                 Review startup
@@ -957,7 +980,7 @@ export function TerminalPane({
       <div className="terminal-stage">
         <div
           className="terminal-container"
-          inert={filesOpen}
+          inert={overlayOpen}
           ref={container}
           style={{ background: options.theme.background }}
           aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
@@ -975,6 +998,19 @@ export function TerminalPane({
               remoteTitle={title}
               onClose={() => {
                 setFilesOpen(false);
+                terminal.current?.focus();
+              }}
+            />
+          </div>
+        )}
+        {forwardsOpen && hostId && (
+          <div className="files-overlay" id={`forwards-${id}`}>
+            <PortForwarding
+              hostId={hostId}
+              sessionId={running ? session.current : null}
+              title={title}
+              onClose={() => {
+                setForwardsOpen(false);
                 terminal.current?.focus();
               }}
             />
@@ -1014,7 +1050,7 @@ export function TerminalPane({
             onInsert={insertSnippet}
             onRunSnippet={requestSnippetRun}
             onOpenVault={onOpenVault}
-            ready={running && active && !filesOpen}
+            ready={running && active && !overlayOpen}
             startupTarget={hostId ?? 'local'}
             preferences={toolsPreferences}
             onPreferenceChange={onToolsPreferenceChange}
@@ -1061,7 +1097,7 @@ export function TerminalPane({
               !inputReady.current ||
               !panel?.clientWidth ||
               panel.dataset.active !== 'true' ||
-              filesOpen
+              overlayOpen
             )
               throw new Error(
                 'The target session changed or is no longer active. Cancel and select the snippet again.',

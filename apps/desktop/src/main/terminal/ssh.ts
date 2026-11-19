@@ -1,5 +1,6 @@
 import { validateEnvironment } from '../../shared/environment.js';
 import { executeSshCommand } from './ssh-exec.js';
+import { startForward } from './port-forward.js';
 import { createHash } from 'node:crypto';
 import { Client, type ClientChannel } from '../ssh2-module.js';
 import type { TerminalTransport, TerminalExit } from './transport.js';
@@ -180,6 +181,7 @@ export function openSsh(
               username: credentials.username,
               fingerprint,
             },
+            startForward: (rule, events) => startForward(client, rule, events),
             listDirectory: (path) => files.list(path),
             prepareRemoteEdit: (request, directory, signal) =>
               files.prepareEdit(request, directory, signal),

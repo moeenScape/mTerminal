@@ -181,6 +181,17 @@ export class TerminalSession {
     if (!this.canExecute || !execute) throw new Error('SSH session disconnected.');
     return execute(command, signal);
   }
+  get canForward(): boolean {
+    return !this.disposed && !!this.session?.pty.startForward;
+  }
+  startForward(
+    rule: import('../../shared/port-forwarding.js').PortForwardDraft,
+    events: import('./port-forward.js').ForwardEvents,
+  ) {
+    const start = this.session?.pty.startForward;
+    if (this.disposed || !start) throw new Error('SSH session disconnected.');
+    return start(rule, events);
+  }
   get transferPeer() {
     return this.session?.pty.transferPeer ?? null;
   }

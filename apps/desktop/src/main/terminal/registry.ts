@@ -46,6 +46,19 @@ export class TerminalRegistry {
       throw new Error('SSH session unavailable.');
     return session.executeCommand(command, signal);
   }
+  canForward(id: string): boolean {
+    return !this.disposed && !this.suspended && !!this.sessions.get(id)?.canForward;
+  }
+  startForward(
+    id: string,
+    rule: import('../../shared/port-forwarding.js').PortForwardDraft,
+    events: import('./port-forward.js').ForwardEvents,
+  ) {
+    const session = this.sessions.get(id);
+    if (this.disposed || this.suspended || !session?.canForward)
+      throw new Error('SSH session unavailable.');
+    return session.startForward(rule, events);
+  }
   canTransfer(id: string): boolean {
     return !this.disposed && !!this.sessions.get(id)?.canTransfer;
   }

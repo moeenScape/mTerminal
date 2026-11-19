@@ -305,6 +305,11 @@ the connection's saved snapshot. Values are non-secret configuration, stored une
 included in workspace exports. The remote server must allow the names through `AcceptEnv`;
 a successful connection does not confirm acceptance. See [environment variables](docs/ENVIRONMENT_VARIABLES.md).
 
+F49 adds **Port forwarding…** to the ⋯ menu of SSH tabs. Save local, remote and dynamic
+(SOCKS5) rules per host, then Start/Stop them on the connected session and watch their status
+and open connections. Forwards listen on 127.0.0.1 by default and stop when the session
+disconnects or closes. See [port forwarding](docs/PORT_FORWARDING.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;
