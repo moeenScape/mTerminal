@@ -22,29 +22,34 @@ export function fingerprintMatches(key: Buffer, expected: string): boolean {
 /** Username and authentication options shared by direct and jump-host connections. */
 export function sshAuthConfig(
   credentials: SshCredentials,
+  /** System agent path; required for `agent` sign-in and for agent forwarding. */
+  agent?: string,
 ): Pick<
   ConnectConfig,
-  'username' | 'password' | 'privateKey' | 'passphrase' | 'tryKeyboard' | 'authHandler'
+  'username' | 'password' | 'privateKey' | 'passphrase' | 'agent' | 'tryKeyboard' | 'authHandler'
 > {
   const interactive =
     credentials.method === 'keyboard-interactive' || credentials.keyboardInteractive === true;
+  const primary: Record<NonNullable<SshCredentials['method']>, AuthenticationType> = {
+    password: 'password',
+    privateKey: 'publickey',
+    agent: 'agent',
+    'keyboard-interactive': 'keyboard-interactive',
+  };
+  const method = credentials.method ?? 'password';
   return {
     username: credentials.username,
-    ...(credentials.method === 'privateKey'
+    ...(method === 'privateKey'
       ? { privateKey: credentials.privateKey!, passphrase: credentials.passphrase! }
-      : credentials.method === 'keyboard-interactive'
-        ? {}
-        : { password: credentials.password! }),
+      : method === 'password'
+        ? { password: credentials.password! }
+        : {}),
+    ...(agent ? { agent } : {}),
     tryKeyboard: interactive,
-    authHandler: (credentials.method === 'keyboard-interactive'
-      ? ['keyboard-interactive']
-      : credentials.method === 'privateKey'
-        ? interactive
-          ? ['publickey', 'keyboard-interactive']
-          : ['publickey']
-        : interactive
-          ? ['password', 'keyboard-interactive']
-          : ['password']) as AuthenticationType[],
+    authHandler:
+      method === 'keyboard-interactive' || !interactive
+        ? [primary[method]]
+        : [primary[method], 'keyboard-interactive'],
   };
 }
 
@@ -63,6 +68,8 @@ export function openSsh(
   verifyKey?: (key: Buffer) => Promise<boolean>,
   report?: (state: SshConnectionState) => void,
   via?: SshVia,
+  /** System agent path, when signing in with the agent or forwarding it. */
+  agent?: string,
 ): Promise<TerminalTransport> {
   return new Promise((resolve, reject) => {
     const environment = Object.fromEntries(
@@ -276,7 +283,8 @@ export function openSsh(
         ...(via ? { sock: via.sock } : {}),
         keepaliveInterval: 15000,
         keepaliveCountMax: 3,
-        ...sshAuthConfig(credentials),
+        ...sshAuthConfig(credentials, agent),
+        ...(agent && host.agentForwarding ? { agentForward: true } : {}),
         readyTimeout: humanVerification ? 120000 : 15000,
         hostVerifier: (key: Buffer, verify: (accepted: boolean) => void) => {
           progress('verifying');

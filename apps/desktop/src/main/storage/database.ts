@@ -107,6 +107,12 @@ const migrations = [
       ALTER TABLE hosts ADD COLUMN proxyId TEXT;
     `);
   },
+  (connection: DatabaseSync) => {
+    connection.exec(`
+      ALTER TABLE hosts ADD COLUMN useAgent INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE hosts ADD COLUMN agentForwarding INTEGER NOT NULL DEFAULT 0;
+    `);
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -187,6 +193,8 @@ function validateDatabase(database: DatabaseSync): void {
     database.prepare('SELECT id,data FROM proxies LIMIT 0').all();
     database.prepare('SELECT proxyId FROM hosts LIMIT 0').all();
   }
+  if (pragmaNumber(database, 'user_version') >= 12)
+    database.prepare('SELECT useAgent, agentForwarding FROM hosts LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -429,6 +437,8 @@ export class LocalDatabase {
             identityId: row.identityId ?? null,
             jumpHostId: row.jumpHostId ?? null,
             proxyId: row.proxyId ?? null,
+            useAgent: row.useAgent === 1,
+            agentForwarding: row.agentForwarding === 1,
           }),
           id: row.id,
         };
@@ -460,7 +470,7 @@ export class LocalDatabase {
       if (id) {
         const result = db
           .prepare(
-            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=?, jumpHostId=?, proxyId=? WHERE id=?',
+            'UPDATE hosts SET name=?, address=?, port=?, username=?, protocol=?, groupPath=?, tags=?, inheritPort=?, inheritUsername=?, identityId=?, environment=?, jumpHostId=?, proxyId=?, useAgent=?, agentForwarding=? WHERE id=?',
           )
           .run(
             host.name,
@@ -476,12 +486,14 @@ export class LocalDatabase {
             JSON.stringify(host.environment ?? []),
             host.jumpHostId ?? null,
             host.proxyId ?? null,
+            Number(host.useAgent === true),
+            Number(host.agentForwarding === true),
             key,
           );
         if (result.changes !== 1) throw new Error('Host no longer exists.');
       } else {
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,jumpHostId,proxyId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,jumpHostId,proxyId,useAgent,agentForwarding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           key,
           host.name,
@@ -497,6 +509,8 @@ export class LocalDatabase {
           JSON.stringify(host.environment ?? []),
           host.jumpHostId ?? null,
           host.proxyId ?? null,
+          Number(host.useAgent === true),
+          Number(host.agentForwarding === true),
         );
       }
     });
@@ -706,7 +720,7 @@ export class LocalDatabase {
         );
       for (const host of data.hosts)
         db.prepare(
-          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          'INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,environment,useAgent,agentForwarding) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         ).run(
           host.id,
           host.name,
@@ -720,6 +734,8 @@ export class LocalDatabase {
           Number(host.inheritUsername),
           host.identityId ?? null,
           JSON.stringify(host.environment ?? []),
+          Number(host.useAgent === true),
+          Number(host.agentForwarding === true),
         );
       // Jump references may point at hosts inserted later in the same import.
       for (const host of data.hosts)

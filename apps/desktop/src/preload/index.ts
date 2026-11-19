@@ -21,6 +21,7 @@ import {
   type ForwardError,
   type PortForwardRule,
 } from '../shared/port-forwarding.js';
+import { AGENT_STATUS, type AgentStatus } from '../shared/agent.js';
 import { proxyChannels, type ProxySummary, type SavedProxy } from '../shared/proxies.js';
 import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
@@ -130,6 +131,7 @@ const api: DesktopApi = {
     ipcRenderer.on(BATCH_CHANGED, handler);
     return () => ipcRenderer.removeListener(BATCH_CHANGED, handler);
   },
+  getAgentStatus: () => ipcRenderer.invoke(AGENT_STATUS) as Promise<AgentStatus>,
   listProxies: () => proxyRequest<ProxySummary[]>(proxyChannels.list),
   saveProxy: (draft, password, id) =>
     proxyRequest<SavedProxy>(

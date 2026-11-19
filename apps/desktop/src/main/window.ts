@@ -3,6 +3,8 @@ import { attachBroadcast } from './terminal/broadcast-ipc.js';
 import { attachBatch } from './terminal/batch-ipc.js';
 import { attachForwards } from './terminal/forwards-ipc.js';
 import { attachProxies } from './proxies-ipc.js';
+import { agentStatus } from './terminal/agent.js';
+import { AGENT_STATUS, type AgentStatus } from '../shared/agent.js';
 import { attachSnippets } from './snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
 import { hostChannels, validHostId } from '../shared/hosts.js';
@@ -384,6 +386,16 @@ export async function createMainWindow(
     if (!allowRendererReload(event.url, event.isMainFrame, rendererUrl)) event.preventDefault();
   });
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+
+  ipcMain.handle(AGENT_STATUS, async (event, ...args: unknown[]): Promise<AgentStatus> => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, args);
+    try {
+      return await agentStatus();
+    } catch {
+      return { available: false, reason: 'unreachable' };
+    }
+  });
+  window.once('closed', () => ipcMain.removeHandler(AGENT_STATUS));
 
   ipcMain.handle(APP_INFO_CHANNEL, (event, ...args: unknown[]): AppInfo => {
     validateAppInfoRequest(event, window.webContents, rendererUrl, args);

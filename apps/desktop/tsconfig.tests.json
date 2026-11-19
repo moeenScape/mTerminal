@@ -59,6 +59,7 @@
     "src/main/terminal/forwards-ipc.ts",
     "src/main/terminal/jump.ts",
     "src/main/terminal/proxy.ts",
-    "src/main/proxies-ipc.ts"
+    "src/main/proxies-ipc.ts",
+    "src/main/terminal/agent.ts"
   ]
 }

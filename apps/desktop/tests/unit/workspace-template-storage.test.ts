@@ -73,7 +73,7 @@ describe('workspace template storage', () => {
       });
       database.transaction((connection) =>
         connection.exec(
-          'DROP TABLE proxies; ALTER TABLE hosts DROP COLUMN proxyId; DROP TABLE port_forwards; ALTER TABLE hosts DROP COLUMN jumpHostId; ALTER TABLE hosts DROP COLUMN environment; ALTER TABLE host_groups DROP COLUMN environment; DROP TABLE workspace_templates; DELETE FROM schema_migrations WHERE version>=7; PRAGMA user_version=6;',
+          'ALTER TABLE hosts DROP COLUMN useAgent; ALTER TABLE hosts DROP COLUMN agentForwarding; DROP TABLE proxies; ALTER TABLE hosts DROP COLUMN proxyId; DROP TABLE port_forwards; ALTER TABLE hosts DROP COLUMN jumpHostId; ALTER TABLE hosts DROP COLUMN environment; ALTER TABLE host_groups DROP COLUMN environment; DROP TABLE workspace_templates; DELETE FROM schema_migrations WHERE version>=7; PRAGMA user_version=6;',
         ),
       );
       close();

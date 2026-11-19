@@ -13,6 +13,7 @@ import {
   type SshIdentity,
 } from '../../../../shared/hosts';
 import { describeProxy, type ProxySummary } from '../../../../shared/proxies';
+import type { AgentStatus } from '../../../../shared/agent';
 import { useModalDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 
@@ -255,6 +256,20 @@ const groupPathMessage =
   'Group paths use letters, numbers and single slashes between levels, such as Work/Production.';
 
 /** Explains why a host draft was rejected, based on the validator's message. */
+function agentSummary(agent: AgentStatus | null): string {
+  if (!agent) return 'Checking for an SSH agent…';
+  if (!agent.available)
+    return agent.reason === 'missing'
+      ? 'No SSH agent found. Start ssh-agent and run ssh-add, then restart mTerminal.'
+      : 'An SSH agent is configured but did not answer.';
+  if (!agent.keys.length) return 'SSH agent found, but it has no keys. Add one with ssh-add.';
+  const names = agent.keys
+    .slice(0, 3)
+    .map((key) => key.comment || key.type)
+    .join(', ');
+  return `SSH agent found with ${agent.keys.length} key${agent.keys.length === 1 ? '' : 's'}: ${names}${agent.keys.length > 3 ? '…' : ''}`;
+}
+
 function hostValidationMessage(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : '';
   if (message === 'Invalid tag.' || message === 'Invalid tags.')
@@ -298,6 +313,21 @@ export function HostForm({
   const [identityId, setIdentityId] = useState(host?.identityId ?? '');
   const [jumpHostId, setJumpHostId] = useState(host?.jumpHostId ?? '');
   const [proxyId, setProxyId] = useState(host?.proxyId ?? '');
+  const [useAgent, setUseAgent] = useState(host?.useAgent === true);
+  const [agentForwarding, setAgentForwarding] = useState(host?.agentForwarding === true);
+  const [agent, setAgent] = useState<AgentStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    window.mterminal
+      .getAgentStatus()
+      .then((value) => {
+        if (!cancelled) setAgent(value);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [proxies, setProxies] = useState<ProxySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +409,8 @@ export function HostForm({
         identityId: identityId || null,
         jumpHostId: jumpHostId || null,
         proxyId: proxyId || null,
+        useAgent,
+        agentForwarding,
         environment,
       });
       effective = resolveHost(draft, groups);
@@ -614,6 +646,38 @@ export function HostForm({
             </select>
           )}
         </Field>
+        <Field
+          label="Sign in with"
+          hint={agentSummary(agent)}
+          extra={
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={agentForwarding}
+                onChange={(event) => setAgentForwarding(event.target.checked)}
+              />
+              Forward my SSH agent to this server (ssh -A)
+            </label>
+          }
+        >
+          {(props) => (
+            <select
+              {...props}
+              name="signIn"
+              value={useAgent ? 'agent' : 'saved'}
+              onChange={(event) => setUseAgent(event.target.value === 'agent')}
+            >
+              <option value="saved">Password, key or identity above</option>
+              <option value="agent">SSH agent (keys loaded with ssh-add)</option>
+            </select>
+          )}
+        </Field>
+        {agentForwarding && (
+          <p className="field-hint forward-warning" role="note">
+            Anyone with root access on this server can use your agent’s keys while you are
+            connected. Forward only to servers you trust.
+          </p>
+        )}
         <Field
           label="Connect through (jump host)"
           hint="Optional. Connect to this saved host first, then reach this server from it (ProxyJump). The jump host needs a saved login."

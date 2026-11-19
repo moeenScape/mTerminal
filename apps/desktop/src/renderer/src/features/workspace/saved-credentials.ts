@@ -14,9 +14,17 @@ export async function findSavedCredentials(hostId: string): Promise<SshCredentia
     window.mterminal.getVaultState(),
   ]);
   const host = hosts.find((item) => item.id === hostId);
-  if (!host || !vault.configured || vault.locked || !vault.available) return undefined;
+  if (!host) return undefined;
   const resolved = resolveHost(host, groups);
   const identity = identities.find((item) => item.id === resolved.identityId);
+  // The SSH agent holds its own keys, so it needs no vault.
+  if (host.useAgent) {
+    const username = identity?.username || resolved.username;
+    return username
+      ? validateSshCredentials({ username, fingerprint: '', method: 'agent' })
+      : undefined;
+  }
+  if (!vault.configured || vault.locked || !vault.available) return undefined;
   const own = await window.mterminal.getSshPasswordStatus(host.id);
   if (own.available && own.saved && own.username)
     return validateSshCredentials({

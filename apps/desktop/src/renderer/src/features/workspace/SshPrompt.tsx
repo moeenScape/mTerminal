@@ -33,9 +33,9 @@ export function SshPrompt({
   const [savedUsername, setSavedUsername] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [method, setMethod] = useState<'password' | 'privateKey' | 'keyboard-interactive'>(
-    'password',
-  );
+  const [method, setMethod] = useState<
+    'password' | 'privateKey' | 'keyboard-interactive' | 'agent'
+  >('password');
   const [privateKey, setPrivateKey] = useState('');
   const [keyLoading, setKeyLoading] = useState(false);
   const [identityId, setIdentityId] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function SshPrompt({
           const resolved = resolveHost(host, groups);
           const identity = identities.find((item) => item.id === resolved.identityId);
           setIdentityId(identity?.id ?? null);
-          setMethod(identity?.method ?? 'password');
+          setMethod(host.useAgent ? 'agent' : (identity?.method ?? 'password'));
           if (identity) {
             void window.mterminal
               .getSshKeyStatus(identity.id)
@@ -94,7 +94,7 @@ export function SshPrompt({
               if (own.username) {
                 setSavedUsername(own.username);
                 setUsername((current) => current || own.username!);
-                setMethod('password');
+                if (!host.useAgent) setMethod('password');
               } else setUsername((current) => current || identity?.username || resolved.username);
               setPasswordOwner(owner);
               setVaultAvailable(status.available);
@@ -227,8 +227,14 @@ export function SshPrompt({
             <option value="password">Password</option>
             <option value="privateKey">Private key</option>
             <option value="keyboard-interactive">Keyboard-interactive</option>
+            <option value="agent">SSH agent</option>
           </select>
         </label>
+        {method === 'agent' && (
+          <p className="field-hint">
+            Uses the keys loaded in your system SSH agent (ssh-add). Nothing is saved by mTerminal.
+          </p>
+        )}
         {method === 'password' && vaultAvailable && savedPassword && (
           <label>
             <input

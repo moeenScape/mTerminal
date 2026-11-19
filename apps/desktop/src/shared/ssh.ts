@@ -2,7 +2,8 @@ import { validHostId } from './hosts.js';
 
 export interface SshCredentials {
   username: string;
-  method?: 'password' | 'privateKey' | 'keyboard-interactive';
+  /** `agent` signs in with keys held by the system SSH agent. */
+  method?: 'password' | 'privateKey' | 'keyboard-interactive' | 'agent';
   password?: string;
   privateKey?: string;
   passphrase?: string;
@@ -36,7 +37,7 @@ export function validateSshCredentials(value: unknown): SshCredentials {
   )
     throw new Error('Invalid saved credential reference.');
   if (
-    !['password', 'privateKey', 'keyboard-interactive'].includes(method) ||
+    !['password', 'privateKey', 'keyboard-interactive', 'agent'].includes(method) ||
     (c.keyboardInteractive !== undefined && typeof c.keyboardInteractive !== 'boolean')
   )
     throw new Error('Invalid authentication method.');

@@ -8,12 +8,15 @@ import type { LocalDatabase } from '../storage/database.js';
 import { knownHostAddress } from '../storage/database.js';
 import type { SshSecretStore } from '../storage/secret-store.js';
 import { sshAuthConfig, type SshVia } from './ssh.js';
+import { requireAgent } from './agent.js';
 
 export interface JumpHop {
   name: string;
   address: string;
   port: number;
   credentials: SshCredentials;
+  /** System agent path when this hop signs in with the agent. */
+  agent?: string;
 }
 
 /**
@@ -31,6 +34,8 @@ export async function savedJumpCredentials(
     const identity = database.listSshIdentities().find((item) => item.id === resolved.identityId);
     const own = await secrets.getLogin(host.id);
     const base = { fingerprint: '', keyboardInteractive: false };
+    const agentUser = identity?.username || resolved.username;
+    if (host.useAgent && agentUser) return { ...base, username: agentUser, method: 'agent' };
     if (own?.username)
       return { ...base, username: own.username, method: 'password', password: own.password };
     const username = identity?.username || resolved.username;
@@ -70,6 +75,7 @@ export async function prepareJumpHops(
       address: knownHostAddress(resolved.address, resolved.port),
       port: resolved.port,
       credentials: await savedJumpCredentials(host, database, secrets),
+      ...(host.useAgent ? { agent: await requireAgent() } : {}),
     });
   }
   return hops;
@@ -156,7 +162,7 @@ export function openJumpChain(
           keepaliveInterval: 15000,
           keepaliveCountMax: 3,
           readyTimeout: 120000,
-          ...sshAuthConfig(hop.credentials),
+          ...sshAuthConfig(hop.credentials, hop.agent),
           hostVerifier: (key: Buffer, verify: (accepted: boolean) => void) => {
             void verifyKey(hop, key)
               .then((accepted) => {

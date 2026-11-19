@@ -320,6 +320,11 @@ password stays in the vault) and **Connect through proxy** in the host editor, f
 that block direct SSH. With a jump host, the proxy carries the connection to the first hop.
 See [proxies](docs/PROXIES.md).
 
+F52 adds **SSH agent** sign-in (keys loaded with `ssh-add`, Pageant or the Windows OpenSSH
+agent) per host or in the connect dialog, and optional **agent forwarding** (`ssh -A`) with a
+trust warning. The host editor shows whether an agent is running and which keys it holds.
+See [SSH agents](docs/SSH_AGENT.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

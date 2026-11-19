@@ -26,6 +26,10 @@ export interface HostDraft {
   jumpHostId?: string | null;
   /** Saved proxy for the first network connection of this host. */
   proxyId?: string | null;
+  /** Sign in with the system SSH agent instead of a saved password or key. */
+  useAgent?: boolean;
+  /** Let the server use this PC's SSH agent (ssh -A). */
+  agentForwarding?: boolean;
 }
 /** Jump hosts allowed in front of a target. */
 export const MAX_JUMP_HOPS = 3;
@@ -119,6 +123,9 @@ export function validateHost(value: unknown): HostDraft {
   const jumpHostId = h.jumpHostId == null || h.jumpHostId === '' ? null : h.jumpHostId;
   if (jumpHostId !== null && !validHostId(jumpHostId)) throw new Error('Invalid jump host.');
   const proxyId = h.proxyId == null || h.proxyId === '' ? null : h.proxyId;
+  for (const field of ['useAgent', 'agentForwarding'])
+    if (h[field] !== undefined && typeof h[field] !== 'boolean')
+      throw new Error('Invalid agent setting.');
   if (proxyId !== null && !validHostId(proxyId)) throw new Error('Invalid proxy.');
   const result: HostDraft = {
     ...(environment.length ? { environment } : {}),
@@ -134,6 +141,8 @@ export function validateHost(value: unknown): HostDraft {
     identityId,
     ...(jumpHostId ? { jumpHostId } : {}),
     ...(proxyId ? { proxyId } : {}),
+    ...(h.useAgent === true ? { useAgent: true } : {}),
+    ...(h.agentForwarding === true ? { agentForwarding: true } : {}),
   };
   return result;
 }

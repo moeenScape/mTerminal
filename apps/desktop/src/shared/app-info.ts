@@ -3,6 +3,7 @@ import type { BroadcastApi } from './broadcast.js';
 import type { BatchApi } from './batch.js';
 import type { ForwardsApi } from './port-forwarding.js';
 import type { ProxiesApi } from './proxies.js';
+import type { AgentApi } from './agent.js';
 import type { SnippetsApi } from './snippets.js';
 import type { TemplatesApi } from './workspace-templates.js';
 import type { HostsApi } from './hosts.js';
@@ -36,6 +37,7 @@ export interface DesktopApi
     BatchApi,
     ForwardsApi,
     ProxiesApi,
+    AgentApi,
     BroadcastApi,
     SessionLogsApi {
   readClipboardText: () => Promise<string>;

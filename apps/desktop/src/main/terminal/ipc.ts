@@ -5,6 +5,7 @@ import { SshChallenges } from './ssh-challenges.js';
 import { openSsh, type SshVia } from './ssh.js';
 import { openJumpChain, prepareJumpHops } from './jump.js';
 import { connectThroughProxy } from './proxy.js';
+import { requireAgent } from './agent.js';
 import { resolveSshCredentials } from './credentials.js';
 import { validHostId, resolveHost, jumpChain } from '../../shared/hosts.js';
 import type { LocalDatabase } from '../storage/database.js';
@@ -288,6 +289,10 @@ export function attachTerminal(
           throw new AppFailure('ssh-proxy-auth-failed');
         }
       }
+      const agent =
+        credentials.method === 'agent' || resolved.agentForwarding
+          ? await requireAgent()
+          : undefined;
       let reportReady: ((state: SshConnectionState) => void) | undefined;
       await terminal.open(id, size, async (signal, report) => {
         reportReady = report;
@@ -331,6 +336,7 @@ export function attachTerminal(
             ),
           report,
           via,
+          agent,
         );
       });
       reportReady?.('connected');

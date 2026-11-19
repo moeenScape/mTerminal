@@ -29,6 +29,8 @@ export const failureMessages = {
   'ssh-key-install-failed':
     'The public key could not be installed. Check the remote account and its SFTP permissions, then retry.',
   'ssh-cancelled': 'SSH connection cancelled.',
+  'ssh-agent-unavailable':
+    'No SSH agent was found. Start ssh-agent (or Pageant / the OpenSSH Authentication Agent service on Windows), add a key with ssh-add, then restart mTerminal from that session.',
   'ssh-proxy-failed':
     'Could not connect through the proxy. Check its address and port, that it is running, and that this network can reach it.',
   'ssh-proxy-auth-failed':

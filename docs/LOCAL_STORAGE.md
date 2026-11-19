@@ -60,6 +60,10 @@ references in the same transaction. Proxy passwords are stored only in the vault
 proxy ID. Proxies are not included in workspace exports; an import keeps a host's proxy link
 only when a proxy with that ID already exists locally.
 
+Schema v12 adds `hosts.useAgent` and `hosts.agentForwarding` (0/1 integers, default 0). They are
+preferences only; agent keys are never copied into mTerminal. Both are included in workspace
+exports.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates
