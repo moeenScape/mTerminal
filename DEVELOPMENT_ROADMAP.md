@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F48 implemented — Encrypted session output logs, notes and bookmarks; acceptance pending |
-| Next feature | F49 — Port forwarding; Phase 5 regression/runtime verification remains deferred |
+| Active feature | Phase 5 (F38–F48) complete and user-tested on Linux |
+| Next feature | F49 — Port forwarding (Phase 6) |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-15 |
+| Last roadmap update | 2026-11-19 |
 
 ## Selected technology stack
 
@@ -180,7 +180,7 @@ Completion criteria: Test permissions, interruptions, large files, symlinks, unu
 
 Dependencies: Stable sessions, storage, and credential handling.
 
-- [x] **F38 — Split panes (implementation):** Independent sessions, draggable/keyboard resizing, spatial focus shortcuts and minimum-size scrollable layouts. Phase 5 runtime/platform acceptance remains pending.
+- [x] **F38 — Split panes (implementation):** Independent sessions, draggable/keyboard resizing, spatial focus shortcuts and minimum-size scrollable layouts. User-tested on Linux.
   - [x] **F38-A — Basic splits (implementation):** Split right/down, independent local or same-host SSH sessions, click focus, stable mounted terminals, split-group tab navigation and confirmed per-pane close. Fixed equal sizes; regression code written, execution deferred.
   - [x] **F38-B — Resize and shortcuts (implementation):** Accessible pointer-captured dividers, Escape cancellation, balance/reset, keyboard limits/resizing, spatial focus shortcuts and recursive minimum sizes. Regression code written/type-checked; test execution, visual and platform acceptance deferred.
 - [x] **F39 — Workspace templates (implementation):** SQLite-backed named layouts, pane/tab order and split ratios; review/open adds fresh idle panes without replacing current sessions or replaying commands. Explicit per-pane startup, missing-host/limit checks and confirmed deletion. Regression code written; execution and runtime/platform acceptance deferred.
@@ -191,13 +191,15 @@ Dependencies: Stable sessions, storage, and credential handling.
 - [x] **F44 — Command history (local implementation):** Existing CH01–CH03 provide encrypted, searchable local Bash history with sensitive-entry filtering, deletion and retention. Keep this implementation; additional shell/SSH capture remains CH05.
 - [x] **F45 — Environment variables (implementation):** Host/group editors, parent → child → host overrides, literal SSH shell/exec env requests, schema-v8 persistence and backup round-trips. Server AcceptEnv requirements and unconfirmed acceptance are documented; regression execution/runtime acceptance deferred.
 - [x] **F46 — Shell integration (implementation):** Local Bash 5.1+ directory, prompt/waiting/running states and paired completion exit codes; session-bound metadata, per-pane display and unsupported-shell fallback. Existing history/snippet behavior retained; regression execution/runtime acceptance deferred.
-- [x] **F47 — Autocomplete (implementation):** Completed history, snippet, local path and scoped command-argument sources below; phase regression/runtime acceptance remains pending.
+- [x] **F47 — Autocomplete (implementation):** Completed history, snippet, local path and scoped command-argument sources below; user-tested on Linux.
   - [x] **F47.1 — Snippet source (implementation):** Match safe single-line saved commands by prefix, show source/name/folder, deduplicate with history and revalidate before insert-only acceptance. Existing history execution remains available; regression execution/runtime acceptance deferred.
   - [x] **F47.2 — Local path source (implementation):** Owned local Bash prompt/cwd/HOME context, bounded names-only filesystem reads, safe literal suffixes and insert-only File/Folder suggestions. Revalidation and stale-result refusal included; regression execution/runtime acceptance deferred.
   - [x] **F47.3 — Argument source (implementation):** Static Git/npm/ls subcommand and standalone-flag catalogs, explicit grammar limits, source labels/descriptions and insert-only acceptance. No command discovery/execution; regression execution/runtime acceptance deferred.
 - [x] **F48 — Session logs (implementation):** Explicit local/SSH output recording, encrypted checkpoints, saved transcript viewer, notes/bookmarks/comments, access-based 30-day retention and confirmed deletion. Quotas, vault/window lifecycle and regression code included; test execution/runtime/platform acceptance deferred.
 
 Completion criteria: Workspace restoration does not silently repeat destructive commands. Broadcast destinations remain visible. Verify log limits and deletion, including sensitive-output handling. Unsupported shell integration must degrade gracefully.
+
+Phase 5 verification: user-tested on Linux (2026-11-19). macOS/Windows acceptance remains unverified.
 
 ## Phase 6 — Advanced connections and authentication
 
@@ -1632,3 +1634,11 @@ annotations and the desktop consent/read/bookmark/lock/deletion flow. Tests are 
 remain unrun at the user's request. `npm run check`, `npm run build` and
 `git diff --check` passed on Linux x64. Live local/SSH capture, OS secure-storage persistence,
 visual/accessibility and macOS/Windows acceptance remain unverified. Phase 5 verification remains pending. Next is F49 — Port forwarding.
+
+### 2026-11-19 — Phase 5 verified; copy on select and Linux packaging
+
+The user tested Phase 5 (F38–F48) on Linux and reported it working; Phase 5 is complete.
+macOS/Windows acceptance remains unverified. Added opt-out copy-on-select (clipboard plus the
+Linux primary selection) and `npm run dist`, which builds an installable `.deb` with an app icon
+and desktop entry. The packaged app was launched and ran a shell on Linux x64. SSH inline
+autocomplete stays deferred as CH05. Next is F49 — Port forwarding.
