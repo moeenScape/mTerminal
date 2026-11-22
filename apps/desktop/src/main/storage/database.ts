@@ -23,7 +23,7 @@ import { chmod, mkdir, rename, rm, stat, open, link } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { validateWorkspaceBackup, type WorkspaceBackup } from '../../shared/backup.ts';
-import { syncAdditions, syncMetadata } from '../../shared/workspace-sync.js';
+import { syncAdditions, syncMetadata, WorkspaceSyncFailure } from '../../shared/workspace-sync.js';
 import {
   MAX_FORWARD_RULES,
   validatePortForward,
@@ -735,6 +735,79 @@ export class LocalDatabase {
   mergeSyncedWorkspace(value: unknown): number {
     const additions = syncAdditions(syncMetadata(this.exportWorkspace()), syncMetadata(value));
     return this.insertWorkspace(additions);
+  }
+
+  applyWorkspaceSync(value: WorkspaceBackup, selected: ReadonlySet<string>): void {
+    const desired = syncMetadata(value);
+    this.transaction((db) => {
+      const hosts = new Set(desired.hosts.map(({ id }) => id));
+      const groups = new Set(desired.groups.map(({ path }) => path));
+      const identities = new Set(desired.identities.map(({ id }) => id));
+      for (const host of this.listHosts()) {
+        if (hosts.has(host.id) || !selected.has(`host:${host.id}`)) continue;
+        if (
+          host.environment?.length ||
+          host.proxyId ||
+          host.useAgent ||
+          host.agentForwarding ||
+          db.prepare('SELECT 1 FROM port_forwards WHERE hostId=? LIMIT 1').get(host.id)
+        )
+          throw new WorkspaceSyncFailure('sync-local-protected');
+        db.prepare('DELETE FROM hosts WHERE id=?').run(host.id);
+      }
+      for (const identity of desired.identities) {
+        if (!selected.has(`identity:${identity.id}`)) continue;
+        db.prepare(
+          `INSERT INTO ssh_identities (id,name,username,method) VALUES (?,?,?,?)
+          ON CONFLICT(id) DO UPDATE SET name=excluded.name,username=excluded.username,method=excluded.method`,
+        ).run(identity.id, identity.name, identity.username, identity.method);
+      }
+      for (const group of desired.groups) {
+        if (!selected.has(`group:${group.path}`)) continue;
+        db.prepare(
+          `INSERT INTO host_groups (path,port,username,identityId) VALUES (?,?,?,?)
+          ON CONFLICT(path) DO UPDATE SET port=excluded.port,username=excluded.username,identityId=excluded.identityId`,
+        ).run(group.path, group.port, group.username, group.identityId ?? null);
+      }
+      for (const host of desired.hosts) {
+        if (!selected.has(`host:${host.id}`)) continue;
+        db.prepare(
+          `INSERT INTO hosts (id,name,address,port,username,protocol,groupPath,tags,inheritPort,inheritUsername,identityId,jumpHostId)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,address=excluded.address,
+          port=excluded.port,username=excluded.username,groupPath=excluded.groupPath,tags=excluded.tags,
+          inheritPort=excluded.inheritPort,inheritUsername=excluded.inheritUsername,identityId=excluded.identityId,jumpHostId=excluded.jumpHostId`,
+        ).run(
+          host.id,
+          host.name,
+          host.address,
+          host.port,
+          host.username,
+          host.protocol,
+          host.groupPath ?? '',
+          JSON.stringify(host.tags ?? []),
+          Number(host.inheritPort),
+          Number(host.inheritUsername),
+          host.identityId ?? null,
+          host.jumpHostId ?? null,
+        );
+      }
+      for (const group of this.listHostGroups()) {
+        if (groups.has(group.path) || !selected.has(`group:${group.path}`)) continue;
+        if (group.environment?.length) throw new WorkspaceSyncFailure('sync-local-protected');
+        db.prepare('DELETE FROM host_groups WHERE path=?').run(group.path);
+      }
+      for (const identity of this.listSshIdentities()) {
+        if (!identities.has(identity.id) && selected.has(`identity:${identity.id}`))
+          db.prepare('DELETE FROM ssh_identities WHERE id=?').run(identity.id);
+      }
+      try {
+        // Validate the resulting graph with this device's retained environment settings.
+        const final = this.exportWorkspace();
+        for (const host of final.hosts) jumpChain(host, final.hosts);
+      } catch {
+        throw new WorkspaceSyncFailure('sync-dependencies');
+      }
+    });
   }
 
   private insertWorkspace(data: WorkspaceBackup): number {

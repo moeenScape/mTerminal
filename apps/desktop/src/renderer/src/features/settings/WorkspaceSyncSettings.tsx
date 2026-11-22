@@ -4,7 +4,9 @@ import {
   accountErrors,
   type SyncQueueState,
   type WorkspaceSyncAction,
+  type WorkspaceSyncResult,
 } from '../../../../shared/workspace-sync.js';
+import { WorkspaceSyncReview } from './WorkspaceSyncReview';
 
 export function WorkspaceSyncSettings() {
   const keyField = useRef<HTMLInputElement>(null);
@@ -14,6 +16,7 @@ export function WorkspaceSyncSettings() {
   const [error, setError] = useState('');
   const [queue, setQueue] = useState<SyncQueueState>({ status: 'idle' });
   const [discarding, setDiscarding] = useState(false);
+  const [review, setReview] = useState<Extract<WorkspaceSyncResult, { kind: 'review' }>>();
 
   useEffect(() => {
     let active = true;
@@ -41,7 +44,16 @@ export function WorkspaceSyncSettings() {
     setError('');
     try {
       const result = await window.mterminal.syncWorkspace(action);
-      if (result.kind === 'generated') {
+      if (result.kind === 'review') {
+        setReview(result);
+      } else if (result.kind === 'review-applied') {
+        if (keyField.current) keyField.current.value = '';
+        setGeneratedKey('');
+        setReview(undefined);
+        setMessage(
+          `${result.count} selected ${result.count === 1 ? 'change applied' : 'changes applied'} to ${result.target === 'cloud' ? 'the cloud copy' : 'this workspace'}.`,
+        );
+      } else if (result.kind === 'generated') {
         setGeneratedKey(result.key);
         if (keyField.current) keyField.current.value = result.key;
       } else if (result.kind === 'queue-status') {
@@ -61,6 +73,7 @@ export function WorkspaceSyncSettings() {
         );
       }
     } catch (cause) {
+      if (action.kind === 'apply-review') setReview(undefined);
       setError(errorMessage(cause, 'Workspace sync is unavailable. Try again.'));
     } finally {
       setBusy(false);
@@ -72,14 +85,19 @@ export function WorkspaceSyncSettings() {
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     if (!(submitter instanceof HTMLButtonElement)) return;
     const kind = submitter.value;
-    if (kind !== 'publish' && kind !== 'merge' && kind !== 'retry-publication') return;
+    if (kind !== 'publish' && kind !== 'merge' && kind !== 'retry-publication' && kind !== 'review')
+      return;
+    setReview(undefined);
     void perform({ kind, key: keyField.current?.value.trim() ?? '' });
   }
 
   return (
     <div>
       <h3>Encrypted workspace sync</h3>
-      <p>Sync adds hosts, groups, and identity profiles. Existing records stay in place.</p>
+      <p>
+        Publish or merge additions. To update or delete synced records, review the differences
+        first.
+      </p>
       {queue.status === 'retrying' && (
         <p role="status">Publication is queued. mTerminal retries while it is open.</p>
       )}
@@ -109,6 +127,9 @@ export function WorkspaceSyncSettings() {
             </button>
             <button className="secondary-button" type="submit" value="merge">
               Merge cloud records
+            </button>
+            <button className="secondary-button" type="submit" value="review">
+              Review differences
             </button>
             {queue.status !== 'idle' && (
               <>
@@ -168,6 +189,23 @@ export function WorkspaceSyncSettings() {
           {error && <p role="alert">{error}</p>}
         </fieldset>
       </form>
+      {review && (
+        <WorkspaceSyncReview
+          key={review.reviewId}
+          review={review}
+          busy={busy}
+          close={() => setReview(undefined)}
+          apply={(target, records) =>
+            perform({
+              kind: 'apply-review',
+              target,
+              records,
+              reviewId: review.reviewId,
+              key: keyField.current?.value.trim() ?? '',
+            })
+          }
+        />
+      )}
       {discarding && (
         <ConfirmDialog
           title="Discard queued publication?"

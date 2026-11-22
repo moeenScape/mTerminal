@@ -10,6 +10,8 @@ import {
   encryptWorkspace,
   generateSyncKey,
   publishWorkspace,
+  readCloudWorkspace,
+  writeCloudWorkspace,
   syncWorkspace,
 } from '../../src/main/storage/workspace-sync.js';
 import {
@@ -17,6 +19,9 @@ import {
   WorkspacePublicationRunner,
 } from '../../src/main/storage/workspace-publication.js';
 import { WorkspaceSyncFailure } from '../../src/shared/workspace-sync.js';
+import { WorkspaceReview } from '../../src/main/storage/workspace-review.js';
+import { resolveReview, reviewRows } from '../../src/main/storage/workspace-conflicts.js';
+import { syncMetadata } from '../../src/shared/workspace-sync.js';
 import type { WorkspaceBackup } from '../../src/shared/backup.js';
 import type { SavedHost } from '../../src/shared/hosts.js';
 import {
@@ -265,5 +270,123 @@ describe('queued workspace publication', () => {
       vi.useRealTimers();
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('workspace conflict review', () => {
+  it('selects one side, preserves unselected records and keeps a cloud deletion marker', () => {
+    const left = host('Local');
+    const cloud = host('Cloud');
+    const extra = host('Extra');
+    const local = syncMetadata(backup([{ ...cloud, name: 'Edited' }, left]));
+    const remote = { workspace: syncMetadata(backup([cloud, extra])), tombstones: [] };
+    expect(reviewRows(local, remote)).toHaveLength(3);
+    const next = resolveReview(local, remote, 'cloud', [`host:${cloud.id}`, `host:${extra.id}`]);
+    expect(next.workspace.hosts).toMatchObject([{ id: cloud.id, name: 'Edited' }]);
+    expect(next.tombstones).toEqual([`host:${extra.id}`]);
+    expect(() => resolveReview(local, remote, 'local', [`host:${left.id}`])).toThrow(
+      'invalid-input',
+    );
+    const stale = syncMetadata(backup([extra, { ...cloud, name: 'Edited' }]));
+    expect(reviewRows(stale, next)).toMatchObject([
+      { key: `host:${extra.id}`, cloudDeleted: true },
+    ]);
+    expect(
+      resolveReview(stale, next, 'local', [`host:${extra.id}`]).workspace.hosts.map(({ id }) => id),
+    ).toEqual([cloud.id]);
+  });
+
+  it('refuses stale reviews and prevents an additive publish from resurrecting a marked deletion', async () => {
+    const keyInput = generateSyncKey();
+    const key = decodeSyncKey(keyInput);
+    const deleted = host('Deleted');
+    const active = host('Active');
+    let local = backup([active, deleted]);
+    const cloud: SyncSnapshot = { accountId, revision: 0, envelope: null, maxEnvelopeVersion: 2 };
+    const upload = vi.fn((body: NonNullable<SyncSnapshot['envelope']>) => {
+      cloud.revision++;
+      cloud.envelope = body;
+      return { revision: cloud.revision };
+    });
+    const request = async (_path: string, method: 'GET' | 'PUT', payload?: object) =>
+      method === 'GET'
+        ? { ...cloud }
+        : upload((payload as { envelope: NonNullable<SyncSnapshot['envelope']> }).envelope);
+    await writeCloudWorkspace(
+      cloud,
+      { workspace: backup([active]), tombstones: [`host:${deleted.id}`] },
+      key,
+      request,
+      2,
+    );
+    expect((await readCloudWorkspace(key, request)).document?.tombstones).toEqual([
+      `host:${deleted.id}`,
+    ]);
+    await expect(publishWorkspace(syncMetadata(local), key, request, accountId)).rejects.toThrow(
+      'sync-record-conflict',
+    );
+    const database = { exportWorkspace: () => local, applyWorkspaceSync: vi.fn() };
+    const review = new WorkspaceReview(database, request, async () => false);
+    const preview = await review.preview(keyInput, accountId);
+    if (preview.kind !== 'review') throw new Error('Missing review');
+    const resolution = {
+      reviewId: preview.reviewId,
+      key: keyInput,
+      target: 'local',
+      records: [`host:${deleted.id}`],
+    };
+    local = backup([active, { ...deleted, name: 'Changed after review' }]);
+    await expect(review.apply(resolution, accountId)).rejects.toThrow('sync-review-stale');
+    const refreshed = await review.preview(keyInput, accountId);
+    if (refreshed.kind !== 'review') throw new Error('Missing review');
+    await writeCloudWorkspace(
+      cloud,
+      { workspace: backup([active]), tombstones: [`host:${deleted.id}`] },
+      key,
+      request,
+      2,
+    );
+    await expect(
+      review.apply({ ...resolution, reviewId: refreshed.reviewId }, accountId),
+    ).rejects.toThrow('sync-review-stale');
+    expect(database.applyWorkspaceSync).not.toHaveBeenCalled();
+  });
+
+  it('updates local metadata without replacing device-specific settings and rolls back a protected deletion', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-sync-review-'));
+    const database = await LocalDatabase.open(join(directory, 'workspace.sqlite'));
+    try {
+      const first = database.saveHost({
+        ...host('First'),
+        environment: [{ name: 'TOKEN', value: 'local-only' }],
+      });
+      const second = database.saveHost(host('Second'));
+      database.applyWorkspaceSync(
+        backup([{ ...first, name: 'Updated' }, second]),
+        new Set([`host:${first.id}`]),
+      );
+      expect(database.listHosts().find(({ id }) => id === first.id)).toMatchObject({
+        name: 'Updated',
+        environment: [{ name: 'TOKEN', value: 'local-only' }],
+      });
+      expect(() =>
+        database.applyWorkspaceSync(backup(), new Set([`host:${second.id}`, `host:${first.id}`])),
+      ).toThrow('sync-local-protected');
+      expect(database.listHosts()).toHaveLength(2);
+      database.applyWorkspaceSync(backup([first]), new Set([`host:${second.id}`]));
+      expect(database.listHosts().map(({ id }) => id)).toEqual([first.id]);
+    } finally {
+      database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects deleting a cloud jump host without resolving its dependent host', () => {
+    const jump = host('Jump');
+    const target = { ...host('Target'), jumpHostId: jump.id };
+    const cloud = { workspace: syncMetadata(backup([target, jump])), tombstones: [] };
+    expect(() =>
+      resolveReview(syncMetadata(backup()), cloud, 'cloud', [`host:${jump.id}`]),
+    ).toThrow('sync-dependencies');
   });
 });

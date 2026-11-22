@@ -465,6 +465,13 @@ h2 {
   padding-top: 4px;
 }
 
+.workspace-sync-review pre {
+  max-height: 14rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .settings-body h2 {
   font-size: 15px;
 }

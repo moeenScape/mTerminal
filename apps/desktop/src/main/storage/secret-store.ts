@@ -663,6 +663,18 @@ export class SshSecretStore {
     };
   }
 
+  async hasStoredCredential(id: string): Promise<boolean> {
+    for (const path of [this.loginPath(id), this.path(id), this.keyPath(id)]) {
+      try {
+        await lstat(path);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    return false;
+  }
+
   private loginPath(id: string): string {
     this.path(id);
     return join(this.directory, `${id}.login.enc`);

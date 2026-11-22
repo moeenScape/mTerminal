@@ -135,6 +135,7 @@ test(
       const empty = await sync('GET', renewedToken);
       assert.equal(empty.status, 200);
       assert.deepEqual(await empty.json(), {
+        maxEnvelopeVersion: 2,
         accountId: (
           await pool.query<{ id: string }>('SELECT id FROM accounts WHERE email = $1', [email])
         ).rows[0]?.id,
@@ -175,6 +176,20 @@ test(
       const updated = await sync('PUT', secondToken, { ...initial, expectedRevision: 1 });
       assert.equal(updated.status, 200);
       assert.deepEqual(await updated.json(), { revision: 2 });
+      const versionTwo = { ...envelope, version: 2 };
+      const upgraded = await sync('PUT', secondToken, {
+        ...initial,
+        envelope: versionTwo,
+        expectedRevision: 2,
+      });
+      assert.equal(upgraded.status, 200);
+      assert.equal(
+        (await sync('PUT', secondToken, { ...initial, expectedRevision: 3 })).status,
+        409,
+      );
+      const compatible = (await (await sync('GET', secondToken)).json()) as SyncSnapshot;
+      assert.equal(compatible.revision, 3);
+      assert.equal(compatible.envelope?.version, 2);
       assert.equal(
         (await call(accountRoutes.session, 'DELETE', undefined, renewedToken)).status,
         200,

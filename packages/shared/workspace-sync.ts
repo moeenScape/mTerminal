@@ -5,13 +5,14 @@ export const SYNC_HTTP_LIMIT = SYNC_CIPHERTEXT_LIMIT + 1024;
 export const SYNC_MAX_REVISION = 2_147_483_647;
 
 export interface SyncEnvelope {
-  version: 1;
+  version: 1 | 2;
   nonce: string;
   tag: string;
   ciphertext: string;
 }
 
 export interface SyncSnapshot {
+  maxEnvelopeVersion?: 2;
   accountId: string;
   revision: number;
   envelope: SyncEnvelope | null;
@@ -28,7 +29,7 @@ export function parseSyncEnvelope(value: unknown): SyncEnvelope | undefined {
   const { version, nonce, tag, ciphertext } = value as Record<string, unknown>;
   if (
     Object.keys(value).length !== 4 ||
-    version !== 1 ||
+    (version !== 1 && version !== 2) ||
     typeof nonce !== 'string' ||
     !/^[A-Za-z0-9_-]{16}$/.test(nonce) ||
     typeof tag !== 'string' ||

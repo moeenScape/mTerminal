@@ -1,4 +1,4 @@
-# Encrypted workspace sync (F61–F62)
+# Encrypted workspace sync (F61–F63)
 
 ## Publish and merge
 
@@ -18,9 +18,34 @@ identity profiles. Credentials, environment variables, proxy assignments, agent 
 trusted fingerprints, logs, and terminal history stay on the device. Trust the host key
 through the normal SSH connection flow on each device.
 
-Sync handles additions. Propagating edits and deletions and resolving divergent records are
-later roadmap steps. The service stores one current snapshot per account and
-accepts up to 1 MiB of plaintext metadata before encoding and encryption.
+The service stores one current snapshot per account and accepts up to 1 MiB of plaintext
+metadata before encoding and encryption. Ordinary publish and merge handle additions.
+Use a reviewed change to propagate a record edit or deletion.
+
+## Reviewing conflicting changes
+
+1. Enter the sync key and choose **Review differences**. Expand **Compare values** to see
+   the local and cloud versions of each differing record.
+2. Choose the copy to change and select the affected hosts, groups, or identities. A record
+   present only in the cloud can be explicitly deleted from the cloud. A local record can be
+   deleted from this device through review only when the cloud has a deletion marker for it.
+3. Confirm the selected changes. The review expires after five minutes. If either copy changes
+   after preview, open a fresh review. Related records may need to be selected together to keep
+   valid group, identity, and jump-host references.
+
+Local reviewed changes use a single SQLite transaction. Updates preserve device-specific
+settings. A local deletion with stored credentials, environment variables, saved forwarding,
+proxy assignment, or agent options requires separate review in Hosts. Unselected records are
+preserved. Opening a review pauses any automatic publication retry on the device while keeping
+its encrypted batch available.
+
+Reviewed cloud changes use version 2 snapshots, which retain deletion markers. Ordinary
+publication blocks when a stale device tries to re-add a marked record, and ordinary merge
+directs that device to review the deletion. To restore it, explicitly
+select the local record and apply it to the cloud. Update each account service and client before
+using reviewed cloud writes. Current clients can read version 1 snapshots and keep them in that
+format during additive writes. After upgrade to version 2, the current service refuses writes
+with an older envelope version.
 
 ## Publishing offline
 
@@ -43,7 +68,7 @@ publication** to remove that copy after confirmation. Your local workspace recor
 ## Key and service behavior
 
 The desktop generates a random 256-bit sync key. The desktop main process derives separate
-encryption and publication values with HKDF-SHA-256. It encrypts version 1 snapshots with
+encryption and publication values with HKDF-SHA-256. It encrypts versioned snapshots with
 AES-256-GCM using a fresh nonce and authenticates the account and revision as associated data.
 The service receives the encrypted envelope and a separate derived publication proof. It stores
 only a hash of that proof and requires it for later publications. Service calls require a valid
@@ -67,6 +92,7 @@ of deliberate rollback by the service or key rotation.
 
 The regression cases cover encrypted envelopes and data exclusion, wrong keys or altered
 envelopes, account isolation, stale writes, local merge conflicts, encrypted queue persistence,
-disconnected publication, retry after a committed write loses its reply, and desktop controls.
+disconnected publication, retry after a committed write loses its reply, stale reviews,
+protected local deletions, downgrade rejection, and desktop controls.
 Run the desktop unit and E2E suites and the PostgreSQL integration case at the Phase 7 gate.
 [Account service verification commands](ACCOUNTS.md#verification-commands)

@@ -70,6 +70,10 @@ const statuses = {
   'sync-queue-empty': 404,
   'sync-queue-storage': 503,
   'sync-account-unverified': 409,
+  'sync-review-stale': 409,
+  'sync-dependencies': 409,
+  'sync-local-protected': 409,
+  'sync-version': 409,
   'sign-in-required': 401,
   'rate-limited': 429,
   unavailable: 503,
@@ -131,7 +135,8 @@ export function createAccountServer(
           const token = bearer(request);
           await accounts.rateLimit('sync-peer', peerAddress(request, trustProxy), 30);
           const snapshot = await accounts.workspaceSnapshot(token);
-          if (request.method === 'GET') return reply(response, 200, snapshot);
+          if (request.method === 'GET')
+            return reply(response, 200, { ...snapshot, maxEnvelopeVersion: 2 });
           const input = await body(request, true);
           const envelope = parseSyncEnvelope(input.envelope);
           const { expectedRevision, writeProof } = input;
@@ -144,6 +149,8 @@ export function createAccountServer(
           )
             throw new AccountFailure('sync-format');
           if (snapshot.revision !== expectedRevision) throw new AccountFailure('sync-conflict');
+          if (snapshot.envelope && snapshot.envelope.version > envelope.version)
+            throw new AccountFailure('sync-version');
           return reply(response, 200, {
             revision: await accounts.saveWorkspaceSnapshot(
               token,

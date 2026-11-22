@@ -42,13 +42,20 @@ export const accountErrors = {
   'session-missing': 'That session has already ended. Refresh the list of active sessions.',
   'sync-conflict': 'The sync copy changed during publication. Try publishing again.',
   'sync-record-conflict':
-    'A host, group, or identity differs between copies. No records were changed. Resolve the difference before syncing.',
+    'A host, group, or identity differs between copies. Open Review differences before syncing.',
   'sync-key': 'Enter the correct workspace sync key. The encrypted copy could not be opened.',
   'sync-format': 'The workspace sync payload is invalid or uses an unsupported version.',
   'sync-size': 'The workspace sync copy exceeds the 1 MiB limit.',
   'sync-empty': 'There is no workspace data to sync for this operation.',
   'sync-exists': 'This account already has an encrypted workspace copy. Use its existing sync key.',
   'sync-queue-empty': 'There is no publication queued for this account.',
+  'sync-review-stale':
+    'The workspace or cloud copy changed. Open a new review before applying changes.',
+  'sync-dependencies':
+    'The selected changes leave a missing or invalid group, identity, or jump host. Review the related records together.',
+  'sync-local-protected':
+    'A selected deletion would remove device-specific settings or a stored credential. Review it in Hosts before deleting it.',
+  'sync-version': 'This workspace copy requires a compatible version of mTerminal.',
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',

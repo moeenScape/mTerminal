@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F62 implemented — offline workspace publication queue |
-| Next feature | F63 — Conflicts. Phase 6 manual verification continues independently |
+| Active feature | F63 implemented — reviewed workspace conflicts and deletions |
+| Next feature | F64 — Sync preferences. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -226,7 +226,7 @@ Dependencies: Stable data model, secure storage, migrations, and key-management 
 - [x] **F60 — Account protection (implementation):** Authenticator MFA, single-use recovery codes and email password reset, PostgreSQL-backed rate limits, and revocation of other sessions. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [x] **F61 — Encrypted sync (implementation):** Local key generation, client-side encryption for workspace metadata, versioned per-account snapshots with revision checks, and explicit additive publish and merge. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [x] **F62 — Offline editing (implementation):** Explicit workspace publication persists an encrypted, account-scoped batch before network access. Reconnection retries it while the app holds the entered key. The batch survives restart and supports manual retry or confirmed discard. Tests written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
-- [ ] **F63 — Conflicts:** Concurrent edits, deletions, stale devices, and version compatibility.
+- [x] **F63 — Conflicts (implementation):** Review competing records and select updates or deletes in either copy. Stale approvals are refused. Version 2 uses deletion markers to block accidental resurrection and the service rejects format downgrades. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [ ] **F64 — Sync preferences:** Independent handling of credentials and metadata.
 - [ ] **F65 — Device identity:** Optional public-key directory and device lifecycle.
 
@@ -1799,3 +1799,14 @@ batch available for retry or confirmed discard. `npm run check`, `npm run build`
 generated desktop main entry point syntax check passed on Linux x64. Tests are written
 and deferred to the Phase 7 gate. Live reconnect and desktop UI acceptance remain pending.
 Next is F63 — Conflicts.
+
+### 2026-11-22 — F63 Reviewed workspace conflicts
+
+Settings compares differing records and applies only selections confirmed for the local or cloud
+copy. Reviews are single-use and tied to the local workspace and cloud revision. Local changes
+use one transaction and preserve device-specific settings. Protected deletions are refused.
+Cloud review writes use version 2 envelopes with encrypted deletion markers. A stale queue
+cannot re-add a marked record. Existing version 1 copies remain readable, and the service refuses
+downgrades after a version 2 write. `npm run check`, `npm run build`, and main-entry syntax
+checks passed on Linux x64. Regression tests were written and deferred to the Phase 7 gate.
+Live cross-device and desktop UI verification remain pending. Next is F64 — Sync preferences.

@@ -21,6 +21,8 @@ import {
 } from '../shared/accounts.js';
 import { validateAppInfoRequest } from './security.js';
 import { secureStorageAvailable } from './storage/secret-store.js';
+import type { SshSecretStore } from './storage/secret-store.js';
+import { WorkspaceReview } from './storage/workspace-review.js';
 import { SYNC_HTTP_LIMIT } from '../../../../packages/shared/workspace-sync.ts';
 import {
   SYNC_WORKSPACE_REQUEST,
@@ -140,6 +142,7 @@ export function attachAccounts(
   window: BrowserWindow,
   rendererUrl: string,
   database: LocalDatabase,
+  secrets: SshSecretStore,
 ): void {
   const deviceId = database.workspaceId;
   const origin = accountOrigin(process.env.MTERMINAL_ACCOUNT_URL);
@@ -156,6 +159,9 @@ export function attachAccounts(
   let retained = false;
   let accountId: string | undefined;
   let publication: WorkspacePublicationRunner | undefined;
+  const review = new WorkspaceReview(database, syncRequest, (id) =>
+    secrets.hasStoredCredential(id),
+  );
 
   function notifyPublication(): void {
     if (!window.isDestroyed() && !window.webContents.isDestroyed())
@@ -163,6 +169,7 @@ export function attachAccounts(
   }
 
   function pausePublication(): void {
+    review.clear();
     publication?.dispose();
     publication = undefined;
     notifyPublication();
@@ -437,6 +444,13 @@ export function attachAccounts(
           await loadToken();
           if (!token) throw new AccountFailure('sign-in-required');
           const action = record(args[0]);
+          if (action?.kind === 'review' || action?.kind === 'apply-review') {
+            if (!accountId) throw new AccountFailure('sync-account-unverified');
+            publication?.suspend();
+            return action.kind === 'review'
+              ? review.preview(action.key, accountId)
+              : review.apply(action, accountId);
+          }
           if (action?.kind === 'queue-status') {
             return accountId
               ? await currentPublication().status()
@@ -459,6 +473,7 @@ export function attachAccounts(
     },
   );
   window.once('closed', () => {
+    review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);

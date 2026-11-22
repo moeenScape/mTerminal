@@ -17,6 +17,11 @@ import {
   type WorkspaceSyncResult,
 } from '../../shared/workspace-sync.js';
 import type { LocalDatabase } from './database.js';
+import {
+  parseSyncDocument,
+  rejectDeletedAdditions,
+  type SyncDocument,
+} from './workspace-conflicts.js';
 
 const KEY_PREFIX = 'mterminal-sync-v1_';
 const TAG_BYTES = 16;
@@ -41,8 +46,8 @@ export function decodeSyncKey(value: unknown): Buffer {
   return key;
 }
 
-function syncContext(accountId: string, revision: number): Buffer {
-  return Buffer.from(`mterminal-workspace-sync:v1:${accountId}:${revision}`);
+function syncContext(accountId: string, revision: number, version: 1 | 2): Buffer {
+  return Buffer.from(`mterminal-workspace-sync:v${version}:${accountId}:${revision}`);
 }
 
 function deriveKey(
@@ -61,7 +66,18 @@ export function encryptWorkspace(
   accountId: string,
   revision: number,
 ): SyncEnvelope {
-  const plaintext = Buffer.from(JSON.stringify(syncMetadata(value)));
+  return encryptDocument(value, key, accountId, revision, 1);
+}
+
+function encryptDocument(
+  value: unknown,
+  key: Buffer,
+  accountId: string,
+  revision: number,
+  version: 1 | 2,
+): SyncEnvelope {
+  const document = parseSyncDocument(value, version);
+  const plaintext = Buffer.from(JSON.stringify(version === 1 ? document.workspace : document));
   const encryptionKey = deriveKey(key, accountId, 'encryption');
   try {
     if (plaintext.length > SYNC_PLAINTEXT_LIMIT) throw new WorkspaceSyncFailure('sync-size');
@@ -69,10 +85,10 @@ export function encryptWorkspace(
     const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonce, {
       authTagLength: TAG_BYTES,
     });
-    cipher.setAAD(syncContext(accountId, revision));
+    cipher.setAAD(syncContext(accountId, revision, version));
     const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     return {
-      version: 1,
+      version,
       nonce: nonce.toString('base64url'),
       tag: cipher.getAuthTag().toString('base64url'),
       ciphertext: ciphertext.toString('base64url'),
@@ -89,6 +105,15 @@ export function decryptWorkspace(
   accountId: string,
   revision: number,
 ): WorkspaceBackup {
+  return decryptDocument(envelope, key, accountId, revision).workspace;
+}
+
+function decryptDocument(
+  envelope: SyncEnvelope,
+  key: Buffer,
+  accountId: string,
+  revision: number,
+): SyncDocument {
   const encryptionKey = deriveKey(key, accountId, 'encryption');
   const decipher = createDecipheriv(
     'aes-256-gcm',
@@ -98,7 +123,7 @@ export function decryptWorkspace(
   );
   encryptionKey.fill(0);
   decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
-  decipher.setAAD(syncContext(accountId, revision));
+  decipher.setAAD(syncContext(accountId, revision, envelope.version));
   const plaintext = decipher.update(Buffer.from(envelope.ciphertext, 'base64url'));
   try {
     try {
@@ -112,7 +137,7 @@ export function decryptWorkspace(
     } catch {
       throw new WorkspaceSyncFailure('sync-format');
     }
-    return syncMetadata(data);
+    return parseSyncDocument(data, envelope.version);
   } finally {
     plaintext.fill(0);
   }
@@ -122,17 +147,63 @@ function readSnapshot(value: Record<string, unknown>): SyncSnapshot {
   const { accountId, revision } = value;
   if (!validAccountId(accountId) || !validSyncRevision(revision))
     throw new WorkspaceSyncFailure('sync-format');
-  if (revision === 0 && value.envelope === null) return { accountId, revision, envelope: null };
+  const compatibility = value.maxEnvelopeVersion === 2 ? { maxEnvelopeVersion: 2 as const } : {};
+  if (revision === 0 && value.envelope === null)
+    return { accountId, revision, envelope: null, ...compatibility };
+  const raw = value.envelope as { version?: unknown } | undefined;
+  if (raw && typeof raw.version === 'number' && raw.version > 2)
+    throw new WorkspaceSyncFailure('sync-version');
   const envelope = parseSyncEnvelope(value.envelope);
   if (!envelope || revision === 0) throw new WorkspaceSyncFailure('sync-format');
-  return { accountId, revision, envelope };
+  return { accountId, revision, envelope, ...compatibility };
 }
 
-type SyncRequest = (
+export type SyncRequest = (
   path: string,
   method: 'GET' | 'PUT',
   body?: object,
 ) => Promise<Record<string, unknown>>;
+
+export async function readCloudWorkspace(
+  key: Buffer,
+  request: SyncRequest,
+  expectedAccountId?: string,
+) {
+  const snapshot = readSnapshot(await request(WORKSPACE_SYNC_ROUTE, 'GET'));
+  if (expectedAccountId !== undefined && snapshot.accountId !== expectedAccountId)
+    throw new WorkspaceSyncFailure('sign-in-required');
+  const document = snapshot.envelope
+    ? decryptDocument(snapshot.envelope, key, snapshot.accountId, snapshot.revision)
+    : undefined;
+  return { snapshot, document };
+}
+
+export async function writeCloudWorkspace(
+  snapshot: SyncSnapshot,
+  document: SyncDocument,
+  key: Buffer,
+  request: SyncRequest,
+  version: 1 | 2,
+): Promise<number> {
+  const { accountId, revision } = snapshot;
+  if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
+  const publicationKey = deriveKey(key, accountId, 'publication');
+  const writeProof = publicationKey.toString('base64url');
+  publicationKey.fill(0);
+  const result = await request(WORKSPACE_SYNC_ROUTE, 'PUT', {
+    expectedRevision: revision,
+    envelope: encryptDocument(
+      version === 1 ? document.workspace : document,
+      key,
+      accountId,
+      revision + 1,
+      version,
+    ),
+    writeProof,
+  });
+  if (result.revision !== revision + 1) throw new WorkspaceSyncFailure('sync-format');
+  return result.revision;
+}
 
 export async function publishWorkspace(
   local: WorkspaceBackup,
@@ -140,35 +211,30 @@ export async function publishWorkspace(
   request: SyncRequest,
   expectedAccountId?: string,
 ): Promise<Extract<WorkspaceSyncResult, { revision: number }>> {
-  const { accountId, revision, envelope } = readSnapshot(
-    await request(WORKSPACE_SYNC_ROUTE, 'GET'),
-  );
-  if (expectedAccountId !== undefined && accountId !== expectedAccountId)
-    throw new WorkspaceSyncFailure('sign-in-required');
-  const cloud = envelope ? decryptWorkspace(envelope, key, accountId, revision) : undefined;
+  const { snapshot, document } = await readCloudWorkspace(key, request, expectedAccountId);
+  const cloud = document?.workspace;
+  const tombstones = document?.tombstones ?? [];
+  rejectDeletedAdditions(local, tombstones);
   const additions = cloud ? syncAdditions(cloud, local) : local;
   const count = additions.hosts.length + additions.groups.length + additions.identities.length;
   if (count === 0) {
     if (!cloud) throw new WorkspaceSyncFailure('sync-empty');
-    return { kind: 'published', revision, count };
+    return { kind: 'published', revision: snapshot.revision, count };
   }
-  if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
   const data: WorkspaceBackup = {
     ...local,
     hosts: [...(cloud?.hosts ?? []), ...additions.hosts],
     groups: [...(cloud?.groups ?? []), ...additions.groups],
     identities: [...(cloud?.identities ?? []), ...additions.identities],
   };
-  const publicationKey = deriveKey(key, accountId, 'publication');
-  const writeProof = publicationKey.toString('base64url');
-  publicationKey.fill(0);
-  const result = await request(WORKSPACE_SYNC_ROUTE, 'PUT', {
-    expectedRevision: revision,
-    envelope: encryptWorkspace(data, key, accountId, revision + 1),
-    writeProof,
-  });
-  if (result.revision !== revision + 1) throw new WorkspaceSyncFailure('sync-format');
-  return { kind: 'published', revision: result.revision, count };
+  const revision = await writeCloudWorkspace(
+    snapshot,
+    { workspace: data, tombstones },
+    key,
+    request,
+    snapshot.envelope?.version ?? 1,
+  );
+  return { kind: 'published', revision, count };
 }
 
 export async function syncWorkspace(
@@ -188,12 +254,15 @@ export async function syncWorkspace(
   try {
     if (kind === 'publish')
       return await publishWorkspace(syncMetadata(database.exportWorkspace()), key, request);
-    const { accountId, revision, envelope } = readSnapshot(
-      await request(WORKSPACE_SYNC_ROUTE, 'GET'),
-    );
-    if (!envelope) throw new WorkspaceSyncFailure('sync-empty');
-    const cloud = decryptWorkspace(envelope, key, accountId, revision);
-    return { kind: 'merged', revision, count: database.mergeSyncedWorkspace(cloud) };
+    const { snapshot, document } = await readCloudWorkspace(key, request);
+    if (!document) throw new WorkspaceSyncFailure('sync-empty');
+    if (document.tombstones.length)
+      rejectDeletedAdditions(syncMetadata(database.exportWorkspace()), document.tombstones);
+    return {
+      kind: 'merged',
+      revision: snapshot.revision,
+      count: database.mergeSyncedWorkspace(document.workspace),
+    };
   } finally {
     key.fill(0);
   }

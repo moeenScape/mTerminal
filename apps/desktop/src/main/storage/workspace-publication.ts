@@ -161,6 +161,11 @@ export class WorkspacePublicationRunner {
     this.pause();
   }
 
+  suspend(): void {
+    this.pause();
+    this.changed();
+  }
+
   private async flush(): Promise<WorkspaceSyncResult> {
     if (this.disposed || !this.key) return this.status();
     const key = Buffer.from(this.key);

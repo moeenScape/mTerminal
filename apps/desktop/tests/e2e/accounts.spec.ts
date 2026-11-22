@@ -24,6 +24,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   let signedOut = false;
   let mfaEnabled = false;
   const cloud: SyncSnapshot = {
+    maxEnvelopeVersion: 2,
     accountId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
     revision: 0,
     envelope: null,
@@ -198,6 +199,24 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     await syncKey.fill(generated);
     await section.getByRole('button', { name: 'Merge cloud records' }).click();
     await expect(section).toContainText('0 records added to this workspace. Cloud revision 1.');
+    await page.evaluate(async () => {
+      const saved = (await window.mterminal.listHosts()).find(
+        (host) => host.name === 'F61 local fixture',
+      );
+      if (!saved) throw new Error('Missing synced host.');
+      await window.mterminal.saveHost({ ...saved, name: 'F63 reviewed update' }, saved.id);
+    });
+    await syncKey.fill(generated);
+    await section.getByRole('button', { name: 'Review differences' }).click();
+    await expect(section.getByText('Review differences at cloud revision 1')).toBeVisible();
+    await section.getByRole('checkbox', { name: 'Host · F63 reviewed update' }).check();
+    await section.getByRole('button', { name: 'Apply 1 selected' }).click();
+    await page
+      .getByRole('dialog', { name: 'Apply selected workspace changes?' })
+      .getByRole('button', { name: 'Apply changes' })
+      .click();
+    await expect(section).toContainText('1 selected change applied to the cloud copy.');
+    expect(cloud.envelope?.version).toBe(2);
     await section.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(section.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(signedOut).toBe(true);

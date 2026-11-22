@@ -7,7 +7,22 @@ export const SYNC_QUEUE_CHANGED = 'workspace-sync:queue-changed';
 
 export type WorkspaceSyncAction =
   | { kind: 'generate-key' | 'queue-status' | 'discard-publication' }
-  | { kind: 'publish' | 'merge' | 'retry-publication'; key: string };
+  | { kind: 'publish' | 'merge' | 'retry-publication' | 'review'; key: string }
+  | {
+      kind: 'apply-review';
+      key: string;
+      reviewId: string;
+      target: 'local' | 'cloud';
+      records: string[];
+    };
+
+export interface SyncReviewRow {
+  key: string;
+  label: string;
+  local?: string;
+  cloud?: string;
+  cloudDeleted: boolean;
+}
 
 export type SyncQueueState =
   { status: 'idle' | 'needs-key' | 'retrying' } | { status: 'blocked'; code: AccountErrorCode };
@@ -15,6 +30,8 @@ export type SyncQueueState =
 export type WorkspaceSyncResult =
   | { kind: 'generated'; key: string }
   | { kind: 'queue-status'; queue: SyncQueueState }
+  | { kind: 'review'; reviewId: string; revision: number; records: SyncReviewRow[] }
+  | { kind: 'review-applied'; target: 'local' | 'cloud'; revision: number; count: number }
   | { kind: 'published' | 'merged'; revision: number; count: number };
 
 export type WorkspaceSyncReply =

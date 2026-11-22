@@ -409,8 +409,16 @@ export function createAccounts(
               )
             : await client.query(
                 `UPDATE account_workspace_sync SET revision = $2, envelope = $3
-             WHERE account_id = $1 AND revision = $4 AND write_hash = $5`,
-                [account.id, revision, JSON.stringify(envelope), expectedRevision, proofHash],
+             WHERE account_id = $1 AND revision = $4 AND write_hash = $5
+               AND (account_workspace_sync.envelope->>'version')::integer <= $6`,
+                [
+                  account.id,
+                  revision,
+                  JSON.stringify(envelope),
+                  expectedRevision,
+                  proofHash,
+                  envelope.version,
+                ],
               );
         if (!result.rowCount) throw new AccountFailure('sync-conflict');
         return revision;
