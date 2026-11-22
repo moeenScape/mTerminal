@@ -370,7 +370,7 @@ export async function createMainWindow(
   const broadcasts = attachBroadcast(window, rendererUrl, terminals);
   attachForwards(window, rendererUrl, terminals, database);
   attachSerial(window, rendererUrl, terminals, database, diagnostics);
-  attachAccounts(window, rendererUrl, database.workspaceId);
+  attachAccounts(window, rendererUrl, database);
   attachFiles(
     window,
     rendererUrl,

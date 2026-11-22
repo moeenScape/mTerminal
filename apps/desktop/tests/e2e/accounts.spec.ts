@@ -7,6 +7,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
+import {
+  WORKSPACE_SYNC_ROUTE,
+  parseSyncEnvelope,
+  type SyncSnapshot,
+} from '../../../../packages/shared/workspace-sync.ts';
 
 test('creates an account, enables an authenticator, and signs out from Settings', async () => {
   const email = 'e2e@example.com';
@@ -18,12 +23,38 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   let verified = false;
   let signedOut = false;
   let mfaEnabled = false;
+  const cloud: SyncSnapshot = {
+    accountId: '04e9f162-d3cd-4c8f-a70a-2323a1751a9b',
+    revision: 0,
+    envelope: null,
+  };
+  let publishedBody = '';
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     const write = (status: number, data: object) => {
       response.statusCode = status;
       response.end(JSON.stringify(data));
     };
+    if (
+      request.url === WORKSPACE_SYNC_ROUTE &&
+      request.headers.authorization === `Bearer ${token}` &&
+      !signedOut
+    ) {
+      if (request.method === 'GET') return write(200, cloud);
+      if (request.method === 'PUT') {
+        const parts: Buffer[] = [];
+        for await (const chunk of request) parts.push(chunk as Buffer);
+        publishedBody = Buffer.concat(parts).toString('utf8');
+        const input = JSON.parse(publishedBody) as Record<string, unknown>;
+        const envelope = parseSyncEnvelope(input.envelope);
+        if (envelope && input.expectedRevision === cloud.revision) {
+          cloud.envelope = envelope;
+          cloud.revision++;
+          return write(200, { revision: cloud.revision });
+        }
+      }
+      return write(400, { code: 'sync-format' });
+    }
     if (request.method === 'POST') {
       const parts: Buffer[] = [];
       for await (const chunk of request) parts.push(chunk as Buffer);
@@ -134,6 +165,28 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     expect(state).not.toContain(token);
     expect(state).not.toContain(setupKey);
     expect(state).not.toContain(recoveryCodes[0]!);
+    await page.evaluate(() =>
+      window.mterminal.saveHost({
+        name: 'F61 local fixture',
+        address: 'f61-local.example.test',
+        port: 22,
+        username: 'operator',
+        protocol: 'ssh',
+      }),
+    );
+    await section.getByRole('button', { name: 'Generate first sync key' }).click();
+    const syncKey = section.getByLabel('Workspace sync key', { exact: true });
+    await expect(syncKey).toHaveValue(/^mterminal-sync-v1_/);
+    const generated = await syncKey.inputValue();
+    await section.getByRole('button', { name: 'Publish local records' }).click();
+    await expect(section).toContainText(
+      '1 record published to the encrypted copy. Cloud revision 1.',
+    );
+    expect(publishedBody).not.toContain(generated);
+    expect(publishedBody).not.toContain('f61-local.example.test');
+    await syncKey.fill(generated);
+    await section.getByRole('button', { name: 'Merge cloud records' }).click();
+    await expect(section).toContainText('0 records added to this workspace. Cloud revision 1.');
     await section.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(section.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(signedOut).toBe(true);

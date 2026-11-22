@@ -6,6 +6,7 @@ import {
 } from '../../../../shared/accounts.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AccountProtection } from './AccountProtection';
+import { WorkspaceSyncSettings } from './WorkspaceSyncSettings';
 
 const displayDate = (value: string) => new Date(value).toLocaleString();
 
@@ -279,6 +280,7 @@ export function AccountSettings() {
               setRecoveryCodes([]);
             }}
           />
+          <WorkspaceSyncSettings />
           <h3>Devices</h3>
           <ul>
             {state.account.devices.map((device) => (

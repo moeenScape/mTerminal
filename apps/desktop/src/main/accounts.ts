@@ -21,6 +21,14 @@ import {
 } from '../shared/accounts.js';
 import { validateAppInfoRequest } from './security.js';
 import { secureStorageAvailable } from './storage/secret-store.js';
+import { SYNC_HTTP_LIMIT } from '../../../../packages/shared/workspace-sync.ts';
+import {
+  SYNC_WORKSPACE_REQUEST,
+  WorkspaceSyncFailure,
+  type WorkspaceSyncReply,
+} from '../shared/workspace-sync.js';
+import { syncWorkspace } from './storage/workspace-sync.js';
+import type { LocalDatabase } from './storage/database.js';
 
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
@@ -106,7 +114,27 @@ function summary(value: Record<string, unknown>): AccountSummary {
 let pending: Promise<void> = Promise.resolve();
 let queued = 0;
 
-export function attachAccounts(window: BrowserWindow, rendererUrl: string, deviceId: string): void {
+async function queueAccountOperation<T>(run: () => Promise<T>): Promise<T> {
+  if (queued >= 8) throw new AccountFailure('rate-limited');
+  queued++;
+  const operation = pending.then(run);
+  pending = operation.then(
+    () => {},
+    () => {},
+  );
+  try {
+    return await operation;
+  } finally {
+    queued--;
+  }
+}
+
+export function attachAccounts(
+  window: BrowserWindow,
+  rendererUrl: string,
+  database: LocalDatabase,
+): void {
+  const deviceId = database.workspaceId;
   const origin = accountOrigin(process.env.MTERMINAL_ACCOUNT_URL);
   const tokenFile = join(app.getPath('userData'), 'account-session.enc');
   const deviceName =
@@ -167,6 +195,7 @@ export function attachAccounts(window: BrowserWindow, rendererUrl: string, devic
     path: string,
     method: string,
     payload?: object,
+    responseLimit = 64 * 1024,
   ): Promise<Record<string, unknown>> {
     const response = await fetch(`${origin}${path}`, {
       method,
@@ -187,7 +216,7 @@ export function attachAccounts(window: BrowserWindow, rendererUrl: string, devic
         const next = await reader.read();
         if (next.done) break;
         bytes += next.value.byteLength;
-        if (bytes > 64 * 1024) throw new AccountFailure('unavailable');
+        if (bytes > responseLimit) throw new AccountFailure('unavailable');
         parts.push(next.value);
       }
     } finally {
@@ -316,20 +345,44 @@ export function attachAccounts(window: BrowserWindow, rendererUrl: string, devic
   ipcMain.handle(ACCOUNT_REQUEST, async (event, ...args: unknown[]): Promise<AccountResult> => {
     validateAppInfoRequest(event, window.webContents, rendererUrl, []);
     if (args.length !== 1) return { ok: false, code: 'invalid-input' };
-    if (queued >= 8) return { ok: false, code: 'rate-limited' };
-    queued++;
-    const operation = pending.then(() => handle(args[0]));
-    pending = operation.then(
-      () => {},
-      () => {},
-    );
     try {
-      return { ok: true, state: await operation };
+      return { ok: true, state: await queueAccountOperation(() => handle(args[0])) };
     } catch (error) {
       return { ok: false, code: error instanceof AccountFailure ? error.code : 'unavailable' };
-    } finally {
-      queued--;
     }
   });
-  window.once('closed', () => ipcMain.removeHandler(ACCOUNT_REQUEST));
+  ipcMain.handle(
+    SYNC_WORKSPACE_REQUEST,
+    async (event, ...args: unknown[]): Promise<WorkspaceSyncReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      if (args.length !== 1) return { ok: false, code: 'invalid-input' };
+      try {
+        const result = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          try {
+            return await syncWorkspace(args[0], database, (path, method, body) =>
+              request(path, method, body, SYNC_HTTP_LIMIT),
+            );
+          } catch (error) {
+            if (error instanceof AccountFailure && error.code === 'sign-in-required')
+              await clearToken();
+            throw error;
+          }
+        });
+        return { ok: true, result };
+      } catch (error) {
+        const code =
+          error instanceof AccountFailure || error instanceof WorkspaceSyncFailure
+            ? error.code
+            : 'unavailable';
+        return { ok: false, code };
+      }
+    },
+  );
+  window.once('closed', () => {
+    ipcMain.removeHandler(ACCOUNT_REQUEST);
+    ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
+  });
 }

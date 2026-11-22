@@ -25,7 +25,7 @@ export async function transaction<T>(
 }
 
 export async function migrateAccounts(pool: Pool): Promise<void> {
-  const migrations = ['001_accounts.sql', '002_account_protection.sql'];
+  const migrations = ['001_accounts.sql', '002_account_protection.sql', '003_workspace_sync.sql'];
   await transaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(714059)');
     await client.query(

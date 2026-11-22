@@ -36,8 +36,8 @@ backend can retain the session across restarts. Otherwise, the desktop keeps it 
 
 The server stores the verified email, salted scrypt password hash, hashed verification
 and session tokens, and device and session metadata. The desktop keeps its account session
-token in Electron's main process and binds any encrypted copy to the service origin. F59
-does not upload local host profiles, SSH credentials, terminal content, or workspace data.
+token in Electron's main process and binds any encrypted copy to the service origin. Use
+[encrypted workspace sync](WORKSPACE_SYNC.md) to publish supported metadata explicitly.
 
 ## Account protection
 

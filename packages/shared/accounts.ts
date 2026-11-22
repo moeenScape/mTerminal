@@ -39,6 +39,14 @@ export const accountErrors = {
   'mfa-state':
     'The authenticator setup has expired or changed. Refresh Account settings and try again.',
   'session-missing': 'That session has already ended. Refresh the list of active sessions.',
+  'sync-conflict': 'The sync copy changed during publication. Try publishing again.',
+  'sync-record-conflict':
+    'A host, group, or identity differs between copies. No records were changed. Resolve the difference before syncing.',
+  'sync-key': 'Enter the correct workspace sync key. The encrypted copy could not be opened.',
+  'sync-format': 'The workspace sync payload is invalid or uses an unsupported version.',
+  'sync-size': 'The workspace sync copy exceeds the 1 MiB limit.',
+  'sync-empty': 'There is no workspace data to sync for this operation.',
+  'sync-exists': 'This account already has an encrypted workspace copy. Use its existing sync key.',
   'sign-in-required': 'Your account session has ended. Sign in again.',
   'rate-limited': 'Too many attempts. Wait a minute and try again.',
   unavailable: 'The account service is unavailable. Try again in a moment.',

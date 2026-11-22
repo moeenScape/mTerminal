@@ -23,6 +23,7 @@ import { chmod, mkdir, rename, rm, stat, open, link } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { validateWorkspaceBackup, type WorkspaceBackup } from '../../shared/backup.ts';
+import { syncAdditions, syncMetadata } from '../../shared/workspace-sync.js';
 import {
   MAX_FORWARD_RULES,
   validatePortForward,
@@ -728,7 +729,15 @@ export class LocalDatabase {
   }
 
   importWorkspace(value: unknown): number {
-    const data = validateWorkspaceBackup(value);
+    return this.insertWorkspace(validateWorkspaceBackup(value));
+  }
+
+  mergeSyncedWorkspace(value: unknown): number {
+    const additions = syncAdditions(syncMetadata(this.exportWorkspace()), syncMetadata(value));
+    return this.insertWorkspace(additions);
+  }
+
+  private insertWorkspace(data: WorkspaceBackup): number {
     const count =
       data.hosts.length + data.groups.length + data.identities.length + data.knownHosts.length;
     this.transaction((db) => {

@@ -9,6 +9,13 @@ import {
   validSecondFactor,
 } from '../../../packages/shared/accounts.ts';
 import { AccountFailure, type createAccounts, type ProtectionAction } from './accounts.ts';
+import {
+  WORKSPACE_SYNC_ROUTE,
+  SYNC_HTTP_LIMIT,
+  SYNC_MAX_REVISION,
+  parseSyncEnvelope,
+  validSyncRevision,
+} from '../../../packages/shared/workspace-sync.ts';
 
 const MAX_BODY = 4096;
 
@@ -21,15 +28,18 @@ function reply(response: ServerResponse, status: number, value: object): void {
   response.end(JSON.stringify(value));
 }
 
-async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function body(request: IncomingMessage, sync = false): Promise<Record<string, unknown>> {
   if (request.headers['content-type']?.split(';', 1)[0]?.trim() !== 'application/json')
     throw new AccountFailure('invalid-input');
   const chunks: Buffer[] = [];
+  const limit = sync ? SYNC_HTTP_LIMIT : MAX_BODY;
+  const sizeError = sync ? 'sync-size' : 'invalid-input';
+  if (Number(request.headers['content-length']) > limit) throw new AccountFailure(sizeError);
   let size = 0;
   for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const data = chunk as Buffer;
     size += data.length;
-    if (size > MAX_BODY) throw new AccountFailure('invalid-input');
+    if (size > limit) throw new AccountFailure(sizeError);
     chunks.push(data);
   }
   try {
@@ -50,6 +60,13 @@ const statuses = {
   'invalid-factor': 401,
   'mfa-state': 409,
   'session-missing': 404,
+  'sync-conflict': 409,
+  'sync-record-conflict': 409,
+  'sync-key': 400,
+  'sync-format': 400,
+  'sync-size': 413,
+  'sync-empty': 404,
+  'sync-exists': 409,
   'sign-in-required': 401,
   'rate-limited': 429,
   unavailable: 503,
@@ -74,6 +91,14 @@ function protectionAction(input: Record<string, unknown>): ProtectionAction {
   throw new AccountFailure('invalid-input');
 }
 
+function peerAddress(request: IncomingMessage, trustProxy: boolean): string {
+  const direct = request.socket.remoteAddress ?? '';
+  const forwarded = direct === '127.0.0.1' && trustProxy ? request.headers['x-real-ip'] : undefined;
+  if (trustProxy && (typeof forwarded !== 'string' || !isIP(forwarded)))
+    throw new AccountFailure('invalid-input');
+  return typeof forwarded === 'string' ? forwarded.toLowerCase() : direct;
+}
+
 export function createAccountServer(
   accounts: ReturnType<typeof createAccounts>,
   trustProxy = false,
@@ -93,6 +118,38 @@ export function createAccountServer(
           await accounts.signOut(token);
           return reply(response, 200, {});
         }
+        if (
+          request.url === WORKSPACE_SYNC_ROUTE &&
+          (request.method === 'GET' || request.method === 'PUT')
+        ) {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit('sync-peer', peerAddress(request, trustProxy), 30);
+          const snapshot = await accounts.workspaceSnapshot(token);
+          if (request.method === 'GET') return reply(response, 200, snapshot);
+          const input = await body(request, true);
+          const envelope = parseSyncEnvelope(input.envelope);
+          const { expectedRevision, writeProof } = input;
+          if (
+            Object.keys(input).length !== 3 ||
+            !envelope ||
+            !validAccountToken(writeProof) ||
+            !validSyncRevision(expectedRevision) ||
+            expectedRevision >= SYNC_MAX_REVISION
+          )
+            throw new AccountFailure('sync-format');
+          if (snapshot.revision !== expectedRevision) throw new AccountFailure('sync-conflict');
+          return reply(response, 200, {
+            revision: await accounts.saveWorkspaceSnapshot(
+              token,
+              expectedRevision,
+              envelope,
+              writeProof,
+            ),
+          });
+        }
         const { register, verify, signIn, recover, reset, protection } = accountRoutes;
         const path = request.url;
         if (
@@ -110,12 +167,7 @@ export function createAccountServer(
         if (active >= 4) throw new AccountFailure('rate-limited');
         active++;
         admitted = true;
-        const direct = request.socket.remoteAddress ?? '';
-        const forwarded =
-          direct === '127.0.0.1' && trustProxy ? request.headers['x-real-ip'] : undefined;
-        if (trustProxy && (typeof forwarded !== 'string' || !isIP(forwarded)))
-          throw new AccountFailure('invalid-input');
-        const peer = typeof forwarded === 'string' ? forwarded.toLowerCase() : direct;
+        const peer = peerAddress(request, trustProxy);
         await accounts.rateLimit('peer', peer, 50);
         const input = await body(request);
         if (path === protection) {

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -13,6 +13,10 @@ import {
 import { createAccounts } from '../src/accounts.ts';
 import { migrateAccounts } from '../src/database.ts';
 import { createAccountServer } from '../src/http.ts';
+import {
+  WORKSPACE_SYNC_ROUTE,
+  type SyncSnapshot,
+} from '../../../packages/shared/workspace-sync.ts';
 import { authenticatorStep, openAuthenticator, sealAuthenticator } from '../src/account-mfa.ts';
 
 test('normalizes one email address and bounds account passwords', () => {
@@ -125,11 +129,58 @@ test(
       assert.equal(view.currentDeviceId, first.deviceId);
       assert.equal(view.devices.length, 2);
       assert.equal(view.sessions.length, 2);
+      const sync = (method: string, bearer?: string, body?: object) =>
+        call(WORKSPACE_SYNC_ROUTE, method, body, bearer);
+      assert.equal((await sync('GET')).status, 401);
+      const empty = await sync('GET', renewedToken);
+      assert.equal(empty.status, 200);
+      assert.deepEqual(await empty.json(), {
+        accountId: (
+          await pool.query<{ id: string }>('SELECT id FROM accounts WHERE email = $1', [email])
+        ).rows[0]?.id,
+        revision: 0,
+        envelope: null,
+      });
+      const envelope = {
+        version: 1,
+        nonce: randomBytes(12).toString('base64url'),
+        tag: randomBytes(16).toString('base64url'),
+        ciphertext: randomBytes(90).toString('base64url'),
+      };
+      const writeProof = randomBytes(32).toString('base64url');
+      const initial = { expectedRevision: 0, envelope, writeProof };
+      assert.equal(
+        (await sync('PUT', renewedToken, { ...initial, key: 'plaintext must be rejected' })).status,
+        400,
+      );
+      const publications = await Promise.all([
+        sync('PUT', renewedToken, initial),
+        sync('PUT', secondToken, initial),
+      ]);
+      assert.deepEqual(publications.map((result) => result.status).sort(), [200, 409]);
+      assert.equal(
+        (
+          await sync('PUT', renewedToken, {
+            ...initial,
+            expectedRevision: 1,
+            writeProof: randomBytes(32).toString('base64url'),
+          })
+        ).status,
+        409,
+      );
+      const saved = (await (await sync('GET', secondToken)).json()) as SyncSnapshot;
+      assert.equal(saved.revision, 1);
+      assert.deepEqual(saved.envelope, envelope);
+      assert.ok(!JSON.stringify(saved).includes(writeProof));
+      const updated = await sync('PUT', secondToken, { ...initial, expectedRevision: 1 });
+      assert.equal(updated.status, 200);
+      assert.deepEqual(await updated.json(), { revision: 2 });
       assert.equal(
         (await call(accountRoutes.session, 'DELETE', undefined, renewedToken)).status,
         200,
       );
       assert.equal((await call(accountRoutes.session, 'GET', undefined, renewedToken)).status, 401);
+      assert.equal((await sync('GET', renewedToken)).status, 401);
       assert.equal((await call(accountRoutes.session, 'GET', undefined, secondToken)).status, 200);
 
       const protectedUser = { ...first, email: 'protected@example.com', deviceId: randomUUID() };
@@ -153,6 +204,9 @@ test(
         await call(accountRoutes.verify, 'POST', { ...protectedUser, code: codes[1] }),
       );
       const peer = await sessionToken(await call(accountRoutes.signIn, 'POST', protectionPeer));
+      const isolated = await sync('GET', owner);
+      assert.equal(isolated.status, 200);
+      assert.equal(((await isolated.json()) as SyncSnapshot).revision, 0);
       const peerId = (await snapshot(peer)).currentSessionId;
       const revoke = { kind: 'revoke-session', sessionId: peerId };
       assert.equal((await protect(revoke, secondToken)).status, 404);

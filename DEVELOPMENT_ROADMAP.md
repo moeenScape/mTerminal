@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F60 implemented — account protection |
-| Next feature | F61 — Encrypted sync. Phase 6 manual verification continues independently |
+| Active feature | F61 implemented — encrypted workspace sync |
+| Next feature | F62 — Offline editing. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -224,7 +224,7 @@ Dependencies: Stable data model, secure storage, migrations, and key-management 
 
 - [x] **F59 — Accounts (implementation):** PostgreSQL-backed registration with email verification, sign-in, per-installation devices and sessions, and current-session sign-out in Settings. Account service is optional. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [x] **F60 — Account protection (implementation):** Authenticator MFA, single-use recovery codes and email password reset, PostgreSQL-backed rate limits, and revocation of other sessions. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
-- [ ] **F61 — Encrypted sync:** Client-side encryption, key management, and versioned payloads.
+- [x] **F61 — Encrypted sync (implementation):** Local key generation, client-side encryption for workspace metadata, versioned per-account snapshots with revision checks, and explicit additive publish and merge. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [ ] **F62 — Offline editing:** Queued changes and reconnection synchronization.
 - [ ] **F63 — Conflicts:** Concurrent edits, deletions, stale devices, and version compatibility.
 - [ ] **F64 — Sync preferences:** Independent handling of credentials and metadata.
@@ -1777,3 +1777,14 @@ rate limits, with a separate limit per session for protection changes. Added Pos
 and `npm run build` passed on Linux x64. Regression tests are written and deferred to the
 Phase 7 gate. Live migration, SMTP, and desktop UI acceptance remain pending. Next is F61 —
 Encrypted sync.
+
+### 2026-11-22 — F61 Encrypted workspace sync
+
+Settings supports generating a workspace sync key, publishing new workspace metadata, and
+merging cloud additions. The desktop main process encrypts versioned snapshots before upload.
+PostgreSQL migration 003 adds account-scoped opaque snapshots. Publication checks the expected
+revision and a proof derived from the sync key. SQLite merges reuse workspace import's transaction.
+Differing records stop the operation without replacing either copy. `npm run check`, `npm run
+build`, and main-entry syntax checks passed on Linux x64. Desktop and PostgreSQL regression
+tests are written and deferred to the Phase 7 gate. Live migration, cross-device acceptance,
+and independent security review remain pending. Next is F62 — Offline editing.

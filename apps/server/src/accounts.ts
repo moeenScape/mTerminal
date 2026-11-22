@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'no
 import type { Pool, PoolClient } from 'pg';
 import type { AccountErrorCode, AccountSummary } from '../../../packages/shared/accounts.ts';
 import { transaction } from './database.ts';
+import type { SyncEnvelope, SyncSnapshot } from '../../../packages/shared/workspace-sync.ts';
 import {
   authenticatorStep,
   newAuthenticatorKey,
@@ -375,6 +376,45 @@ export function createAccounts(
 
     async signOut(token: string): Promise<void> {
       await pool.query('DELETE FROM account_sessions WHERE token_hash = $1', [hashToken(token)]);
+    },
+
+    async workspaceSnapshot(token: string): Promise<SyncSnapshot> {
+      const result = await pool.query<SyncSnapshot>(
+        `SELECT s.account_id AS "accountId", COALESCE(w.revision, 0) AS revision, w.envelope
+         FROM account_sessions s LEFT JOIN account_workspace_sync w ON w.account_id = s.account_id
+         WHERE s.token_hash = $1 AND s.expires_at > now()`,
+        [hashToken(token)],
+      );
+      const snapshot = result.rows[0];
+      if (!snapshot) throw new AccountFailure('sign-in-required');
+      return snapshot;
+    },
+
+    async saveWorkspaceSnapshot(
+      token: string,
+      expectedRevision: number,
+      envelope: SyncEnvelope,
+      writeProof: string,
+    ): Promise<number> {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        const revision = expectedRevision + 1;
+        const proofHash = hashToken(writeProof);
+        const result =
+          expectedRevision === 0
+            ? await client.query(
+                `INSERT INTO account_workspace_sync (account_id, revision, envelope, write_hash) VALUES ($1, 1, $2, $3)
+             ON CONFLICT (account_id) DO NOTHING`,
+                [account.id, JSON.stringify(envelope), proofHash],
+              )
+            : await client.query(
+                `UPDATE account_workspace_sync SET revision = $2, envelope = $3
+             WHERE account_id = $1 AND revision = $4 AND write_hash = $5`,
+                [account.id, revision, JSON.stringify(envelope), expectedRevision, proofHash],
+              );
+        if (!result.rowCount) throw new AccountFailure('sync-conflict');
+        return revision;
+      });
     },
   };
 }
