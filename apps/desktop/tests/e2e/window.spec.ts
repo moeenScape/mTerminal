@@ -119,6 +119,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'deleteSshKey',
       'deleteSshPassword',
       'deleteWorkspaceTemplate',
+      'deviceDirectory',
       'enqueueTransfer',
       'exportWorkspace',
       'finishRemoteEdit',

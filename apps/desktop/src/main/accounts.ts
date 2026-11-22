@@ -10,15 +10,24 @@ import {
   validAccountToken,
   validAccountId,
   validSecondFactor,
+  validDeviceLabel,
+  DEVICE_DIRECTORY_LIMIT,
+  SSH_PUBLIC_KEY_LIMIT,
+  sshPublicKeyPattern,
+  type DeviceDirectoryKey,
   type AccountErrorCode,
   type AccountSummary,
 } from '../../../../packages/shared/accounts.ts';
 import {
   ACCOUNT_REQUEST,
+  DEVICE_DIRECTORY_REQUEST,
+  type DeviceDirectoryResult,
   type AccountResponse,
   type AccountResult,
   type AccountState,
 } from '../shared/accounts.js';
+import { AppFailure } from './failures.js';
+import { validFingerprint } from '../shared/ssh.js';
 import { validateAppInfoRequest } from './security.js';
 import { secureStorageAvailable } from './storage/secret-store.js';
 import type { SshSecretStore } from './storage/secret-store.js';
@@ -107,7 +116,12 @@ function summary(value: Record<string, unknown>): AccountSummary {
       const device = record(entry);
       if (typeof device?.id !== 'string' || typeof device.name !== 'string')
         throw new AccountFailure('unavailable');
-      return { id: device.id, name: device.name, lastSignedInAt: readDate(device.lastSignedInAt) };
+      return {
+        id: device.id,
+        name: device.name,
+        lastSignedInAt: readDate(device.lastSignedInAt),
+        ...(device.retiredAt != null ? { retiredAt: readDate(device.retiredAt) } : {}),
+      };
     }),
     sessions: sessions.map((entry: unknown) => {
       const session = record(entry);
@@ -199,15 +213,16 @@ export function attachAccounts(
     return new SyncPreferenceStore(userData, origin, accountId);
   }
 
-  async function confirmSyncAction(
+  async function confirmAccountAction(
     message: string,
     detail: string,
     affirmative: string,
+    title = 'Account sync',
   ): Promise<boolean> {
     if (window.isDestroyed()) return false;
     const answer = await dialog.showMessageBox(window, {
       type: 'warning',
-      title: 'Account sync',
+      title,
       message,
       detail,
       buttons: ['Cancel', affirmative],
@@ -536,7 +551,7 @@ export function attachAccounts(
                 preferences[category] !== enabled &&
                 (category !== 'credentials' ||
                   !enabled ||
-                  (await confirmSyncAction(
+                  (await confirmAccountAction(
                     'Allow encrypted credential sync on this device?',
                     'Each transfer of a saved SSH password or managed private key requires your confirmation and the credential sync key.',
                     'Enable credential sync',
@@ -572,18 +587,18 @@ export function attachAccounts(
                   ? 'saved SSH password'
                   : 'managed SSH private key and its passphrase';
               if (operation === 'publish')
-                return confirmSyncAction(
+                return confirmAccountAction(
                   `Publish the ${item}?`,
                   `${label}\nThis replaces any previous encrypted cloud copy for this profile.`,
                   'Publish credential',
                 );
               if (operation === 'remove')
-                return confirmSyncAction(
+                return confirmAccountAction(
                   `Remove the cloud copy of the ${item}?`,
                   `${label}\nThe local credential stays in this device’s vault.`,
                   'Remove cloud copy',
                 );
-              return confirmSyncAction(
+              return confirmAccountAction(
                 `Restore the ${item}?`,
                 `${label}\nThe credential will be stored in this device’s SSH vault.`,
                 'Restore credential',
@@ -603,10 +618,115 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    DEVICE_DIRECTORY_REQUEST,
+    async (event, ...args: unknown[]): Promise<DeviceDirectoryResult> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const action = args.length === 1 ? record(args[0]) : undefined;
+      if (!action) return { ok: false, code: 'invalid-input' };
+      try {
+        const keys = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          const { kind, deviceId: target, identityId, name } = action;
+          let payload: object | undefined;
+          if (kind === 'publish-device-key' && validAccountId(identityId)) {
+            const identity = database.listSshIdentities().find((entry) => entry.id === identityId);
+            if (!identity || identity.method !== 'privateKey')
+              throw new AccountFailure('device-key-invalid');
+            if (
+              await confirmAccountAction(
+                'Publish this SSH public key?',
+                `${identity.name}\nSigned-in devices on this account can view the public key and its label.`,
+                'Publish public key',
+                'Account devices',
+              )
+            ) {
+              const status = await secrets.privateKeyStatus(identityId);
+              if (!status.available) throw new AccountFailure('sync-vault-unavailable');
+              if (!status.publicKey) throw new AccountFailure('device-key-invalid');
+              const publicKey = status.publicKey.split(' ', 2).join(' ');
+              const label = identity.name
+                .slice(0, 80)
+                .replace(/[\p{Cc}\p{Cs}]/gu, '')
+                .trim();
+              payload = { kind, identityId, name: label || 'SSH public key', publicKey };
+            }
+          } else if (kind === 'rename-device' && validAccountId(target) && validDeviceLabel(name)) {
+            payload = { kind, deviceId: target, name };
+          } else if (kind === 'restore-device' && validAccountId(target)) {
+            payload = { kind, deviceId: target };
+          } else if (kind === 'retire-device' && validAccountId(target)) {
+            const account = summary(await request(accountRoutes.session, 'GET'));
+            if (target === account.currentDeviceId) throw new AccountFailure('device-current');
+            const device = account.devices.find((entry) => entry.id === target);
+            if (!device || device.retiredAt) throw new AccountFailure('device-missing');
+            if (
+              await confirmAccountAction(
+                `Retire ${device.name}?`,
+                'This ends its account sessions, removes its directory entries, and blocks future sign-in from the installation until you allow it.',
+                'Retire device',
+                'Account devices',
+              )
+            )
+              payload = { kind, deviceId: target };
+          } else if (
+            kind === 'remove-directory-key' &&
+            validAccountId(target) &&
+            validAccountId(identityId)
+          ) {
+            if (
+              await confirmAccountAction(
+                'Remove this public-key entry?',
+                'Any copies installed on SSH servers remain authorized.',
+                'Remove public key',
+                'Account devices',
+              )
+            )
+              payload = { kind, deviceId: target, identityId };
+          } else if (kind !== 'status') {
+            throw new AccountFailure('invalid-input');
+          }
+          const { keys } = await request(
+            accountRoutes.devices,
+            payload ? 'POST' : 'GET',
+            payload,
+            512 * 1024,
+          );
+          if (!Array.isArray(keys) || keys.length > DEVICE_DIRECTORY_LIMIT)
+            throw new AccountFailure('unavailable');
+          return keys.map((value: unknown): DeviceDirectoryKey => {
+            const entry = record(value);
+            if (!entry) throw new AccountFailure('unavailable');
+            const { deviceId, deviceName, identityId, name, publicKey, fingerprint } = entry;
+            if (
+              !validAccountId(deviceId) ||
+              !validAccountId(identityId) ||
+              !validDeviceLabel(deviceName) ||
+              !validDeviceLabel(name) ||
+              typeof publicKey !== 'string' ||
+              publicKey.length > SSH_PUBLIC_KEY_LIMIT ||
+              !sshPublicKeyPattern.test(publicKey) ||
+              !validFingerprint(fingerprint)
+            )
+              throw new AccountFailure('unavailable');
+            return { deviceId, deviceName, identityId, name, publicKey, fingerprint };
+          });
+        });
+        return { ok: true, keys };
+      } catch (error) {
+        if (error instanceof AppFailure && error.code === 'vault-locked')
+          return { ok: false, code: 'device-vault-locked' };
+        return { ok: false, code: error instanceof AccountFailure ? error.code : 'unavailable' };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
+    ipcMain.removeHandler(DEVICE_DIRECTORY_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
     ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });

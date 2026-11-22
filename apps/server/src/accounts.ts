@@ -1,6 +1,16 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type { AccountErrorCode, AccountSummary } from '../../../packages/shared/accounts.ts';
+import ssh2 from 'ssh2';
+import {
+  DEVICE_DIRECTORY_LIMIT,
+  SSH_PUBLIC_KEY_LIMIT,
+  sshPublicKeyPattern,
+  validAccountId,
+  validDeviceLabel,
+  type AccountErrorCode,
+  type AccountSummary,
+  type DeviceDirectoryKey,
+} from '../../../packages/shared/accounts.ts';
 import { transaction } from './database.ts';
 import type { SyncEnvelope, SyncSnapshot } from '../../../packages/shared/workspace-sync.ts';
 import {
@@ -87,13 +97,13 @@ async function accountForSession(client: PoolClient, token: string) {
   const accountId = selected.rows[0]?.account_id;
   if (!accountId) throw new AccountFailure('sign-in-required');
   const account = await lockAccount(client, accountId);
-  const session = await client.query<{ id: string }>(
-    'SELECT id FROM account_sessions WHERE token_hash = $1 AND expires_at > now() FOR UPDATE',
+  const session = await client.query<{ id: string; device_id: string }>(
+    'SELECT id, device_id FROM account_sessions WHERE token_hash = $1 AND expires_at > now() FOR UPDATE',
     [digest],
   );
-  const sessionId = session.rows[0]?.id;
-  if (!sessionId) throw new AccountFailure('sign-in-required');
-  return { account, sessionId };
+  const active = session.rows[0];
+  if (!active) throw new AccountFailure('sign-in-required');
+  return { account, sessionId: active.id, deviceId: active.device_id };
 }
 
 async function startSession(
@@ -102,11 +112,13 @@ async function startSession(
   device: DeviceInput,
 ): Promise<string> {
   const token = makeToken();
-  await client.query(
+  const updated = await client.query(
     `INSERT INTO account_devices (account_id, id, name) VALUES ($1, $2, $3)
-     ON CONFLICT (account_id, id) DO UPDATE SET name = excluded.name, last_signed_in_at = now()`,
+     ON CONFLICT (account_id, id) DO UPDATE SET last_signed_in_at = now()
+     WHERE account_devices.retired_at IS NULL`,
     [accountId, device.id, device.name],
   );
+  if (!updated.rowCount) throw new AccountFailure('device-retired');
   await client.query(
     `INSERT INTO account_sessions (id, account_id, device_id, token_hash, expires_at)
      VALUES ($1, $2, $3, $4, now() + interval '30 days')
@@ -115,6 +127,99 @@ async function startSession(
     [randomUUID(), accountId, device.id, hashToken(token)],
   );
   return token;
+}
+
+function publicKeyFingerprint(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    value.length > SSH_PUBLIC_KEY_LIMIT ||
+    !sshPublicKeyPattern.test(value)
+  )
+    throw new AccountFailure('device-key-invalid');
+  const [type, blob] = value.split(' ');
+  const key = ssh2.utils.parseKey(value);
+  if (
+    key instanceof Error ||
+    Array.isArray(key) ||
+    key.isPrivateKey() ||
+    key.type !== type ||
+    key.getPublicSSH().toString('base64') !== blob
+  )
+    throw new AccountFailure('device-key-invalid');
+  return `SHA256:${createHash('sha256').update(key.getPublicSSH()).digest('base64').replace(/=+$/, '')}`;
+}
+
+async function changeDeviceDirectory(
+  client: PoolClient,
+  accountId: string,
+  currentDeviceId: string,
+  action: Record<string, unknown>,
+): Promise<void> {
+  const { kind, deviceId, identityId, name, publicKey } = action;
+  const fields = Object.keys(action).length;
+  if (
+    kind === 'publish-device-key' &&
+    fields === 4 &&
+    validAccountId(identityId) &&
+    validDeviceLabel(name)
+  ) {
+    const fingerprint = publicKeyFingerprint(publicKey);
+    const saved = await client.query(
+      `INSERT INTO account_device_keys (account_id, device_id, identity_id, name, public_key, fingerprint)
+       SELECT $1, $2, $3, $4, $5, $6
+       WHERE EXISTS (SELECT 1 FROM account_device_keys WHERE account_id = $1 AND device_id = $2 AND identity_id = $3)
+          OR (SELECT count(*) FROM account_device_keys WHERE account_id = $1) < $7
+       ON CONFLICT (account_id, device_id, identity_id) DO UPDATE
+       SET name = excluded.name, public_key = excluded.public_key, fingerprint = excluded.fingerprint`,
+      [
+        accountId,
+        currentDeviceId,
+        identityId,
+        name.trim(),
+        publicKey,
+        fingerprint,
+        DEVICE_DIRECTORY_LIMIT,
+      ],
+    );
+    if (!saved.rowCount) throw new AccountFailure('device-directory-full');
+    return;
+  }
+  if (!validAccountId(deviceId)) throw new AccountFailure('invalid-input');
+  if (kind === 'remove-directory-key' && fields === 3 && validAccountId(identityId)) {
+    await client.query(
+      'DELETE FROM account_device_keys WHERE account_id = $1 AND device_id = $2 AND identity_id = $3',
+      [accountId, deviceId, identityId],
+    );
+    return;
+  }
+  if (kind === 'rename-device' && fields === 3 && validDeviceLabel(name)) {
+    const result = await client.query(
+      'UPDATE account_devices SET name = $3 WHERE account_id = $1 AND id = $2',
+      [accountId, deviceId, name.trim()],
+    );
+    if (!result.rowCount) throw new AccountFailure('device-missing');
+    return;
+  }
+  if (fields !== 2 || (kind !== 'retire-device' && kind !== 'restore-device'))
+    throw new AccountFailure('invalid-input');
+  if (deviceId.toLowerCase() === currentDeviceId) throw new AccountFailure('device-current');
+  const retiring = kind === 'retire-device';
+  const result = await client.query(
+    `UPDATE account_devices SET retired_at = ${retiring ? 'now()' : 'NULL'}
+     WHERE account_id = $1 AND id = $2 AND retired_at IS ${retiring ? '' : 'NOT '}NULL`,
+    [accountId, deviceId],
+  );
+  if (!result.rowCount) throw new AccountFailure('device-missing');
+  if (retiring) {
+    await client.query('DELETE FROM account_sessions WHERE account_id = $1 AND device_id = $2', [
+      accountId,
+      deviceId,
+    ]);
+    await client.query('DELETE FROM account_device_keys WHERE account_id = $1 AND device_id = $2', [
+      accountId,
+      deviceId,
+    ]);
+  }
 }
 
 export function createAccounts(
@@ -357,7 +462,7 @@ export function createAccounts(
       const result = await pool.query<AccountSummary>(
         `SELECT a.id AS "accountId", a.email, a.mfa_secret IS NOT NULL AS "mfaEnabled", s.id AS "currentSessionId", s.device_id AS "currentDeviceId",
            (SELECT jsonb_agg(d) FROM (
-             SELECT id, name, last_signed_in_at AS "lastSignedInAt" FROM account_devices
+             SELECT id, name, last_signed_in_at AS "lastSignedInAt", retired_at AS "retiredAt" FROM account_devices
              WHERE account_id = a.id ORDER BY (id = s.device_id) DESC, last_signed_in_at DESC LIMIT 50
            ) d) AS devices,
            (SELECT jsonb_agg(active) FROM (
@@ -372,6 +477,21 @@ export function createAccounts(
       const session = result.rows[0];
       if (!session) throw new AccountFailure('sign-in-required');
       return session;
+    },
+
+    async deviceDirectory(token: string, action?: Record<string, unknown>) {
+      return transaction(pool, async (client) => {
+        const { account, deviceId } = await accountForSession(client, token);
+        if (action) await changeDeviceDirectory(client, account.id, deviceId, action);
+        const result = await client.query<DeviceDirectoryKey>(
+          `SELECT d.id AS "deviceId", d.name AS "deviceName", k.identity_id AS "identityId",
+                  k.name, k.public_key AS "publicKey", k.fingerprint
+           FROM account_device_keys k JOIN account_devices d ON (k.account_id, k.device_id) = (d.account_id, d.id)
+           WHERE k.account_id = $1 ORDER BY d.name, k.name, k.device_id, k.identity_id`,
+          [account.id],
+        );
+        return { keys: result.rows };
+      });
     },
 
     async signOut(token: string): Promise<void> {

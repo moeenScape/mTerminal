@@ -1,4 +1,4 @@
-# Accounts and account protection (F59–F60)
+# Accounts, account protection, and devices (F59–F60, F65)
 
 ## Run locally
 
@@ -11,7 +11,7 @@ and an SMTP relay. For development, a local mail catcher works as the relay.
    `openssl rand -hex 32`. Keep the key private and back it up with your deployment secrets.
    Every server process must use the same key. The database role needs permission to create
    and migrate the account schema.
-3. Run `npm run start:server`. The service applies its PostgreSQL migration and binds
+3. Run `npm run start:server`. The service applies its PostgreSQL migrations and binds
    to `127.0.0.1:8787` by default.
 4. Run `MTERMINAL_ACCOUNT_URL=http://127.0.0.1:8787 npm run dev` and open
    **Settings → Account**. Set the environment variable in your shell before running
@@ -64,6 +64,39 @@ and 12 protection requests per session per minute. To assign client IP limits be
 reverse proxy, set `MTERMINAL_TRUST_ACCOUNT_PROXY=1` and configure the proxy to overwrite
 `X-Real-IP` with the actual client IP. Keep the backend port private. Otherwise, requests through a
 proxy share its address for throttling.
+
+## Device lifecycle and SSH public keys
+
+Under **Settings → Account → Devices**, rename a device to make it easier to recognize. Each
+installation uses its existing workspace ID to associate account sessions with that device.
+The identifier is an account-management label. Account authentication still uses the password,
+configured MFA, and the session token.
+
+Use **Retire** on a lost or unused device. Migration 005 adds a retirement state. Retirement
+ends its account sessions, removes its public-key directory entries, and blocks sign-in with
+that installation ID. **Allow sign-in** on another signed-in device clears the retirement.
+The restored device must authenticate again and publish any keys it wants to list. A fresh
+installation with a new ID can authenticate with the account credentials and configured MFA.
+
+Retirement preserves the local workspace, SSH vault, queued workspace publications, and
+account cloud snapshots. If an installation is lost and account credentials may have been
+exposed, use the account's password reset flow to revoke all sessions and rotate any SSH
+credentials that may have been exposed.
+
+The **SSH public-key directory** is optional and visible to signed-in devices on the same
+account. Choose a managed key from the unlocked vault and confirm publication. The service
+stores the public key, its fingerprint and display label, and the owning device and
+identity IDs. The desktop strips the key comment before sending it. The key's private material,
+passphrase, and SSH username stay on the device for this operation.
+
+Publish again from the same installation and identity to replace a directory entry after key
+rotation. The directory allows up to 100 entries per account. You can copy an entry's public
+key or remove the entry, including when the publishing device is offline. Directory removal
+and retirement leave any copies authorized on SSH servers. Remove those keys on each server
+to revoke SSH access there.
+
+Deploy the F65 service and migration before using the directory in the desktop. Directory reads
+and writes have a separate limit of 50 requests per peer per minute.
 
 ## Verification commands
 

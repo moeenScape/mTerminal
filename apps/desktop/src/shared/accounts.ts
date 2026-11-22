@@ -1,7 +1,22 @@
-import type { AccountErrorCode, AccountSummary } from '../../../../packages/shared/accounts.ts';
+import type {
+  AccountErrorCode,
+  AccountSummary,
+  DeviceDirectoryKey,
+} from '../../../../packages/shared/accounts.ts';
 export { accountPasswordLimits } from '../../../../packages/shared/accounts.ts';
 
 export const ACCOUNT_REQUEST = 'account:request';
+export const DEVICE_DIRECTORY_REQUEST = 'account:device-directory';
+
+export type DeviceDirectoryAction =
+  | { kind: 'status' }
+  | { kind: 'rename-device'; deviceId: string; name: string }
+  | { kind: 'retire-device' | 'restore-device'; deviceId: string }
+  | { kind: 'publish-device-key'; identityId: string }
+  | { kind: 'remove-directory-key'; deviceId: string; identityId: string };
+
+export type DeviceDirectoryResult =
+  { ok: true; keys: DeviceDirectoryKey[] } | { ok: false; code: AccountErrorCode };
 
 export type AccountAction =
   | { kind: 'status' | 'sign-out' }
@@ -28,5 +43,8 @@ export type AccountResult =
   { ok: true; state: AccountResponse } | { ok: false; code: AccountErrorCode };
 
 export interface AccountApi {
+  deviceDirectory: (action: DeviceDirectoryAction) => Promise<DeviceDirectoryKey[]>;
   account: (action: AccountAction) => Promise<AccountResponse>;
 }
+
+export type { AccountSummary, DeviceDirectoryKey };

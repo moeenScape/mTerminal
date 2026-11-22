@@ -4,6 +4,7 @@ export const accountRoutes = {
   signIn: '/v1/accounts/sign-in',
   session: '/v1/accounts/session',
   protection: '/v1/accounts/protection',
+  devices: '/v1/accounts/devices',
   recover: '/v1/accounts/recover',
   reset: '/v1/accounts/reset',
 } as const;
@@ -12,6 +13,30 @@ export interface AccountDevice {
   id: string;
   name: string;
   lastSignedInAt: string;
+  retiredAt?: string | null;
+}
+
+export interface DeviceDirectoryKey {
+  deviceId: string;
+  deviceName: string;
+  identityId: string;
+  name: string;
+  publicKey: string;
+  fingerprint: string;
+}
+
+export const DEVICE_DIRECTORY_LIMIT = 100;
+export const SSH_PUBLIC_KEY_LIMIT = 3000;
+export const sshPublicKeyPattern =
+  /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/]+={0,2}$/;
+
+export function validDeviceLabel(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= 80 &&
+    !!value.trim() &&
+    !/[\p{Cc}\p{Cs}]/u.test(value)
+  );
 }
 
 export interface AccountSession {
@@ -39,6 +64,15 @@ export const accountErrors = {
   'invalid-factor': 'The authenticator or recovery code is invalid or has already been used.',
   'mfa-state':
     'The authenticator setup has expired or changed. Refresh Account settings and try again.',
+  'device-missing':
+    'This device is unavailable or its status has changed. Refresh Account settings.',
+  'device-current': 'Retire another device from this account. To end this session, use Sign out.',
+  'device-retired':
+    'This installation is retired. Allow it to sign in from another signed-in device.',
+  'device-vault-locked': 'Unlock the local SSH vault before publishing a public key.',
+  'device-key-invalid': 'Select an identity with a supported managed SSH public key.',
+  'device-directory-full':
+    'The public-key directory is full. Remove an entry before publishing another.',
   'session-missing': 'That session has already ended. Refresh the list of active sessions.',
   'sync-conflict': 'The sync copy changed during publication. Try publishing again.',
   'sync-record-conflict':

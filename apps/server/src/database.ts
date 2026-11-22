@@ -30,6 +30,7 @@ export async function migrateAccounts(pool: Pool): Promise<void> {
     '002_account_protection.sql',
     '003_workspace_sync.sql',
     '004_credential_sync.sql',
+    '005_device_directory.sql',
   ];
   await transaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(714059)');

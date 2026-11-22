@@ -5,6 +5,7 @@ import {
   type AccountState,
 } from '../../../../shared/accounts.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { AccountDevices } from './AccountDevices';
 import { AccountProtection } from './AccountProtection';
 import { SyncPreferencesSettings } from './SyncPreferencesSettings';
 
@@ -295,16 +296,12 @@ export function AccountSettings() {
               setRecoveryCodes([]);
             }}
           />
-          <h3>Devices</h3>
-          <ul>
-            {state.account.devices.map((device) => (
-              <li key={device.id}>
-                {device.name}
-                {device.id === state.account.currentDeviceId ? ' (this device)' : ''} · Last signed
-                in {displayDate(device.lastSignedInAt)}
-              </li>
-            ))}
-          </ul>
+          <AccountDevices
+            key={state.account.accountId ?? state.account.email}
+            account={state.account}
+            busy={busy}
+            refresh={() => perform({ kind: 'status' })}
+          />
           <h3>Active sessions</h3>
           <ul>
             {state.account.sessions.map((session) => {

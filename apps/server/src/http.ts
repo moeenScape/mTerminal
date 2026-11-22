@@ -7,6 +7,7 @@ import {
   validAccountToken,
   validAccountId,
   validSecondFactor,
+  validDeviceLabel,
 } from '../../../packages/shared/accounts.ts';
 import { AccountFailure, type createAccounts, type ProtectionAction } from './accounts.ts';
 import {
@@ -61,6 +62,12 @@ const statuses = {
   'invalid-factor': 401,
   'mfa-state': 409,
   'session-missing': 404,
+  'device-missing': 404,
+  'device-current': 409,
+  'device-retired': 403,
+  'device-vault-locked': 409,
+  'device-key-invalid': 400,
+  'device-directory-full': 409,
   'sync-conflict': 409,
   'sync-record-conflict': 409,
   'sync-key': 400,
@@ -177,6 +184,18 @@ export function createAccountServer(
             ),
           });
         }
+        if (
+          request.url === accountRoutes.devices &&
+          (request.method === 'GET' || request.method === 'POST')
+        ) {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit('device-peer', peerAddress(request, trustProxy), 50);
+          const action = request.method === 'POST' ? await body(request) : undefined;
+          return reply(response, 200, await accounts.deviceDirectory(token, action));
+        }
         const { register, verify, signIn, recover, reset, protection } = accountRoutes;
         const path = request.url;
         if (
@@ -220,13 +239,7 @@ export function createAccountServer(
           await accounts.resetPassword(email, code, password, factor);
           return reply(response, 200, {});
         }
-        if (
-          !validAccountId(deviceId) ||
-          typeof deviceName !== 'string' ||
-          !deviceName.trim() ||
-          deviceName.length > 80 ||
-          /\p{Cc}/u.test(deviceName)
-        )
+        if (!validAccountId(deviceId) || !validDeviceLabel(deviceName))
           throw new AccountFailure('invalid-input');
         const device = { id: deviceId, name: deviceName.trim() };
         if (path === verify) {

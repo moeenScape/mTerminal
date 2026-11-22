@@ -50,7 +50,12 @@ import {
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
-import { ACCOUNT_REQUEST, type AccountResult } from '../shared/accounts.js';
+import {
+  ACCOUNT_REQUEST,
+  DEVICE_DIRECTORY_REQUEST,
+  type AccountResult,
+  type DeviceDirectoryResult,
+} from '../shared/accounts.js';
 import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
 import {
   SYNC_QUEUE_CHANGED,
@@ -123,6 +128,14 @@ const api: DesktopApi = {
     return () => {
       ipcRenderer.removeListener(SYNC_QUEUE_CHANGED, notify);
     };
+  },
+  deviceDirectory: async (action) => {
+    const result: DeviceDirectoryResult = await ipcRenderer.invoke(
+      DEVICE_DIRECTORY_REQUEST,
+      action,
+    );
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.keys;
   },
   account: async (action) => {
     const result: AccountResult = await ipcRenderer.invoke(ACCOUNT_REQUEST, action);

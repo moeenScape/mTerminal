@@ -1,12 +1,14 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Pool } from 'pg';
 import { Secret, TOTP } from 'otpauth';
+import ssh2 from 'ssh2';
 import {
   accountRoutes,
   type AccountSummary,
+  type DeviceDirectoryKey,
   normalizeAccountEmail,
   validAccountPassword,
 } from '../../../packages/shared/accounts.ts';
@@ -332,6 +334,90 @@ test(
         200,
       );
       assert.equal((await snapshot(recovered)).mfaEnabled, false);
+
+      const directory = (bearer: string, input?: object) =>
+        call(accountRoutes.devices, input ? 'POST' : 'GET', input, bearer);
+      const directoryKeys = async (response: Response): Promise<DeviceDirectoryKey[]> => {
+        assert.equal(response.status, 200);
+        return ((await response.json()) as { keys: DeviceDirectoryKey[] }).keys;
+      };
+      const firstAgain = await sessionToken(await call(accountRoutes.signIn, 'POST', first));
+      const identityId = randomUUID();
+      const pair = ssh2.utils.generateKeyPairSync('ed25519');
+      const publicKey = pair.public.trim().split(' ', 2).join(' ');
+      const publish = { kind: 'publish-device-key', identityId, name: 'Deployment key', publicKey };
+      assert.equal((await call(accountRoutes.devices, 'GET')).status, 401);
+      assert.equal(
+        (await directory(firstAgain, { ...publish, publicKey: pair.private })).status,
+        400,
+      );
+      assert.equal(
+        (await directory(firstAgain, { ...publish, publicKey: 'ssh-ed25519 AAAA' })).status,
+        400,
+      );
+      const data = Buffer.from(publicKey.split(' ')[1]!, 'base64');
+      const fingerprint =
+        'SHA256:' + createHash('sha256').update(data).digest('base64').replace(/=+$/, '');
+      assert.deepEqual(await directoryKeys(await directory(firstAgain, publish)), [
+        {
+          deviceId: first.deviceId,
+          deviceName: first.deviceName,
+          identityId,
+          name: publish.name,
+          publicKey,
+          fingerprint,
+        },
+      ]);
+      const replacementKey = ssh2.utils
+        .generateKeyPairSync('ed25519')
+        .public.trim()
+        .split(' ', 2)
+        .join(' ');
+      const rotated = await directoryKeys(
+        await directory(firstAgain, { ...publish, publicKey: replacementKey }),
+      );
+      assert.equal(rotated.length, 1);
+      assert.equal(rotated[0]?.publicKey, replacementKey);
+      assert.notEqual(rotated[0]?.fingerprint, fingerprint);
+
+      const retire = { kind: 'retire-device', deviceId: first.deviceId };
+      const remove = { kind: 'remove-directory-key', deviceId: first.deviceId, identityId };
+      assert.deepEqual(await directoryKeys(await directory(recovered, remove)), []);
+      assert.equal((await directory(recovered, retire)).status, 404);
+      assert.equal((await directory(firstAgain, retire)).status, 409);
+      assert.deepEqual(await directoryKeys(await directory(secondToken)), rotated);
+      assert.deepEqual(await directoryKeys(await directory(secondToken, remove)), []);
+      await directoryKeys(await directory(firstAgain, publish));
+
+      const renamed = await directoryKeys(
+        await directory(secondToken, {
+          kind: 'rename-device',
+          deviceId: first.deviceId,
+          name: 'Travel laptop',
+        }),
+      );
+      assert.equal(renamed[0]?.deviceName, 'Travel laptop');
+      assert.deepEqual(await directoryKeys(await directory(secondToken, retire)), []);
+      assert.equal((await directory(firstAgain)).status, 401);
+      assert.equal((await sync('GET', firstAgain)).status, 401);
+      const retiredSignIn = await call(accountRoutes.signIn, 'POST', first);
+      assert.equal(retiredSignIn.status, 403);
+      assert.deepEqual(await retiredSignIn.json(), { code: 'device-retired' });
+      assert.ok(
+        (await snapshot(secondToken)).devices.find((device) => device.id === first.deviceId)
+          ?.retiredAt,
+      );
+      assert.deepEqual(
+        await directoryKeys(await directory(secondToken, { ...retire, kind: 'restore-device' })),
+        [],
+      );
+      const restored = await sessionToken(await call(accountRoutes.signIn, 'POST', first));
+      const reopened = await snapshot(restored);
+      assert.equal(reopened.devices[0]?.name, 'Travel laptop');
+      assert.equal(reopened.devices[0]?.retiredAt, null);
+      assert.deepEqual(await directoryKeys(await directory(restored)), []);
+      assert.equal((await directory(firstAgain)).status, 401);
+      assert.equal(((await (await sync('GET', restored)).json()) as SyncSnapshot).revision, 3);
 
       await pool.query("UPDATE account_sessions SET expires_at = now() - interval '1 second'");
       assert.equal((await call(accountRoutes.session, 'GET', undefined, secondToken)).status, 401);

@@ -21,6 +21,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   const setupKey = 'A'.repeat(32);
   const recoveryCodes = Array.from({ length: 8 }, (_, index) => String(index).repeat(32));
   let deviceId = '';
+  let deviceName = 'E2E machine';
   let verified = false;
   let signedOut = false;
   let mfaEnabled = false;
@@ -68,10 +69,26 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       }
       return write(400, { code: 'sync-format' });
     }
+    if (
+      request.url === accountRoutes.devices &&
+      request.method === 'GET' &&
+      request.headers.authorization === `Bearer ${token}`
+    )
+      return write(200, { keys: [] });
     if (request.method === 'POST') {
       const parts: Buffer[] = [];
       for await (const chunk of request) parts.push(chunk as Buffer);
       const input = JSON.parse(Buffer.concat(parts).toString('utf8')) as Record<string, unknown>;
+      if (
+        request.url === accountRoutes.devices &&
+        request.headers.authorization === `Bearer ${token}` &&
+        input.kind === 'rename-device' &&
+        input.deviceId === deviceId &&
+        typeof input.name === 'string'
+      ) {
+        deviceName = input.name;
+        return write(200, { keys: [] });
+      }
       if (request.url === accountRoutes.register && input.email === email) return write(202, {});
       if (
         request.url === accountRoutes.protection &&
@@ -113,7 +130,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
           mfaEnabled,
           currentDeviceId: deviceId,
           currentSessionId: 'session',
-          devices: [{ id: deviceId, name: 'E2E machine', lastSignedInAt: '2026-11-22T00:00:00Z' }],
+          devices: [{ id: deviceId, name: deviceName, lastSignedInAt: '2026-11-22T00:00:00Z' }],
           sessions: [
             {
               id: 'session',
@@ -179,6 +196,14 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     expect(state).not.toContain(token);
     expect(state).not.toContain(setupKey);
     expect(state).not.toContain(recoveryCodes[0]!);
+    const devices = section.getByRole('region', { name: 'Account devices' });
+    await devices.getByRole('button', { name: 'Rename E2E machine' }).click();
+    await devices.getByLabel('Device name', { exact: true }).fill('Travel laptop');
+    await devices.getByRole('button', { name: 'Save name', exact: true }).click();
+    await expect(devices).toContainText('Travel laptop (this device)');
+    await expect(devices.getByRole('button', { name: 'Retire Travel laptop' })).toHaveCount(0);
+    await devices.getByRole('button', { name: 'Show public-key directory' }).click();
+    await expect(devices).toContainText('No published public keys.');
     await page.evaluate(() =>
       window.mterminal.saveHost({
         name: 'F61 local fixture',
