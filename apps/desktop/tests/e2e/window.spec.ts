@@ -99,6 +99,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
   }));
   expect(exposed).toEqual({
     methods: [
+      'account',
       'ackTerminal',
       'annotateSessionLog',
       'answerSshChallenge',

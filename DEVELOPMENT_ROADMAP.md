@@ -23,12 +23,12 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M3 — Workspaces, automation, logs, and advanced connections |
-| Active feature | Phase 6 verification — 389 unit tests and 59 desktop E2E tests passed on Linux x64 |
-| Next feature | Resolve Phase 6 verification failures, then F59 — Accounts |
+| Current milestone | M4 — Accounts and encrypted synchronization |
+| Active feature | F59 implemented — accounts, email verification, devices, and sessions |
+| Next feature | F60 — Account protection. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
-| Current blocker | Phase 6 verification remains open with 5 unit failures, 19 desktop E2E failures, 1 E2E skip, and a worker teardown timeout |
+| Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
 | Last roadmap update | 2026-11-22 |
 
@@ -222,7 +222,7 @@ Completion criteria: Publish prerequisites and platform support. Test tunnel con
 
 Dependencies: Stable data model, secure storage, migrations, and key-management design. Introduces the online backend.
 
-- [ ] **F59 — Accounts:** Registration, verification, sign-in, devices, and sessions.
+- [x] **F59 — Accounts (implementation):** PostgreSQL-backed registration with email verification, sign-in, per-installation devices and sessions, and current-session sign-out in Settings. Account service is optional. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [ ] **F60 — Account protection:** MFA, rate limiting, recovery, and session revocation.
 - [ ] **F61 — Encrypted sync:** Client-side encryption, key management, and versioned payloads.
 - [ ] **F62 — Offline editing:** Queued changes and reconnection synchronization.
@@ -1753,3 +1753,15 @@ the preload bridge method list, reload and navigation, SFTP recovery and drag-an
 terminal interactions, SSH dialogs, and session log recording. Several SSH scenarios stopped
 at page reload before reaching the SSH operation. Phase 6 remains unverified. Real serial
 hardware, live servers, and Windows/macOS acceptance remain pending.
+
+### 2026-11-22 — F59 Accounts
+
+Phase 7 implementation began while Phase 6 manual verification continues. F59 adds the
+optional account service with PostgreSQL, SMTP verification, and an account view in
+desktop Settings. The service tracks devices and expiring sessions. The desktop retains
+tokens in the main process and uses secure OS storage when available. Account contract,
+configuration, and verification commands are documented. `npm run check`, `npm run build`,
+and the generated desktop main entry point syntax check passed on Linux x64 with Node
+24.12.0. The PostgreSQL and desktop regressions are written and deferred to the Phase 7
+gate. Live PostgreSQL, SMTP delivery, and desktop account UI acceptance remain pending.
+Next is F60 — Account protection.

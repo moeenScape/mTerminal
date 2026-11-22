@@ -42,7 +42,7 @@ The first UI milestone is the dark application shell, navigation, host view, and
 
 ## Project structure
 
-This repository uses npm workspaces. `apps/desktop/` contains the runnable Electron/React application. The future server and cross-application package remain empty; `.gitkeep` files preserve unused directories in Git.
+This repository uses npm workspaces. `apps/desktop/` contains the Electron/React application. `apps/server/` contains the optional account service, and `packages/shared/` holds the desktop/server account contract.
 
 ```text
 ownterminal/
@@ -63,9 +63,9 @@ ownterminal/
 │   │   │   ├── integration/        # PTY, SSH, SFTP, storage checks
 │   │   │   └── e2e/                # Desktop workflows
 │   │   └── assets/                 # Committed desktop icons and resources
-│   └── server/                     # Reserved for later online services
+│   └── server/                     # Account HTTP service, PostgreSQL migrations and tests
 ├── packages/
-│   └── shared/                     # Reserved for desktop/server contracts
+│   └── shared/                     # Desktop/server account contract
 ├── docs/                           # Feature references and design documents
 ├── DEVELOPMENT_ROADMAP.md           # Feature checklist and progress log
 ├── AGENTS.md                       # Contributor guidelines
@@ -73,7 +73,7 @@ ownterminal/
 └── README.md
 ```
 
-Implement the desktop application first. Keep `apps/server/` and `packages/shared/` empty until their features need implementation. Later server work includes accounts, synchronization, organizations, and billing.
+F59 adds optional accounts under **Settings → Account**, including email verification, sign-in, devices, and sessions. The desktop remains usable without the service. See [Accounts setup and verification](docs/ACCOUNTS.md).
 
 Desktop entry points are `apps/desktop/src/main/index.ts`, `apps/desktop/src/preload/index.ts`, `apps/desktop/src/renderer/index.html`, and `apps/desktop/src/renderer/src/main.tsx`. Build configuration lives in `apps/desktop/electron.vite.config.ts`.
 
@@ -103,13 +103,15 @@ npm run dev
 | --- | --- |
 | `npm run dev` | Build and launch the development desktop app |
 | `npm run check` | Type-check application and test code, lint, and check formatting; does not execute tests |
-| `npm run format` | Format desktop source/configuration and root JSON/JS configuration |
-| `npm run build` | Type-check and compile main, preload, and renderer code |
+| `npm run format` | Format workspace source and configuration |
+| `npm run build` | Type-check both workspaces and compile the desktop app |
 | `npm start` | Launch the compiled app after a build |
 | `npm run dist` | Type-check, build, and package a Linux `.deb` installer into `apps/desktop/dist/` |
 | `npm run test:unit` | Execute security, preferences, storage, and diagnostic unit tests |
+| `npm run start:server` | Start the optional PostgreSQL-backed account service |
+| `npm run test:server` | Execute account service tests, with PostgreSQL coverage when configured |
 | `npm run test:e2e` | Build and execute Electron window/bridge tests using Playwright |
-| `npm test` | Run both test suites at the phase completion gate |
+| `npm test` | Run desktop unit, server, and desktop E2E suites at the phase completion gate |
 
 **Testing cadence:** Write tests with each feature, but run them after the phase implementation is complete, as requested. Build, lint, formatting, and type checks can run during development. At the Phase 0 gate, all 37 unit tests passed on Linux/Node 24.12.0. Sandbox-enabled desktop tests are blocked at launch by this environment’s Chromium sandbox configuration; the phase is not fully verified.
 

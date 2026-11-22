@@ -15,6 +15,7 @@ import type { HistoryApi } from './history.js';
 import type { FilesApi } from './files.js';
 import type { TransfersApi } from './transfers.js';
 import type { RemoteEditApi } from './remote-edit.js';
+import type { AccountApi } from './accounts.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -41,7 +42,8 @@ export interface DesktopApi
     AgentApi,
     SerialApi,
     BroadcastApi,
-    SessionLogsApi {
+    SessionLogsApi,
+    AccountApi {
   readClipboardText: () => Promise<string>;
   /** `primary` also fills the Linux middle-click selection. */
   writeClipboardText: (text: string, options?: { primary?: boolean }) => Promise<void>;

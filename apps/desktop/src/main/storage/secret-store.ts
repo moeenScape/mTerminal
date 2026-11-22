@@ -38,6 +38,19 @@ export interface SafeStorageProvider {
   getSelectedStorageBackend(): string;
 }
 
+export async function secureStorageAvailable(
+  storage: SafeStorageProvider,
+  platform: NodeJS.Platform,
+): Promise<boolean> {
+  return (
+    (platform !== 'linux' ||
+      ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
+        storage.getSelectedStorageBackend(),
+      )) &&
+    (await storage.isAsyncEncryptionAvailable())
+  );
+}
+
 export class SshSecretStore {
   private writes: Promise<void> = Promise.resolve();
   private vaultMutations: Promise<void> = Promise.resolve();
@@ -584,13 +597,7 @@ export class SshSecretStore {
   }
 
   private async requireSecureStorage(): Promise<void> {
-    if (
-      (this.platform === 'linux' &&
-        !['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
-          this.storage.getSelectedStorageBackend(),
-        )) ||
-      !(await this.storage.isAsyncEncryptionAvailable())
-    )
+    if (!(await secureStorageAvailable(this.storage, this.platform)))
       throw new AppFailure('vault-unavailable');
   }
 

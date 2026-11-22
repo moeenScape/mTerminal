@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Preferences } from '../../../../shared/preferences';
 import type { AppInfo } from '../../../../shared/app-info';
 import { ProxySettings } from './ProxySettings';
+import { AccountSettings } from './AccountSettings';
 
 export function SettingsView({
   info,
@@ -205,6 +206,7 @@ export function SettingsView({
             {backupBusy ? 'Working…' : backupMessage}
           </p>
         </section>
+        <AccountSettings />
         <ProxySettings />
         <section aria-labelledby="application-heading">
           <h2 id="application-heading">About</h2>

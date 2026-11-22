@@ -21,7 +21,12 @@ export default tseslint.config(
     languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
   },
   {
-    files: ['apps/desktop/**/*.ts', 'apps/desktop/**/*.tsx'],
+    files: [
+      'apps/desktop/**/*.ts',
+      'apps/desktop/**/*.tsx',
+      'apps/server/**/*.ts',
+      'packages/shared/**/*.ts',
+    ],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
   },
   {
