@@ -10,11 +10,11 @@ import type { FailureCode } from '../../shared/failures.js';
 import { AppFailure } from '../failures.js';
 import type { TerminalExit, TerminalTransport } from './transport.js';
 
-const require = createRequire(import.meta.url);
+const requireSerialPort = createRequire(import.meta.url);
 let serialModule: typeof SerialPortModule | undefined;
 /** Loaded on first use so a missing native binding only affects serial features. */
 function serialport(): typeof SerialPortModule {
-  serialModule ??= require('serialport') as typeof SerialPortModule;
+  serialModule ??= requireSerialPort('serialport') as typeof SerialPortModule;
   return serialModule;
 }
 

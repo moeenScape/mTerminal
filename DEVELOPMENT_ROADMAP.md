@@ -24,11 +24,11 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M3 — Workspaces, automation, logs, and advanced connections |
-| Active feature | F58 implemented — SSH cryptography compatibility; Phase 6 tests await user authorization |
-| Next feature | Phase 6 verification when authorized, then F59 — Accounts |
+| Active feature | Phase 6 verification — 389 unit tests and 59 desktop E2E tests passed on Linux x64 |
+| Next feature | Resolve Phase 6 verification failures, then F59 — Accounts |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
-| Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
-| Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
+| Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
+| Current blocker | Phase 6 verification remains open with 5 unit failures, 19 desktop E2E failures, 1 E2E skip, and a worker teardown timeout |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
 | Last roadmap update | 2026-11-22 |
 
@@ -214,7 +214,7 @@ Dependencies: Stable SSH and session lifecycle. Prototype each adapter before se
 - [x] **F55 — Serial (implementation):** Port discovery, saved profiles with full line configuration, Enter translation and local echo, actionable permission/busy/missing errors, disconnect handling and Send break. Tests written, execution deferred to the phase run; hardware acceptance pending.
 - [ ] **F56 — Telnet (deferred, revisit on demand):** Revisit when a user needs network access to legacy equipment that only supports Telnet. Use a separate protocol adapter and clearly identify the connection as unencrypted.
 - [ ] **F57 — Mosh (deferred, revisit on demand):** Revisit when users need remote terminal sessions that survive network changes or brief outages. Investigate client integration, server requirements, and packaging at that point.
-- [x] **F58 — Cryptography (implementation):** Document bundled SSH algorithm defaults and report key exchange failures for target sessions, jump hosts, and public-key installation. Regression tests written; execution awaits user authorization. See `docs/SSH_SESSIONS.md`.
+- [x] **F58 — Cryptography (implementation):** Document bundled SSH algorithm defaults and report key exchange failures for target sessions, jump hosts, and public-key installation. All seven F58 regressions passed on Linux x64. See `docs/SSH_SESSIONS.md`.
 
 Completion criteria: Publish prerequisites and platform support. Test tunnel conflicts, denied forwarding, multi-hop failures, hardware access, and unsupported algorithms. Do not implement custom cryptographic primitives.
 
@@ -1734,3 +1734,22 @@ algorithm families and server-side troubleshooting. The regression tests use loo
 fixtures for modern algorithm combinations and incompatible offers. `npm run check` and
 `npm run build` passed on Linux x64 with Node 24.12.0. Test execution awaits user authorization.
 Phase 6 verification and live-server/platform acceptance remain pending.
+
+### 2026-11-22 — Phase 6 verification run
+
+On Linux x64 with Node 24.12.0, all seven F58 regressions passed in the focused run.
+The full unit suite finished with 389 passed and 5 failed. The failures were in HTTP CONNECT
+buffered data, missing serial-device error mapping, session log checkpoint completion,
+SSH agent credential validation expectations, and the transfer recovery save mock.
+
+The first desktop attempt was blocked by the command sandbox. Outside that restriction,
+launch diagnostics showed a duplicate `require` declaration in the main bundle from the
+serial loader. Renaming the loader's local binding fixed startup. Type checking, lint,
+formatting, the production build, and the generated main entry point syntax check passed.
+
+With Chromium sandboxing enabled, the full desktop suite finished with 59 passed, 19 failed,
+and 1 skipped, plus a worker teardown timeout. The startup smoke test passed. Failures included
+the preload bridge method list, reload and navigation, SFTP recovery and drag-and-drop,
+terminal interactions, SSH dialogs, and session log recording. Several SSH scenarios stopped
+at page reload before reaching the SSH operation. Phase 6 remains unverified. Real serial
+hardware, live servers, and Windows/macOS acceptance remain pending.
