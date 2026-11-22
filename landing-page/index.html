@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0d16" />
+    <meta
+      name="description"
+      content="mTerminal brings local terminals, saved SSH hosts, and SFTP file transfers into one desktop workspace."
+    />
+    <meta property="og:title" content="mTerminal — Your servers. One workspace." />
+    <meta
+      property="og:description"
+      content="A desktop workspace for your local shells, SSH sessions, and remote files."
+    />
+    <meta property="og:type" content="website" />
+    <title>mTerminal — Your servers. One workspace.</title>
+    <link rel="icon" href="assets/mterminal.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="site.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="wordmark" href="./" aria-label="mTerminal home">
+          <img src="assets/mterminal.png" width="36" height="36" alt="" />mTerminal<span
+            class="brand-period"
+            >.</span
+          >
+        </a>
+        <nav class="site-nav" aria-label="Main navigation">
+          <a href="#features">Features</a><a href="docs/">Docs</a>
+          <a class="nav-download" href="#download">Downloads</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="wrap hero-copy">
+          <p class="eyebrow hero-kicker">
+            <span aria-hidden="true">&gt;_</span> Desktop terminal · SSH · SFTP
+          </p>
+          <h1 id="hero-title">Your servers.<br /><span>One workspace.</span></h1>
+          <p class="hero-description">
+            Open local shells, connect to saved SSH hosts, and move files over SFTP from one desktop
+            app.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#download"
+              ><svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" />
+              </svg>
+              Get mTerminal</a
+            >
+            <a class="button button-secondary" href="docs/">Read the docs</a>
+          </div>
+        </div>
+        <div class="showcase">
+          <div class="wrap">
+            <div class="app-preview" aria-label="Interactive mTerminal product preview">
+              <div class="preview-titlebar">
+                <div class="window-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+                <span>mTerminal <span class="title-divider">/</span> Workspace</span>
+                <span class="preview-label">Interactive preview</span>
+              </div>
+              <div class="preview-layout">
+                <aside class="preview-sidebar" aria-label="Example workspace">
+                  <div class="preview-nav">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <rect x="3" y="5" width="18" height="14" rx="2" />
+                      <path d="m7 9 3 3-3 3m6 0h4" />
+                    </svg>
+                    Workspace
+                  </div>
+                  <p class="preview-section-label">Saved hosts</p>
+                  <div class="preview-host current-host">
+                    <span class="host-square">P</span
+                    ><span>prod-eu-01<small>Production</small></span>
+                  </div>
+                  <div class="preview-host">
+                    <span class="host-square blue">S</span
+                    ><span>staging-01<small>Staging</small></span>
+                  </div>
+                  <div class="preview-host">
+                    <span class="host-square gray">D</span
+                    ><span>dev-box<small>Development</small></span>
+                  </div>
+                  <div class="preview-foot">Example workspace</div>
+                </aside>
+                <div class="preview-main">
+                  <div
+                    class="preview-switcher"
+                    role="group"
+                    aria-label="Switch preview view"
+                    hidden
+                  >
+                    <button
+                      aria-pressed="true"
+                      aria-controls="preview-ssh"
+                      data-view="ssh"
+                      type="button"
+                    >
+                      <span class="connection-dot"></span> SSH session
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      aria-controls="preview-sftp"
+                      data-view="sftp"
+                      type="button"
+                    >
+                      SFTP files
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      aria-controls="preview-local"
+                      data-view="local"
+                      type="button"
+                    >
+                      Local shell
+                    </button>
+                  </div>
+                  <div class="preview-panel" id="preview-ssh">
+                    <div class="preview-meta">
+                      <span>prod-eu-01</span
+                      ><span class="connected"><i class="connection-dot"></i> Connected</span>
+                    </div>
+                    <pre
+                      class="terminal-output"
+                    ><code><span class="term-muted">Last login: Sun Nov 22 09:41:02</span>
+<span class="term-prompt">ops@prod-eu-01</span><span class="term-path">:~</span>$ uptime
+ 09:42:18 up 18 days,  2 users
+
+<span class="term-prompt">ops@prod-eu-01</span><span class="term-path">:~</span>$ ls -1
+<span class="term-folder">deployments/</span>
+<span class="term-folder">logs/</span>
+<span class="term-folder">releases/</span>
+
+<span class="term-prompt">ops@prod-eu-01</span><span class="term-path">:~</span>$ <span class="term-cursor" aria-hidden="true"></span></code></pre>
+                  </div>
+                  <div class="preview-panel" id="preview-sftp" hidden>
+                    <div class="preview-meta">
+                      <span>Files / prod-eu-01</span
+                      ><span class="connected"><i class="connection-dot"></i> Connected</span>
+                    </div>
+                    <div class="file-preview">
+                      <div>
+                        <p class="file-heading">Local <span>~/projects</span></p>
+                        <ul>
+                          <li><span></span>config/</li>
+                          <li><span></span>releases/</li>
+                          <li><span class="file-document"></span>deploy.sh</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <p class="file-heading">Remote <span>~/deployments</span></p>
+                        <ul>
+                          <li><span></span>current/</li>
+                          <li><span></span>logs/</li>
+                          <li><span class="file-document"></span>README.md</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="preview-panel" id="preview-local" hidden>
+                    <div class="preview-meta">
+                      <span>Local shell</span
+                      ><span class="connected"><i class="connection-dot"></i> Running</span>
+                    </div>
+                    <pre
+                      class="terminal-output"
+                    ><code><span class="term-prompt">dev@workstation</span><span class="term-path">:~/projects</span>$ pwd
+/home/dev/projects
+
+<span class="term-prompt">dev@workstation</span><span class="term-path">:~/projects</span>$ git status --short
+ <span class="term-folder">M</span> docs/README.md
+
+<span class="term-prompt">dev@workstation</span><span class="term-path">:~/projects</span>$ <span class="term-cursor" aria-hidden="true"></span></code></pre>
+                  </div>
+                </div>
+              </div>
+              <div class="preview-status">
+                <span><i class="connection-dot"></i> mTerminal workspace</span><span>UTF-8</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap" id="features" aria-labelledby="features-title">
+        <p class="eyebrow section-kicker">Features</p>
+        <h2 id="features-title">From login to file transfer.</h2>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-icon"
+              ><svg aria-hidden="true" viewBox="0 0 24 24">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m7 9 3 3-3 3m6 0h4" /></svg
+            ></span>
+            <h3>Local shells and SSH</h3>
+            <p>
+              Keep local and remote sessions side by side with terminal tabs, split panes, and
+              scrollback search.
+            </p>
+            <a class="text-link" href="docs/#ssh">Connect to a host</a>
+          </article>
+          <article class="feature">
+            <span class="feature-icon blue-icon"
+              ><svg aria-hidden="true" viewBox="0 0 24 24">
+                <path
+                  d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"
+                />
+                <path d="M9 13h6" /></svg
+            ></span>
+            <h3>Remote files over SFTP</h3>
+            <p>
+              Browse local and remote folders side by side, queue transfers, and choose what happens
+              when files already exist.
+            </p>
+            <a class="text-link" href="docs/#sftp">Browse and transfer files</a>
+          </article>
+          <article class="feature">
+            <span class="feature-icon violet-icon"
+              ><svg aria-hidden="true" viewBox="0 0 24 24">
+                <rect x="5" y="10" width="14" height="11" rx="2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3" /></svg
+            ></span>
+            <h3>Saved hosts and identities</h3>
+            <p>
+              Organize hosts into groups, reuse SSH identities, and store saved credentials in the
+              local encrypted vault.
+            </p>
+            <a class="text-link" href="docs/#vault">Manage SSH credentials</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="download-section" id="download" aria-labelledby="download-title">
+        <div class="wrap section">
+          <p class="eyebrow section-kicker">Downloads</p>
+          <h2 id="download-title">Get mTerminal for your desktop.</h2>
+          <p class="section-description" id="release-status" aria-live="polite">
+            Installers are listed on GitHub when published.
+          </p>
+          <div class="download-grid">
+            <article class="download-card" data-platform="linux">
+              <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <path
+                  d="M12 3c-3 0-4 2.2-4 5.3 0 2.6-3 4.7-3 8 0 1.6 1.1 2.4 2.3 2.4 1.3 1.6 8.1 1.6 9.4 0 1.2 0 2.3-.8 2.3-2.4 0-3.3-3-5.4-3-8C16 5.2 15 3 12 3Z"
+                />
+                <path
+                  d="M7.3 18.7 5 21h4l2-1.1m5.7-1.2L19 21h-4l-2-1.1M10 8h.1m3.8 0h.1m-3 2.6 1 .8 1-.8"
+                />
+              </svg>
+              <h3>Linux</h3>
+              <p>Debian and Ubuntu · .deb</p>
+              <a
+                class="button button-secondary"
+                href="https://github.com/moeenScape/mTerminal/releases"
+                aria-label="View Linux releases on GitHub"
+                >View releases</a
+              >
+              <ul class="installer-list" hidden></ul>
+              <a class="text-link" href="docs/#linux">Linux installation</a>
+            </article>
+            <article class="download-card" data-platform="macos">
+              <svg class="platform-icon apple-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <path
+                  d="M18.9 12.7a4.4 4.4 0 0 1 2.1-3.8A4.8 4.8 0 0 0 17.2 7c-1.6-.2-3.2 1-4 1-.9 0-2.1-1-3.5-1C7.9 7 6.3 8 5.3 9.6c-1.9 3.3-.5 8.1 1.4 10.7.9 1.3 1.9 2.6 3.3 2.5 1.3 0 1.8-.8 3.4-.8 1.5 0 2 .8 3.5.8s2.5-1.3 3.4-2.6a10.6 10.6 0 0 0 1.5-3.1 4.6 4.6 0 0 1-2.9-4.4ZM16.1 5.4A4.6 4.6 0 0 0 17.2 2a4.7 4.7 0 0 0-3.1 1.6A4.3 4.3 0 0 0 13 6.9a3.9 3.9 0 0 0 3.1-1.5Z"
+                />
+              </svg>
+              <h3>macOS</h3>
+              <p>Apple Silicon and Intel</p>
+              <a
+                class="button button-secondary"
+                href="https://github.com/moeenScape/mTerminal/releases"
+                aria-label="View macOS releases on GitHub"
+                >View releases</a
+              >
+              <ul class="installer-list" hidden></ul>
+              <a class="text-link" href="docs/#macos">macOS availability</a>
+            </article>
+            <article class="download-card" data-platform="windows">
+              <svg class="platform-icon windows-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z" />
+              </svg>
+              <h3>Windows</h3>
+              <p>Windows desktop installer</p>
+              <a
+                class="button button-secondary"
+                href="https://github.com/moeenScape/mTerminal/releases"
+                aria-label="View Windows releases on GitHub"
+                >View releases</a
+              >
+              <ul class="installer-list" hidden></ul>
+              <a class="text-link" href="docs/#windows">Windows availability</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wrap docs-callout" aria-labelledby="guide-title">
+        <div>
+          <p class="eyebrow section-kicker">Documentation</p>
+          <h2 id="guide-title">Make your first connection.</h2>
+          <p class="section-description">
+            Install mTerminal, save an SSH host, and open a remote folder.
+          </p>
+        </div>
+        <a class="button button-secondary" href="docs/">Open the quickstart</a>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <a class="wordmark" href="./"
+          ><img src="assets/mterminal.png" width="32" height="32" alt="" />mTerminal<span
+            class="brand-period"
+            >.</span
+          ></a
+        >
+        <nav aria-label="Footer navigation">
+          <a href="docs/">Documentation</a
+          ><a href="https://github.com/moeenScape/mTerminal">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
