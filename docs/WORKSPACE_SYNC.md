@@ -1,4 +1,4 @@
-# Encrypted workspace sync (F61–F63)
+# Encrypted sync and sync preferences (F61–F64)
 
 ## Publish and merge
 
@@ -13,8 +13,8 @@ different record with the same identity stops the operation before any records a
 Simultaneous publications use a revision check so a stale write cannot replace a newer copy.
 If a publication loses the race, retry to read and combine the latest version.
 
-The payload includes host and group settings, tags, jump references, and reusable SSH
-identity profiles. Credentials, environment variables, proxy assignments, agent settings,
+The metadata payload includes host and group settings, tags, jump references, and reusable SSH
+identity profiles. In metadata sync, credentials, environment variables, proxy assignments, agent settings,
 trusted fingerprints, logs, and terminal history stay on the device. Trust the host key
 through the normal SSH connection flow on each device.
 
@@ -65,6 +65,38 @@ sign-out. Enter the sync key again to resume after either. A revoked or expired 
 requires signing in again. A conflict keeps the batch queued for review. Use **Discard queued
 publication** to remove that copy after confirmation. Your local workspace records are kept.
 
+## Sync preferences and credentials
+
+Under **Settings → Account → Sync preferences for this device**, control workspace metadata
+and saved SSH credentials independently. Preferences apply to the current service and account
+on this device. Metadata starts enabled and credentials start disabled. Pausing metadata sync
+keeps the encrypted publication queue available for later retry or discard.
+
+To sync a credential, enable **Sync saved SSH credentials**, unlock the local SSH vault, and
+select a host or identity. Hosts can publish saved passwords. Identities can publish passwords
+or managed private keys with their passphrases. A paired saved login carries its username.
+Enter a credential sync key or generate one for the first encrypted credential copy. The same
+key may be reused from metadata sync. Each category derives separate encryption and write
+values and stores a separate cloud revision.
+
+**Publish credential** saves or replaces the selected encrypted cloud entry after confirmation.
+On another device, enable credential sync, unlock its vault, and choose **Restore credential**
+with the same key. The profile must already exist with the same ID and matching connection or
+identity settings. Use metadata sync or a workspace backup to bring over the profile when
+needed. Restore rechecks the cloud revision after confirmation and adds a credential only
+when the destination slot is empty.
+
+**Remove cloud credential** removes the selected entry and preserves the local vault copy.
+Remove the cloud entry while its profile is still present on the device. Disabling credential
+sync preserves any local vault records and existing encrypted cloud entries. Credential
+operations are manual and need a live service connection.
+
+The service stores credential ciphertext in a separate catalog with its own write proof and
+revision. The catalog holds up to 100 credentials and follows the 1 MiB plaintext limit.
+The service applies PostgreSQL migration `004_credential_sync.sql` on startup. The desktop
+encrypts and decrypts credential values in the main process. The Settings screen receives
+profile labels and operation results. SSH host trust remains local to each device.
+
 ## Key and service behavior
 
 The desktop generates a random 256-bit sync key. The desktop main process derives separate
@@ -93,6 +125,7 @@ of deliberate rollback by the service or key rotation.
 The regression cases cover encrypted envelopes and data exclusion, wrong keys or altered
 envelopes, account isolation, stale writes, local merge conflicts, encrypted queue persistence,
 disconnected publication, retry after a committed write loses its reply, stale reviews,
-protected local deletions, downgrade rejection, and desktop controls.
+protected local deletions, downgrade rejection, independent sync preferences, credential
+binding and create-only restoration, and desktop controls.
 Run the desktop unit and E2E suites and the PostgreSQL integration case at the Phase 7 gate.
 [Account service verification commands](ACCOUNTS.md#verification-commands)

@@ -17,6 +17,7 @@ import type { TransfersApi } from './transfers.js';
 import type { RemoteEditApi } from './remote-edit.js';
 import type { AccountApi } from './accounts.js';
 import type { WorkspaceSyncApi } from './workspace-sync.js';
+import type { SyncPreferencesApi } from './sync-preferences.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -45,7 +46,8 @@ export interface DesktopApi
     BroadcastApi,
     SessionLogsApi,
     AccountApi,
-    WorkspaceSyncApi {
+    WorkspaceSyncApi,
+    SyncPreferencesApi {
   readClipboardText: () => Promise<string>;
   /** `primary` also fills the Linux middle-click selection. */
   writeClipboardText: (text: string, options?: { primary?: boolean }) => Promise<void>;

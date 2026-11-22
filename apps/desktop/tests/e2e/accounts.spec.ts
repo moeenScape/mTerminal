@@ -9,6 +9,7 @@ import { _electron, expect, test, type ElectronApplication } from '@playwright/t
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
+  CREDENTIAL_SYNC_ROUTE,
   parseSyncEnvelope,
   type SyncSnapshot,
 } from '../../../../packages/shared/workspace-sync.ts';
@@ -31,12 +32,21 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   };
   let publishedBody = '';
   let workspaceAvailable = true;
+  let credentialReads = 0;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     const write = (status: number, data: object) => {
       response.statusCode = status;
       response.end(JSON.stringify(data));
     };
+    if (
+      request.url === CREDENTIAL_SYNC_ROUTE &&
+      request.method === 'GET' &&
+      request.headers.authorization === `Bearer ${token}`
+    ) {
+      credentialReads++;
+      return write(200, { accountId: cloud.accountId, revision: 0, envelope: null });
+    }
     if (
       request.url === WORKSPACE_SYNC_ROUTE &&
       request.headers.authorization === `Bearer ${token}` &&
@@ -217,6 +227,34 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       .click();
     await expect(section).toContainText('1 selected change applied to the cloud copy.');
     expect(cloud.envelope?.version).toBe(2);
+    const metadataToggle = section.getByRole('checkbox', { name: 'Sync workspace metadata' });
+    const credentialToggle = section.getByRole('checkbox', { name: 'Sync saved SSH credentials' });
+    await expect(metadataToggle).toBeChecked();
+    await expect(credentialToggle).not.toBeChecked();
+    await metadataToggle.click();
+    await expect(section).toContainText('Workspace metadata sync is paused on this device.');
+    const paused = await page.evaluate(async () => {
+      try {
+        await window.mterminal.syncWorkspace({ kind: 'generate-key' });
+        return '';
+      } catch (error) {
+        return (error as Error).message;
+      }
+    });
+    expect(paused).toContain('Enable this sync category');
+    await application.evaluate(({ dialog }) => {
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+    });
+    await credentialToggle.click();
+    await expect(credentialToggle).toBeChecked();
+    await expect(metadataToggle).not.toBeChecked();
+    await section.getByRole('button', { name: 'Generate first credential sync key' }).click();
+    await expect(section.getByLabel('Credential sync key', { exact: true })).toHaveValue(
+      /^mterminal-sync-v1_/,
+    );
+    expect(credentialReads).toBe(1);
+    await credentialToggle.click();
+    await expect(section.getByRole('region', { name: 'Encrypted credential sync' })).toHaveCount(0);
     await section.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(section.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(signedOut).toBe(true);

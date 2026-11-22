@@ -51,6 +51,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
 import { ACCOUNT_REQUEST, type AccountResult } from '../shared/accounts.js';
+import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
 import {
   SYNC_QUEUE_CHANGED,
   SYNC_WORKSPACE_REQUEST,
@@ -106,6 +107,11 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  syncPreferences: async (action) => {
+    const result: SyncPreferenceReply = await ipcRenderer.invoke(SYNC_PREFERENCES_REQUEST, action);
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.result;
+  },
   syncWorkspace: async (action) => {
     const reply: WorkspaceSyncReply = await ipcRenderer.invoke(SYNC_WORKSPACE_REQUEST, action);
     if (!reply.ok) throw new Error(accountErrors[reply.code]);

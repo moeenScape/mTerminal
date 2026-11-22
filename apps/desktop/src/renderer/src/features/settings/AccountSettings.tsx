@@ -6,7 +6,7 @@ import {
 } from '../../../../shared/accounts.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AccountProtection } from './AccountProtection';
-import { WorkspaceSyncSettings } from './WorkspaceSyncSettings';
+import { SyncPreferencesSettings } from './SyncPreferencesSettings';
 
 const displayDate = (value: string) => new Date(value).toLocaleString();
 
@@ -350,7 +350,9 @@ export function AccountSettings() {
           </div>
         </>
       )}
-      {(state?.status === 'signed-in' || state?.status === 'offline') && <WorkspaceSyncSettings />}
+      {(state?.status === 'signed-in' || state?.status === 'offline') && (
+        <SyncPreferencesSettings />
+      )}
       {revoking && (
         <ConfirmDialog
           title="Revoke account session?"

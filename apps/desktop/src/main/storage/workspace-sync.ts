@@ -77,7 +77,23 @@ function encryptDocument(
   version: 1 | 2,
 ): SyncEnvelope {
   const document = parseSyncDocument(value, version);
-  const plaintext = Buffer.from(JSON.stringify(version === 1 ? document.workspace : document));
+  return sealSyncPayload(
+    version === 1 ? document.workspace : document,
+    key,
+    accountId,
+    revision,
+    version,
+  );
+}
+
+function sealSyncPayload(
+  value: unknown,
+  key: Buffer,
+  accountId: string,
+  revision: number,
+  version: 1 | 2,
+): SyncEnvelope {
+  const plaintext = Buffer.from(JSON.stringify(value));
   const encryptionKey = deriveKey(key, accountId, 'encryption');
   try {
     if (plaintext.length > SYNC_PLAINTEXT_LIMIT) throw new WorkspaceSyncFailure('sync-size');
@@ -114,6 +130,15 @@ function decryptDocument(
   accountId: string,
   revision: number,
 ): SyncDocument {
+  return parseSyncDocument(openSyncPayload(envelope, key, accountId, revision), envelope.version);
+}
+
+export function openSyncPayload(
+  envelope: SyncEnvelope,
+  key: Buffer,
+  accountId: string,
+  revision: number,
+): unknown {
   const encryptionKey = deriveKey(key, accountId, 'encryption');
   const decipher = createDecipheriv(
     'aes-256-gcm',
@@ -137,7 +162,7 @@ function decryptDocument(
     } catch {
       throw new WorkspaceSyncFailure('sync-format');
     }
-    return parseSyncDocument(data, envelope.version);
+    return data;
   } finally {
     plaintext.fill(0);
   }
@@ -164,14 +189,23 @@ export type SyncRequest = (
   body?: object,
 ) => Promise<Record<string, unknown>>;
 
+export async function readSyncSnapshot(
+  request: SyncRequest,
+  route: string,
+  expectedAccountId?: string,
+): Promise<SyncSnapshot> {
+  const snapshot = readSnapshot(await request(route, 'GET'));
+  if (expectedAccountId !== undefined && snapshot.accountId !== expectedAccountId)
+    throw new WorkspaceSyncFailure('sign-in-required');
+  return snapshot;
+}
+
 export async function readCloudWorkspace(
   key: Buffer,
   request: SyncRequest,
   expectedAccountId?: string,
 ) {
-  const snapshot = readSnapshot(await request(WORKSPACE_SYNC_ROUTE, 'GET'));
-  if (expectedAccountId !== undefined && snapshot.accountId !== expectedAccountId)
-    throw new WorkspaceSyncFailure('sign-in-required');
+  const snapshot = await readSyncSnapshot(request, WORKSPACE_SYNC_ROUTE, expectedAccountId);
   const document = snapshot.envelope
     ? decryptDocument(snapshot.envelope, key, snapshot.accountId, snapshot.revision)
     : undefined;
@@ -185,20 +219,35 @@ export async function writeCloudWorkspace(
   request: SyncRequest,
   version: 1 | 2,
 ): Promise<number> {
-  const { accountId, revision } = snapshot;
+  const data = parseSyncDocument(version === 1 ? document.workspace : document, version);
+  return writeSyncPayload(
+    snapshot,
+    version === 1 ? data.workspace : data,
+    key,
+    request,
+    WORKSPACE_SYNC_ROUTE,
+    snapshot.accountId,
+    version,
+  );
+}
+
+export async function writeSyncPayload(
+  snapshot: SyncSnapshot,
+  value: unknown,
+  key: Buffer,
+  request: SyncRequest,
+  route: string,
+  context: string,
+  version: 1 | 2,
+): Promise<number> {
+  const { revision } = snapshot;
   if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
-  const publicationKey = deriveKey(key, accountId, 'publication');
+  const publicationKey = deriveKey(key, context, 'publication');
   const writeProof = publicationKey.toString('base64url');
   publicationKey.fill(0);
-  const result = await request(WORKSPACE_SYNC_ROUTE, 'PUT', {
+  const result = await request(route, 'PUT', {
     expectedRevision: revision,
-    envelope: encryptDocument(
-      version === 1 ? document.workspace : document,
-      key,
-      accountId,
-      revision + 1,
-      version,
-    ),
+    envelope: sealSyncPayload(value, key, context, revision + 1, version),
     writeProof,
   });
   if (result.revision !== revision + 1) throw new WorkspaceSyncFailure('sync-format');

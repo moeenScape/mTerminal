@@ -15,6 +15,7 @@ import { migrateAccounts } from '../src/database.ts';
 import { createAccountServer } from '../src/http.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
+  CREDENTIAL_SYNC_ROUTE,
   type SyncSnapshot,
 } from '../../../packages/shared/workspace-sync.ts';
 import { authenticatorStep, openAuthenticator, sealAuthenticator } from '../src/account-mfa.ts';
@@ -190,6 +191,21 @@ test(
       const compatible = (await (await sync('GET', secondToken)).json()) as SyncSnapshot;
       assert.equal(compatible.revision, 3);
       assert.equal(compatible.envelope?.version, 2);
+      const credential = (method: string, bearer?: string, body?: object) =>
+        call(CREDENTIAL_SYNC_ROUTE, method, body, bearer);
+      assert.equal((await credential('GET')).status, 401);
+      assert.equal(
+        ((await (await credential('GET', secondToken)).json()) as SyncSnapshot).revision,
+        0,
+      );
+      assert.equal(
+        (await credential('PUT', secondToken, { ...initial, envelope: versionTwo })).status,
+        400,
+      );
+      const savedCredential = await credential('PUT', secondToken, initial);
+      assert.equal(savedCredential.status, 200);
+      assert.deepEqual(await savedCredential.json(), { revision: 1 });
+      assert.equal(((await (await sync('GET', secondToken)).json()) as SyncSnapshot).revision, 3);
       assert.equal(
         (await call(accountRoutes.session, 'DELETE', undefined, renewedToken)).status,
         200,
@@ -222,6 +238,7 @@ test(
       const isolated = await sync('GET', owner);
       assert.equal(isolated.status, 200);
       assert.equal(((await isolated.json()) as SyncSnapshot).revision, 0);
+      assert.equal(((await (await credential('GET', owner)).json()) as SyncSnapshot).revision, 0);
       const peerId = (await snapshot(peer)).currentSessionId;
       const revoke = { kind: 'revoke-session', sessionId: peerId };
       assert.equal((await protect(revoke, secondToken)).status, 404);

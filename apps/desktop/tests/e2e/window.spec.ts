@@ -192,6 +192,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'startSessionLog',
       'stopBroadcast',
       'stopSessionLog',
+      'syncPreferences',
       'syncWorkspace',
       'unlockVault',
       'uploadRemoteEdit',

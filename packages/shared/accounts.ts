@@ -56,6 +56,17 @@ export const accountErrors = {
   'sync-local-protected':
     'A selected deletion would remove device-specific settings or a stored credential. Review it in Hosts before deleting it.',
   'sync-version': 'This workspace copy requires a compatible version of mTerminal.',
+  'sync-disabled': 'Enable this sync category in Account settings first.',
+  'sync-preferences-storage': 'Sync preferences could not be read or saved on this device.',
+  'sync-credential-owner':
+    'The credential’s host or identity does not match this device’s profile.',
+  'sync-credential-missing': 'No saved credential of this type was found for this profile.',
+  'sync-credential-exists': 'A local credential already exists. It was kept.',
+  'sync-credential-stale': 'The cloud credential changed. Retry the restore with the latest copy.',
+  'sync-credential-key-exists':
+    'This account already has an encrypted credential copy. Use its existing sync key.',
+  'sync-vault-locked': 'Unlock the local SSH vault before syncing a credential.',
+  'sync-vault-unavailable': 'Secure vault storage is unavailable on this device.',
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',

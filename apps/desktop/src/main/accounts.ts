@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { app, ipcMain, safeStorage, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, safeStorage, type BrowserWindow } from 'electron';
 import {
   accountErrors,
   accountRoutes,
@@ -36,6 +36,9 @@ import {
   WorkspacePublicationRunner,
 } from './storage/workspace-publication.js';
 import type { LocalDatabase } from './storage/database.js';
+import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
+import { SyncPreferenceStore } from './storage/sync-preferences.js';
+import { credentialOwners, syncCredential } from './storage/credential-sync.js';
 
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
@@ -180,11 +183,38 @@ export function attachAccounts(
     const expected = accountId;
     publication ??= new WorkspacePublicationRunner(
       new WorkspacePublication(userData, origin, expected),
-      (data, key) => publishWorkspace(data, key, syncRequest, expected),
+      async (data, key) => {
+        if (!(await syncPreferenceStore().read()).metadata)
+          throw new WorkspaceSyncFailure('sync-disabled');
+        return publishWorkspace(data, key, syncRequest, expected);
+      },
       queueAccountOperation,
       notifyPublication,
     );
     return publication;
+  }
+
+  function syncPreferenceStore(): SyncPreferenceStore {
+    if (!origin || !accountId) throw new WorkspaceSyncFailure('sync-account-unverified');
+    return new SyncPreferenceStore(userData, origin, accountId);
+  }
+
+  async function confirmSyncAction(
+    message: string,
+    detail: string,
+    affirmative: string,
+  ): Promise<boolean> {
+    if (window.isDestroyed()) return false;
+    const answer = await dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'Account sync',
+      message,
+      detail,
+      buttons: ['Cancel', affirmative],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    return answer.response === 1 && !window.isDestroyed();
   }
 
   async function loadToken(): Promise<void> {
@@ -444,6 +474,13 @@ export function attachAccounts(
           await loadToken();
           if (!token) throw new AccountFailure('sign-in-required');
           const action = record(args[0]);
+          if (
+            action?.kind !== 'queue-status' &&
+            action?.kind !== 'discard-publication' &&
+            accountId &&
+            !(await syncPreferenceStore().read()).metadata
+          )
+            throw new WorkspaceSyncFailure('sync-disabled');
           if (action?.kind === 'review' || action?.kind === 'apply-review') {
             if (!accountId) throw new AccountFailure('sync-account-unverified');
             publication?.suspend();
@@ -472,10 +509,105 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    SYNC_PREFERENCES_REQUEST,
+    async (event, ...args: unknown[]): Promise<SyncPreferenceReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      if (args.length !== 1) return { ok: false, code: 'invalid-input' };
+      try {
+        return await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          if (!accountId) throw new AccountFailure('sync-account-unverified');
+          const action = record(args[0]);
+          if (!action) throw new AccountFailure('invalid-input');
+          const store = syncPreferenceStore();
+          let preferences = await store.read();
+          if (action.kind === 'status' || action.kind === 'set-category') {
+            if (action.kind === 'set-category') {
+              const { category, enabled } = action;
+              if (
+                (category !== 'metadata' && category !== 'credentials') ||
+                typeof enabled !== 'boolean'
+              )
+                throw new AccountFailure('invalid-input');
+              if (
+                preferences[category] !== enabled &&
+                (category !== 'credentials' ||
+                  !enabled ||
+                  (await confirmSyncAction(
+                    'Allow encrypted credential sync on this device?',
+                    'Each transfer of a saved SSH password or managed private key requires your confirmation and the credential sync key.',
+                    'Enable credential sync',
+                  )))
+              ) {
+                preferences = { ...preferences, [category]: enabled };
+                await store.write(preferences);
+                if (category === 'metadata' && !enabled) {
+                  review.clear();
+                  publication?.suspend();
+                }
+              }
+            }
+            return {
+              ok: true,
+              result: {
+                kind: 'preferences',
+                preferences,
+                owners: preferences.credentials ? credentialOwners(database) : [],
+              },
+            };
+          }
+          if (!preferences.credentials) throw new AccountFailure('sync-disabled');
+          const result = await syncCredential(
+            action,
+            accountId,
+            database,
+            secrets,
+            syncRequest,
+            (operation, label, kind) => {
+              const item =
+                kind === 'password'
+                  ? 'saved SSH password'
+                  : 'managed SSH private key and its passphrase';
+              if (operation === 'publish')
+                return confirmSyncAction(
+                  `Publish the ${item}?`,
+                  `${label}\nThis replaces any previous encrypted cloud copy for this profile.`,
+                  'Publish credential',
+                );
+              if (operation === 'remove')
+                return confirmSyncAction(
+                  `Remove the cloud copy of the ${item}?`,
+                  `${label}\nThe local credential stays in this device’s vault.`,
+                  'Remove cloud copy',
+                );
+              return confirmSyncAction(
+                `Restore the ${item}?`,
+                `${label}\nThe credential will be stored in this device’s SSH vault.`,
+                'Restore credential',
+              );
+            },
+          );
+          return { ok: true, result };
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          code:
+            error instanceof AccountFailure || error instanceof WorkspaceSyncFailure
+              ? error.code
+              : 'unavailable',
+        };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
+    ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });
 }

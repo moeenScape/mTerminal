@@ -378,10 +378,11 @@ export function createAccounts(
       await pool.query('DELETE FROM account_sessions WHERE token_hash = $1', [hashToken(token)]);
     },
 
-    async workspaceSnapshot(token: string): Promise<SyncSnapshot> {
+    async workspaceSnapshot(token: string, credentials = false): Promise<SyncSnapshot> {
+      const table = credentials ? 'account_credential_sync' : 'account_workspace_sync';
       const result = await pool.query<SyncSnapshot>(
         `SELECT s.account_id AS "accountId", COALESCE(w.revision, 0) AS revision, w.envelope
-         FROM account_sessions s LEFT JOIN account_workspace_sync w ON w.account_id = s.account_id
+         FROM account_sessions s LEFT JOIN ${table} w ON w.account_id = s.account_id
          WHERE s.token_hash = $1 AND s.expires_at > now()`,
         [hashToken(token)],
       );
@@ -395,7 +396,9 @@ export function createAccounts(
       expectedRevision: number,
       envelope: SyncEnvelope,
       writeProof: string,
+      credentials = false,
     ): Promise<number> {
+      const table = credentials ? 'account_credential_sync' : 'account_workspace_sync';
       return transaction(pool, async (client) => {
         const { account } = await accountForSession(client, token);
         const revision = expectedRevision + 1;
@@ -403,14 +406,14 @@ export function createAccounts(
         const result =
           expectedRevision === 0
             ? await client.query(
-                `INSERT INTO account_workspace_sync (account_id, revision, envelope, write_hash) VALUES ($1, 1, $2, $3)
+                `INSERT INTO ${table} (account_id, revision, envelope, write_hash) VALUES ($1, 1, $2, $3)
              ON CONFLICT (account_id) DO NOTHING`,
                 [account.id, JSON.stringify(envelope), proofHash],
               )
             : await client.query(
-                `UPDATE account_workspace_sync SET revision = $2, envelope = $3
+                `UPDATE ${table} SET revision = $2, envelope = $3
              WHERE account_id = $1 AND revision = $4 AND write_hash = $5
-               AND (account_workspace_sync.envelope->>'version')::integer <= $6`,
+               AND (envelope->>'version')::integer <= $6`,
                 [
                   account.id,
                   revision,

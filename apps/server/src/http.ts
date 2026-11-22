@@ -11,6 +11,7 @@ import {
 import { AccountFailure, type createAccounts, type ProtectionAction } from './accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
+  CREDENTIAL_SYNC_ROUTE,
   SYNC_HTTP_LIMIT,
   SYNC_MAX_REVISION,
   parseSyncEnvelope,
@@ -74,6 +75,15 @@ const statuses = {
   'sync-dependencies': 409,
   'sync-local-protected': 409,
   'sync-version': 409,
+  'sync-disabled': 403,
+  'sync-preferences-storage': 503,
+  'sync-credential-owner': 409,
+  'sync-credential-missing': 404,
+  'sync-credential-exists': 409,
+  'sync-credential-stale': 409,
+  'sync-credential-key-exists': 409,
+  'sync-vault-locked': 409,
+  'sync-vault-unavailable': 503,
   'sign-in-required': 401,
   'rate-limited': 429,
   unavailable: 503,
@@ -126,23 +136,29 @@ export function createAccountServer(
           return reply(response, 200, {});
         }
         if (
-          request.url === WORKSPACE_SYNC_ROUTE &&
+          (request.url === WORKSPACE_SYNC_ROUTE || request.url === CREDENTIAL_SYNC_ROUTE) &&
           (request.method === 'GET' || request.method === 'PUT')
         ) {
           if (active >= 4) throw new AccountFailure('rate-limited');
           active++;
           admitted = true;
           const token = bearer(request);
+          const credentials = request.url === CREDENTIAL_SYNC_ROUTE;
           await accounts.rateLimit('sync-peer', peerAddress(request, trustProxy), 30);
-          const snapshot = await accounts.workspaceSnapshot(token);
+          const snapshot = await accounts.workspaceSnapshot(token, credentials);
           if (request.method === 'GET')
-            return reply(response, 200, { ...snapshot, maxEnvelopeVersion: 2 });
+            return reply(
+              response,
+              200,
+              credentials ? snapshot : { ...snapshot, maxEnvelopeVersion: 2 },
+            );
           const input = await body(request, true);
           const envelope = parseSyncEnvelope(input.envelope);
           const { expectedRevision, writeProof } = input;
           if (
             Object.keys(input).length !== 3 ||
             !envelope ||
+            (credentials && envelope.version !== 1) ||
             !validAccountToken(writeProof) ||
             !validSyncRevision(expectedRevision) ||
             expectedRevision >= SYNC_MAX_REVISION
@@ -157,6 +173,7 @@ export function createAccountServer(
               expectedRevision,
               envelope,
               writeProof,
+              credentials,
             ),
           });
         }

@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F63 implemented — reviewed workspace conflicts and deletions |
-| Next feature | F64 — Sync preferences. Phase 6 manual verification continues independently |
+| Active feature | F64 implemented — independent metadata and credential sync preferences |
+| Next feature | F65 — Device identity. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -227,7 +227,7 @@ Dependencies: Stable data model, secure storage, migrations, and key-management 
 - [x] **F61 — Encrypted sync (implementation):** Local key generation, client-side encryption for workspace metadata, versioned per-account snapshots with revision checks, and explicit additive publish and merge. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [x] **F62 — Offline editing (implementation):** Explicit workspace publication persists an encrypted, account-scoped batch before network access. Reconnection retries it while the app holds the entered key. The batch survives restart and supports manual retry or confirmed discard. Tests written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [x] **F63 — Conflicts (implementation):** Review competing records and select updates or deletes in either copy. Stale approvals are refused. Version 2 uses deletion markers to block accidental resurrection and the service rejects format downgrades. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
-- [ ] **F64 — Sync preferences:** Independent handling of credentials and metadata.
+- [x] **F64 — Sync preferences (implementation):** Per-device, account-scoped controls for metadata and SSH credentials. Credentials default off and transfer manually from an unlocked vault into a separate encrypted catalog. Restore preserves existing local credentials. Tests written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [ ] **F65 — Device identity:** Optional public-key directory and device lifecycle.
 
 Completion criteria: Define behavior for device loss, conflicting changes, offline deletion, key rotation, recovery, and revoked devices. Preserve unsynced changes. Obtain security review before claiming end-to-end encryption.
@@ -1810,3 +1810,13 @@ cannot re-add a marked record. Existing version 1 copies remain readable, and th
 downgrades after a version 2 write. `npm run check`, `npm run build`, and main-entry syntax
 checks passed on Linux x64. Regression tests were written and deferred to the Phase 7 gate.
 Live cross-device and desktop UI verification remain pending. Next is F64 — Sync preferences.
+
+### 2026-11-22 — F64 Independent sync preferences
+
+Account Settings controls metadata and credential sync separately. Pausing metadata sync
+preserves the publication queue. Passwords and managed private keys use a separate encrypted
+catalog and require native confirmation for each operation. Restore checks the matching local
+profile and writes only to an empty vault slot. Server migration 004 adds the credential catalog.
+`npm run check`, `npm run build`, and main-entry syntax checks passed on Linux x64. Regression
+tests were written and deferred to the Phase 7 gate. Live migration, native vault, and cross-device
+verification remain pending. Next is F65 — Device identity.

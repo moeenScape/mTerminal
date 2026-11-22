@@ -1,4 +1,5 @@
 export const WORKSPACE_SYNC_ROUTE = '/v1/accounts/workspace-sync';
+export const CREDENTIAL_SYNC_ROUTE = '/v1/accounts/credential-sync';
 export const SYNC_PLAINTEXT_LIMIT = 1024 * 1024;
 export const SYNC_CIPHERTEXT_LIMIT = Math.ceil((SYNC_PLAINTEXT_LIMIT * 4) / 3);
 export const SYNC_HTTP_LIMIT = SYNC_CIPHERTEXT_LIMIT + 1024;

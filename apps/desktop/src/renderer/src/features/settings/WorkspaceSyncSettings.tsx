@@ -8,7 +8,7 @@ import {
 } from '../../../../shared/workspace-sync.js';
 import { WorkspaceSyncReview } from './WorkspaceSyncReview';
 
-export function WorkspaceSyncSettings() {
+export function WorkspaceSyncSettings({ enabled }: { enabled: boolean }) {
   const keyField = useRef<HTMLInputElement>(null);
   const [generatedKey, setGeneratedKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -94,6 +94,7 @@ export function WorkspaceSyncSettings() {
   return (
     <div>
       <h3>Encrypted workspace sync</h3>
+      {!enabled && <p>Workspace metadata sync is paused on this device.</p>}
       <p>
         Publish or merge additions. To update or delete synced records, review the differences
         first.
@@ -107,8 +108,13 @@ export function WorkspaceSyncSettings() {
       {queue.status === 'blocked' && (
         <p role="alert">Publication is still queued. {accountErrors[queue.code]}</p>
       )}
-      <form onSubmit={submit}>
-        <fieldset className="preference-fields" disabled={busy}>
+      {!enabled && queue.status !== 'idle' && (
+        <button className="secondary-button" type="button" onClick={() => setDiscarding(true)}>
+          Discard queued publication
+        </button>
+      )}
+      <form onSubmit={submit} hidden={!enabled}>
+        <fieldset className="preference-fields" disabled={busy || !enabled}>
           <div className="setting-row">
             <label htmlFor="workspace-sync-key">Workspace sync key</label>
             <input
