@@ -25,15 +25,26 @@ export async function transaction<T>(
 }
 
 export async function migrateAccounts(pool: Pool): Promise<void> {
-  const sql = await readFile(new URL('../migrations/001_accounts.sql', import.meta.url), 'utf8');
+  const migrations = ['001_accounts.sql', '002_account_protection.sql'];
   await transaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(714059)');
     await client.query(
       'CREATE TABLE IF NOT EXISTS mterminal_migrations (version integer PRIMARY KEY)',
     );
-    const applied = await client.query('SELECT 1 FROM mterminal_migrations WHERE version = 1');
-    if (applied.rowCount) return;
-    await client.query(sql);
-    await client.query('INSERT INTO mterminal_migrations (version) VALUES (1)');
+    const applied = await client.query<{ version: number }>(
+      'SELECT version FROM mterminal_migrations',
+    );
+    const versions = new Set(applied.rows.map(({ version }) => version));
+    if ([...versions].some((version) => version < 1 || version > migrations.length))
+      throw new Error('Account schema is newer than this server.');
+    for (const [index, name] of migrations.entries()) {
+      const version = index + 1;
+      if (!versions.has(version)) {
+        await client.query(
+          await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8'),
+        );
+        await client.query('INSERT INTO mterminal_migrations (version) VALUES ($1)', [version]);
+      }
+    }
   });
 }

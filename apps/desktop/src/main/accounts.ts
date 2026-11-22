@@ -8,10 +8,17 @@ import {
   normalizeAccountEmail,
   validAccountPassword,
   validAccountToken,
+  validAccountId,
+  validSecondFactor,
   type AccountErrorCode,
   type AccountSummary,
 } from '../../../../packages/shared/accounts.ts';
-import { ACCOUNT_REQUEST, type AccountResult, type AccountState } from '../shared/accounts.js';
+import {
+  ACCOUNT_REQUEST,
+  type AccountResponse,
+  type AccountResult,
+  type AccountState,
+} from '../shared/accounts.js';
 import { validateAppInfoRequest } from './security.js';
 import { secureStorageAvailable } from './storage/secret-store.js';
 
@@ -54,10 +61,11 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function summary(value: Record<string, unknown>): AccountSummary {
-  const { email, currentDeviceId, currentSessionId, devices, sessions } = value;
+  const { email, mfaEnabled, currentDeviceId, currentSessionId, devices, sessions } = value;
   if (
     typeof email !== 'string' ||
     !normalizeAccountEmail(email) ||
+    typeof mfaEnabled !== 'boolean' ||
     typeof currentDeviceId !== 'string' ||
     typeof currentSessionId !== 'string' ||
     !Array.isArray(devices) ||
@@ -72,6 +80,7 @@ function summary(value: Record<string, unknown>): AccountSummary {
   };
   return {
     email,
+    mfaEnabled,
     currentDeviceId,
     currentSessionId,
     devices: devices.map((entry: unknown) => {
@@ -213,7 +222,46 @@ export function attachAccounts(window: BrowserWindow, rendererUrl: string, devic
     return { status: 'signed-out' };
   }
 
-  async function handle(value: unknown): Promise<AccountState> {
+  async function protection(action: Record<string, unknown>): Promise<AccountResponse | undefined> {
+    const { kind, password, factor, sessionId } = action;
+    if (
+      kind !== 'start-mfa' &&
+      kind !== 'enable-mfa' &&
+      kind !== 'disable-mfa' &&
+      kind !== 'revoke-session'
+    )
+      return undefined;
+    if (!token) throw new AccountFailure('sign-in-required');
+    if (kind === 'revoke-session' && validAccountId(sessionId)) {
+      await request(accountRoutes.protection, 'POST', { kind, sessionId });
+      return status();
+    }
+    if (kind === 'start-mfa' && validAccountPassword(password)) {
+      const result = await request(accountRoutes.protection, 'POST', { kind, password });
+      if (typeof result.key !== 'string' || !/^[A-Z2-7]{32}$/.test(result.key))
+        throw new AccountFailure('unavailable');
+      return { status: 'mfa-setup', key: result.key };
+    }
+    if (kind === 'enable-mfa' && validSecondFactor(factor)) {
+      const { recoveryCodes } = await request(accountRoutes.protection, 'POST', { kind, factor });
+      if (
+        !Array.isArray(recoveryCodes) ||
+        recoveryCodes.length !== 8 ||
+        !recoveryCodes.every(
+          (code: unknown) => typeof code === 'string' && /^[a-f0-9]{32}$/.test(code),
+        )
+      )
+        throw new AccountFailure('unavailable');
+      return { status: 'mfa-enabled', recoveryCodes };
+    }
+    if (kind === 'disable-mfa' && validAccountPassword(password) && validSecondFactor(factor)) {
+      await request(accountRoutes.protection, 'POST', { kind, password, factor });
+      return status();
+    }
+    throw new AccountFailure('invalid-input');
+  }
+
+  async function handle(value: unknown): Promise<AccountResponse> {
     if (!origin) return { status: 'unconfigured' };
     if (window.isDestroyed()) throw new AccountFailure('unavailable');
     await loadToken();
@@ -224,19 +272,41 @@ export function attachAccounts(window: BrowserWindow, rendererUrl: string, devic
       await clearToken();
       return { status: 'signed-out' };
     }
+    if (action) {
+      const result = await protection(action);
+      if (result) return result;
+    }
     if (token) return status();
     const email = normalizeAccountEmail(action?.email);
     if (!email) throw new AccountFailure('invalid-input');
-    if (action?.kind === 'register') {
-      await request(accountRoutes.register, 'POST', { email });
+    if (action?.kind === 'register' || action?.kind === 'recover') {
+      await request(
+        action.kind === 'register' ? accountRoutes.register : accountRoutes.recover,
+        'POST',
+        { email },
+      );
       return { status: 'signed-out' };
     }
     if (!validAccountPassword(action?.password)) throw new AccountFailure('invalid-input');
+    const factor = action.factor;
+    if (factor !== undefined && !validSecondFactor(factor))
+      throw new AccountFailure('invalid-input');
+    const secondFactor = factor ? { factor } : {};
+    if (action.kind === 'reset' && validAccountToken(action.code)) {
+      await request(accountRoutes.reset, 'POST', {
+        email,
+        password: action.password,
+        code: action.code,
+        ...secondFactor,
+      });
+      return { status: 'signed-out' };
+    }
     const login = { email, password: action.password, deviceId, deviceName };
     let result: Record<string, unknown>;
     if (action.kind === 'verify' && validAccountToken(action.code))
       result = await request(accountRoutes.verify, 'POST', { ...login, code: action.code });
-    else if (action.kind === 'sign-in') result = await request(accountRoutes.signIn, 'POST', login);
+    else if (action.kind === 'sign-in')
+      result = await request(accountRoutes.signIn, 'POST', { ...login, ...secondFactor });
     else throw new AccountFailure('invalid-input');
     if (!validAccountToken(result.token)) throw new AccountFailure('unavailable');
     await saveToken(result.token);

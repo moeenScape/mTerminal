@@ -8,13 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 
-test('creates an account from Settings and signs out without exposing the token', async () => {
+test('creates an account, enables an authenticator, and signs out from Settings', async () => {
   const email = 'e2e@example.com';
   const code = 'C'.repeat(43);
   const token = 'T'.repeat(43);
+  const setupKey = 'A'.repeat(32);
+  const recoveryCodes = Array.from({ length: 8 }, (_, index) => String(index).repeat(32));
   let deviceId = '';
   let verified = false;
   let signedOut = false;
+  let mfaEnabled = false;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     const write = (status: number, data: object) => {
@@ -26,6 +29,17 @@ test('creates an account from Settings and signs out without exposing the token'
       for await (const chunk of request) parts.push(chunk as Buffer);
       const input = JSON.parse(Buffer.concat(parts).toString('utf8')) as Record<string, unknown>;
       if (request.url === accountRoutes.register && input.email === email) return write(202, {});
+      if (
+        request.url === accountRoutes.protection &&
+        request.headers.authorization === `Bearer ${token}`
+      ) {
+        if (input.kind === 'start-mfa' && input.password === 'a long test password')
+          return write(200, { key: setupKey });
+        if (input.kind === 'enable-mfa' && input.factor === '123456') {
+          mfaEnabled = true;
+          return write(200, { recoveryCodes });
+        }
+      }
       if (
         request.url === accountRoutes.verify &&
         input.email === email &&
@@ -51,6 +65,7 @@ test('creates an account from Settings and signs out without exposing the token'
       if (request.method === 'GET')
         return write(200, {
           email,
+          mfaEnabled,
           currentDeviceId: deviceId,
           currentSessionId: 'session',
           devices: [{ id: deviceId, name: 'E2E machine', lastSignedInAt: '2026-11-22T00:00:00Z' }],
@@ -103,9 +118,22 @@ test('creates an account from Settings and signs out without exposing the token'
     await section.getByLabel('Create a password').fill('a long test password');
     await section.getByRole('button', { name: 'Verify and create account' }).click();
     await expect(section).toContainText('E2E machine (this device)');
-    expect(
-      JSON.stringify(await page.evaluate(() => window.mterminal.account({ kind: 'status' }))),
-    ).not.toContain(token);
+    await section.getByRole('button', { name: 'Set up authenticator' }).click();
+    await section.getByLabel('Current password').fill('a long test password');
+    await section.getByRole('button', { name: 'Get setup key' }).click();
+    await expect(section).toContainText(setupKey);
+    await section.getByLabel('Six-digit authenticator code').fill('123456');
+    await section.getByRole('button', { name: 'Enable authenticator', exact: true }).click();
+    const recovery = section.getByLabel('Account recovery codes');
+    await expect(recovery).toContainText(recoveryCodes[0]!);
+    await section.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(recovery).toHaveCount(0);
+    const state = JSON.stringify(
+      await page.evaluate(() => window.mterminal.account({ kind: 'status' })),
+    );
+    expect(state).not.toContain(token);
+    expect(state).not.toContain(setupKey);
+    expect(state).not.toContain(recoveryCodes[0]!);
     await section.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(section.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(signedOut).toBe(true);

@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
 import {
   accountRoutes,
   normalizeAccountEmail,
   validAccountPassword,
   validAccountToken,
+  validAccountId,
+  validSecondFactor,
 } from '../../../packages/shared/accounts.ts';
-import { AccountFailure, type createAccounts } from './accounts.ts';
+import { AccountFailure, type createAccounts, type ProtectionAction } from './accounts.ts';
 
 const MAX_BODY = 4096;
 
@@ -43,14 +46,38 @@ const statuses = {
   'invalid-input': 400,
   'invalid-code': 400,
   'invalid-login': 401,
+  'mfa-required': 401,
+  'invalid-factor': 401,
+  'mfa-state': 409,
+  'session-missing': 404,
   'sign-in-required': 401,
   'rate-limited': 429,
   unavailable: 503,
 } as const;
 
-export function createAccountServer(accounts: ReturnType<typeof createAccounts>) {
-  const attempts = new Map<string, number>();
-  let windowEnd = 0;
+function bearer(request: IncomingMessage): string {
+  const header = request.headers.authorization;
+  const token = header?.slice('Bearer '.length);
+  if (!header?.startsWith('Bearer ') || !validAccountToken(token))
+    throw new AccountFailure('sign-in-required');
+  return token;
+}
+
+function protectionAction(input: Record<string, unknown>): ProtectionAction {
+  const { kind, password, factor, sessionId } = input;
+  if (kind === 'revoke-session' && validAccountId(sessionId)) return { kind, sessionId };
+  if (kind === 'start-mfa' && validAccountPassword(password)) return { kind, password };
+  if (kind === 'enable-mfa' && typeof factor === 'string' && /^\d{6}$/.test(factor))
+    return { kind, factor };
+  if (kind === 'disable-mfa' && validAccountPassword(password) && validSecondFactor(factor))
+    return { kind, password, factor };
+  throw new AccountFailure('invalid-input');
+}
+
+export function createAccountServer(
+  accounts: ReturnType<typeof createAccounts>,
+  trustProxy = false,
+) {
   let active = 0;
   return createServer(
     { requestTimeout: 10_000, headersTimeout: 10_000, connectionsCheckingInterval: 1000 },
@@ -61,48 +88,61 @@ export function createAccountServer(accounts: ReturnType<typeof createAccounts>)
           request.url === accountRoutes.session &&
           (request.method === 'GET' || request.method === 'DELETE')
         ) {
-          const token = request.headers.authorization?.replace(/^Bearer /, '');
-          if (!request.headers.authorization?.startsWith('Bearer ') || !validAccountToken(token))
-            throw new AccountFailure('sign-in-required');
+          const token = bearer(request);
           if (request.method === 'GET') return reply(response, 200, await accounts.session(token));
           await accounts.signOut(token);
           return reply(response, 200, {});
         }
-        const { register, verify, signIn } = accountRoutes;
+        const { register, verify, signIn, recover, reset, protection } = accountRoutes;
         const path = request.url;
         if (
           request.method !== 'POST' ||
-          (path !== register && path !== verify && path !== signIn)
+          (path !== register &&
+            path !== verify &&
+            path !== signIn &&
+            path !== recover &&
+            path !== reset &&
+            path !== protection)
         ) {
           request.resume();
           return reply(response, 404, { code: 'invalid-input' });
         }
-        const now = Date.now();
-        if (now >= windowEnd) {
-          attempts.clear();
-          windowEnd = now + 60_000;
-        }
-        const peer = request.socket.remoteAddress ?? '';
-        const count = attempts.get(peer) ?? 0;
-        if (active >= 4 || count >= 20 || (!count && attempts.size >= 4096))
-          throw new AccountFailure('rate-limited');
-        attempts.set(peer, count + 1);
+        if (active >= 4) throw new AccountFailure('rate-limited');
         active++;
         admitted = true;
+        const direct = request.socket.remoteAddress ?? '';
+        const forwarded =
+          direct === '127.0.0.1' && trustProxy ? request.headers['x-real-ip'] : undefined;
+        if (trustProxy && (typeof forwarded !== 'string' || !isIP(forwarded)))
+          throw new AccountFailure('invalid-input');
+        const peer = typeof forwarded === 'string' ? forwarded.toLowerCase() : direct;
+        await accounts.rateLimit('peer', peer, 50);
         const input = await body(request);
+        if (path === protection) {
+          const token = bearer(request);
+          const action = protectionAction(input);
+          await accounts.rateLimit('protection', token, 12);
+          return reply(response, 200, await accounts.protect(token, action));
+        }
         const email = normalizeAccountEmail(input.email);
         if (!email) throw new AccountFailure('invalid-input');
-        if (path === register) {
-          await accounts.register(email);
+        if (path === register || path === recover) {
+          await accounts.rateLimit(path, email, 3);
+          if (path === register) await accounts.register(email);
+          else await accounts.recover(email);
           return reply(response, 202, {});
         }
-        const { password, code, deviceId, deviceName } = input;
+        await accounts.rateLimit(path, email, 8);
+        const { password, code, deviceId, deviceName, factor } = input;
+        if (!validAccountPassword(password) || (factor !== undefined && !validSecondFactor(factor)))
+          throw new AccountFailure('invalid-input');
+        if (path === reset) {
+          if (!validAccountToken(code)) throw new AccountFailure('invalid-code');
+          await accounts.resetPassword(email, code, password, factor);
+          return reply(response, 200, {});
+        }
         if (
-          !validAccountPassword(password) ||
-          typeof deviceId !== 'string' ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-            deviceId,
-          ) ||
+          !validAccountId(deviceId) ||
           typeof deviceName !== 'string' ||
           !deviceName.trim() ||
           deviceName.length > 80 ||
@@ -116,7 +156,9 @@ export function createAccountServer(accounts: ReturnType<typeof createAccounts>)
             token: await accounts.verify(email, code, password, device),
           });
         }
-        return reply(response, 200, { token: await accounts.signIn(email, password, device) });
+        return reply(response, 200, {
+          token: await accounts.signIn(email, password, device, factor),
+        });
       } catch (error) {
         request.resume();
         const code = error instanceof AccountFailure ? error.code : 'unavailable';

@@ -3,6 +3,9 @@ export const accountRoutes = {
   verify: '/v1/accounts/verify',
   signIn: '/v1/accounts/sign-in',
   session: '/v1/accounts/session',
+  protection: '/v1/accounts/protection',
+  recover: '/v1/accounts/recover',
+  reset: '/v1/accounts/reset',
 } as const;
 
 export interface AccountDevice {
@@ -20,6 +23,7 @@ export interface AccountSession {
 
 export interface AccountSummary {
   email: string;
+  mfaEnabled: boolean;
   currentSessionId: string;
   currentDeviceId: string;
   devices: AccountDevice[];
@@ -30,6 +34,11 @@ export const accountErrors = {
   'invalid-input': 'Check the email, password, and verification code and try again.',
   'invalid-code': 'This verification code is invalid or expired. Request a new code.',
   'invalid-login': 'Sign-in failed. Check the email and password or create an account first.',
+  'mfa-required': 'Enter a code from your authenticator app or a recovery code.',
+  'invalid-factor': 'The authenticator or recovery code is invalid or has already been used.',
+  'mfa-state':
+    'The authenticator setup has expired or changed. Refresh Account settings and try again.',
+  'session-missing': 'That session has already ended. Refresh the list of active sessions.',
   'sign-in-required': 'Your account session has ended. Sign in again.',
   'rate-limited': 'Too many attempts. Wait a minute and try again.',
   unavailable: 'The account service is unavailable. Try again in a moment.',
@@ -70,4 +79,15 @@ export function validAccountPassword(value: unknown): value is string {
 
 export function validAccountToken(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+export function validSecondFactor(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[0-9]{6}|[a-f0-9]{32})$/i.test(value);
+}
+
+export function validAccountId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
 }

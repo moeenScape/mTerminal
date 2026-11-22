@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F59 implemented — accounts, email verification, devices, and sessions |
-| Next feature | F60 — Account protection. Phase 6 manual verification continues independently |
+| Active feature | F60 implemented — account protection |
+| Next feature | F61 — Encrypted sync. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -223,7 +223,7 @@ Completion criteria: Publish prerequisites and platform support. Test tunnel con
 Dependencies: Stable data model, secure storage, migrations, and key-management design. Introduces the online backend.
 
 - [x] **F59 — Accounts (implementation):** PostgreSQL-backed registration with email verification, sign-in, per-installation devices and sessions, and current-session sign-out in Settings. Account service is optional. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
-- [ ] **F60 — Account protection:** MFA, rate limiting, recovery, and session revocation.
+- [x] **F60 — Account protection (implementation):** Authenticator MFA, single-use recovery codes and email password reset, PostgreSQL-backed rate limits, and revocation of other sessions. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [ ] **F61 — Encrypted sync:** Client-side encryption, key management, and versioned payloads.
 - [ ] **F62 — Offline editing:** Queued changes and reconnection synchronization.
 - [ ] **F63 — Conflicts:** Concurrent edits, deletions, stale devices, and version compatibility.
@@ -1765,3 +1765,15 @@ and the generated desktop main entry point syntax check passed on Linux x64 with
 24.12.0. The PostgreSQL and desktop regressions are written and deferred to the Phase 7
 gate. Live PostgreSQL, SMTP delivery, and desktop account UI acceptance remain pending.
 Next is F60 — Account protection.
+
+### 2026-11-22 — F60 Account protection
+
+F60 adds authenticator enrollment and removal, one-time recovery codes, and email password
+reset in desktop Settings. MFA remains required during password recovery when enabled.
+Successful reset revokes all sessions. MFA changes revoke sessions on other devices, and
+users can revoke individual sessions. Account changes use persistent per-peer and per-account
+rate limits, with a separate limit per session for protection changes. Added PostgreSQL migration
+002 and documented the server encryption key and reverse proxy configuration. `npm run check`
+and `npm run build` passed on Linux x64. Regression tests are written and deferred to the
+Phase 7 gate. Live migration, SMTP, and desktop UI acceptance remain pending. Next is F61 —
+Encrypted sync.
