@@ -25,6 +25,8 @@ import {
 } from '../../components/ContextMenu';
 import { badgeHue, breadcrumb, childFolders, initials, visibleHosts } from './host-browser';
 import { Icon } from '../../components/Icon';
+import { SerialPanel } from './SerialPanel';
+import type { SerialProfile } from '../../../../shared/serial';
 
 interface HostsViewProps {
   query: string;
@@ -32,6 +34,8 @@ interface HostsViewProps {
   onCountChange: (count: number) => void;
   onOpenWorkspace: () => void;
   onConnect: (host: SavedHost) => void;
+  /** Opens a tab for a saved serial profile. */
+  onConnectSerial: (profile: SerialProfile) => void;
   /** Opens the vault setup dialog, so a host password can be saved. */
   onSetupVault: () => void;
 }
@@ -42,8 +46,10 @@ export function HostsView({
   onCountChange,
   onOpenWorkspace,
   onConnect,
+  onConnectSerial,
   onSetupVault,
 }: HostsViewProps) {
+  const [serialOpen, setSerialOpen] = useState(false);
   const [hosts, setHosts] = useState<SavedHost[]>([]);
   const [groups, setGroups] = useState<HostGroup[]>([]);
   const [identities, setIdentities] = useState<SshIdentity[]>([]);
@@ -154,6 +160,9 @@ export function HostsView({
           <p>All your connections, in one place.</p>
         </div>
         <div className="page-actions">
+          <button type="button" className="secondary-button" onClick={() => setSerialOpen(true)}>
+            Serial devices
+          </button>
           <button
             type="button"
             className="secondary-button"
@@ -434,6 +443,9 @@ export function HostsView({
             onSetupVault={onSetupVault}
             onConnect={onConnect}
           />
+        )}
+        {serialOpen && (
+          <SerialPanel onClose={() => setSerialOpen(false)} onConnect={onConnectSerial} />
         )}
         {editor?.deleting && editor.host && (
           <ConfirmDialog

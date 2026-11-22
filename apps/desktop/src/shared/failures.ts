@@ -29,6 +29,14 @@ export const failureMessages = {
   'ssh-key-install-failed':
     'The public key could not be installed. Check the remote account and its SFTP permissions, then retry.',
   'ssh-cancelled': 'SSH connection cancelled.',
+  'serial-permission':
+    'Permission denied for this serial device. On Linux, add your user to the dialout group with: sudo usermod -aG dialout $USER — then log out and back in.',
+  'serial-busy':
+    'The serial device is already in use. Close other programs using it (screen, minicom, Arduino IDE, another tab), then retry.',
+  'serial-missing':
+    'The serial device was not found. Check the cable, refresh the device list and choose the current port.',
+  'serial-failed':
+    'The serial device could not be opened. Check the device and its settings, then retry.',
   'ssh-agent-unavailable':
     'No SSH agent was found. Start ssh-agent (or Pageant / the OpenSSH Authentication Agent service on Windows), add a key with ssh-add, then restart mTerminal from that session.',
   'ssh-proxy-failed':

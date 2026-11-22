@@ -3,6 +3,7 @@ import { attachBroadcast } from './terminal/broadcast-ipc.js';
 import { attachBatch } from './terminal/batch-ipc.js';
 import { attachForwards } from './terminal/forwards-ipc.js';
 import { attachProxies } from './proxies-ipc.js';
+import { attachSerial } from './terminal/serial-ipc.js';
 import { agentStatus } from './terminal/agent.js';
 import { AGENT_STATUS, type AgentStatus } from '../shared/agent.js';
 import { attachSnippets } from './snippets.js';
@@ -367,6 +368,7 @@ export async function createMainWindow(
   const batches = attachBatch(window, rendererUrl, terminals);
   const broadcasts = attachBroadcast(window, rendererUrl, terminals);
   attachForwards(window, rendererUrl, terminals, database);
+  attachSerial(window, rendererUrl, terminals, database, diagnostics);
   attachFiles(
     window,
     rendererUrl,

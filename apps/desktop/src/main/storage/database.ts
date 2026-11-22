@@ -29,6 +29,11 @@ import {
   type PortForwardRule,
 } from '../../shared/port-forwarding.ts';
 import { MAX_PROXIES, validateProxy, type SavedProxy } from '../../shared/proxies.ts';
+import {
+  MAX_SERIAL_PROFILES,
+  validateSerialSettings,
+  type SerialProfile,
+} from '../../shared/serial.ts';
 
 const APPLICATION_ID = 0x4d544552;
 const migrations = [
@@ -113,6 +118,11 @@ const migrations = [
       ALTER TABLE hosts ADD COLUMN agentForwarding INTEGER NOT NULL DEFAULT 0;
     `);
   },
+  (connection: DatabaseSync) => {
+    connection.exec(`CREATE TABLE serial_profiles (
+      id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(length(data) <= 2048)
+    ) STRICT;`);
+  },
 ];
 const SCHEMA_VERSION = migrations.length;
 
@@ -195,6 +205,8 @@ function validateDatabase(database: DatabaseSync): void {
   }
   if (pragmaNumber(database, 'user_version') >= 12)
     database.prepare('SELECT useAgent, agentForwarding FROM hosts LIMIT 0').all();
+  if (pragmaNumber(database, 'user_version') >= 13)
+    database.prepare('SELECT id,data FROM serial_profiles LIMIT 0').all();
   const workspace = database.prepare('SELECT id, name FROM workspaces').all();
   if (
     workspace.length !== 1 ||
@@ -333,6 +345,43 @@ export class LocalDatabase {
   deleteWorkspaceTemplate(id: unknown): void {
     if (!validHostId(id)) throw new Error('Invalid template ID.');
     this.connection.prepare('DELETE FROM workspace_templates WHERE id=?').run(id);
+  }
+
+  listSerialProfiles(): SerialProfile[] {
+    const rows = this.connection
+      .prepare('SELECT id,data FROM serial_profiles ORDER BY rowid LIMIT 51')
+      .all();
+    if (rows.length > MAX_SERIAL_PROFILES) throw new Error('Too many serial profiles.');
+    return rows.map((row) => {
+      if (!validHostId(row.id) || typeof row.data !== 'string' || row.data.length > 2048)
+        throw new Error('Invalid serial profile.');
+      return { ...validateSerialSettings(JSON.parse(row.data)), id: row.id };
+    });
+  }
+  saveSerialProfile(value: unknown, id?: unknown): SerialProfile {
+    if (id !== undefined && !validHostId(id)) throw new Error('Invalid serial profile ID.');
+    const settings = validateSerialSettings(value);
+    const key = (id as string | undefined) ?? randomUUID();
+    this.transaction((db) => {
+      if (id !== undefined) {
+        const result = db
+          .prepare('UPDATE serial_profiles SET data=? WHERE id=?')
+          .run(JSON.stringify(settings), key);
+        if (result.changes !== 1) throw new Error('Serial profile no longer exists.');
+      } else {
+        const count = Number(db.prepare('SELECT count(*) AS n FROM serial_profiles').get()?.n);
+        if (count >= MAX_SERIAL_PROFILES) throw new Error('Too many serial profiles.');
+        db.prepare('INSERT INTO serial_profiles (id,data) VALUES (?,?)').run(
+          key,
+          JSON.stringify(settings),
+        );
+      }
+    });
+    return { ...settings, id: key };
+  }
+  deleteSerialProfile(id: unknown): void {
+    if (!validHostId(id)) throw new Error('Invalid serial profile ID.');
+    this.connection.prepare('DELETE FROM serial_profiles WHERE id=?').run(id);
   }
 
   listProxies(): SavedProxy[] {

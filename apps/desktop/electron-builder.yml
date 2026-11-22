@@ -11,7 +11,8 @@ files:
 # The native terminal module must stay outside the app archive to load.
 asarUnpack:
   - '**/node_modules/node-pty/**'
-# node-pty is already compiled for this Electron version by `npm install` (scripts/rebuild.mjs).
+  - '**/node_modules/@serialport/bindings-cpp/**'
+# Native modules are already compiled for this Electron version by `npm install` (scripts/rebuild.mjs).
 npmRebuild: false
 linux:
   target: deb

@@ -325,6 +325,10 @@ agent) per host or in the connect dialog, and optional **agent forwarding** (`ss
 trust warning. The host editor shows whether an agent is running and which keys it holds.
 See [SSH agents](docs/SSH_AGENT.md).
 
+F55 adds **Hosts → Serial devices**: detect USB/serial ports, save profiles (speed, data bits,
+parity, stop bits, flow control, Enter translation, local echo) and open them in terminal tabs
+with **Send break**. On Linux your user needs the `dialout` group. See [serial](docs/SERIAL.md).
+
 F12 adds **Copy selection**, **Paste**, and **Select all** inside each terminal.
 Copy/paste shortcuts use Ctrl+Shift+C/V on Linux/Windows and Command+C/V on macOS.
 Multiline text or control characters opens a preview naming the destination tab;

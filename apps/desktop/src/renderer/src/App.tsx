@@ -33,7 +33,8 @@ export function App() {
   const [showVaultSetup, setShowVaultSetup] = useState(false);
   const [sshRequest, setSshRequest] = useState<{
     id: string;
-    hostId: string;
+    hostId?: string;
+    serialId?: string;
     title: string;
   } | null>(null);
 
@@ -193,6 +194,14 @@ export function App() {
                   id: crypto.randomUUID(),
                   hostId: host.id,
                   title: host.name.slice(0, 64),
+                });
+                setActiveView('workspace');
+              }}
+              onConnectSerial={(profile) => {
+                setSshRequest({
+                  id: crypto.randomUUID(),
+                  serialId: profile.id,
+                  title: profile.name.slice(0, 64),
                 });
                 setActiveView('workspace');
               }}

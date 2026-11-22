@@ -54,6 +54,7 @@ export function TerminalPane({
   id,
   title,
   hostId,
+  serialId,
   onRequestClose,
   onOpenVault,
   active,
@@ -73,6 +74,8 @@ export function TerminalPane({
   id: string;
   title: string;
   hostId: string | undefined;
+  /** Saved serial profile this tab opens instead of a shell. */
+  serialId?: string | undefined;
   onRequestClose: (id: string) => void;
   onOpenVault: () => Promise<void>;
   active: boolean;
@@ -123,7 +126,7 @@ export function TerminalPane({
   const options = terminalOptions(terminalAppearance, appearance);
   const history = useCommandHistory(
     active && !overlayOpen,
-    !hostId,
+    !hostId && !serialId,
     session,
     inputReady,
     container,
@@ -321,7 +324,9 @@ export function TerminalPane({
               ? failureMessages[event.failureCode]
               : hostId
                 ? `SSH ${event.connectionState === 'failed' ? 'failed' : 'disconnected'} (code ${event.exitCode})`
-                : `Shell exited (code ${event.exitCode})`
+                : serialId
+                  ? 'Serial device disconnected. Check the cable, then reconnect.'
+                  : `Shell exited (code ${event.exitCode})`
             : failureMessages[event.code],
         );
       }
@@ -353,6 +358,7 @@ export function TerminalPane({
   }, [
     id,
     hostId,
+    serialId,
     onPhaseChange,
     attachClipboard,
     attachHistory,
@@ -475,7 +481,7 @@ export function TerminalPane({
         return;
       }
       inputReady.current = false;
-      historyStatus(hostId ? 'unsupported' : 'starting');
+      historyStatus(hostId || serialId ? 'unsupported' : 'starting');
       startupGeneration.current++;
       setStartup(null);
       setSearchOpen(false);
@@ -487,10 +493,13 @@ export function TerminalPane({
       setAttempted(true);
       setStarting(true);
       onPhaseChange(id, hostId ? 'connecting' : 'starting');
-      setStatus(hostId ? 'Connecting SSH…' : 'Starting local shell…');
+      setStatus(
+        hostId ? 'Connecting SSH…' : serialId ? 'Opening serial device…' : 'Starting local shell…',
+      );
       try {
         if (hostId && credentials)
           await window.mterminal.openSshTerminal(sessionId, size, hostId, credentials);
+        else if (serialId) await window.mterminal.openSerialTerminal(sessionId, size, serialId);
         else await window.mterminal.openTerminal(sessionId, size);
         if (session.current !== sessionId) return;
         sizing.current?.fitNow(true);
@@ -498,8 +507,9 @@ export function TerminalPane({
         setRunning(true);
         setStarting(false);
         onPhaseChange(id, hostId ? 'connected' : 'running', sessionId);
-        setStatus(hostId ? 'SSH connected' : 'Local shell running');
-        void loadStartup(sessionId);
+        setStatus(hostId ? 'SSH connected' : serialId ? 'Serial connected' : 'Local shell running');
+        // Startup snippets target shells, not serial devices.
+        if (!serialId) void loadStartup(sessionId);
         const panel = document.getElementById(`terminal-panel-${id}`);
         if (
           panel?.clientWidth &&
@@ -544,7 +554,7 @@ export function TerminalPane({
         }
       }
     },
-    [id, onPhaseChange, hostId, logConnection, loadStartup, historyStatus],
+    [id, onPhaseChange, hostId, serialId, logConnection, loadStartup, historyStatus],
   );
   useEffect(() => {
     if (!autoStart || !active || autoStarted.current) return;
@@ -681,6 +691,24 @@ export function TerminalPane({
         setFilesOpen(true);
       },
     },
+    ...(serialId
+      ? [
+          {
+            label: 'Send break',
+            disabled: !running,
+            onSelect: () => {
+              const target = session.current;
+              if (!target) return;
+              void window.mterminal
+                .sendSerialBreak(target)
+                .then(() => setStatus('Break sent.'))
+                .catch((cause: unknown) =>
+                  setStatus(cause instanceof Error ? cause.message : 'Unable to send a break.'),
+                );
+            },
+          },
+        ]
+      : []),
     ...(hostId
       ? [
           {
@@ -782,7 +810,15 @@ export function TerminalPane({
               className="primary-button pane-bar-action"
               onClick={() => void start()}
             >
-              {hostId ? (attempted ? 'Reconnect SSH' : 'Connect SSH') : 'Start local shell'}
+              {hostId
+                ? attempted
+                  ? 'Reconnect SSH'
+                  : 'Connect SSH'
+                : serialId
+                  ? attempted
+                    ? 'Reconnect serial'
+                    : 'Open serial device'
+                  : 'Start local shell'}
             </button>
           )
         )}
@@ -941,7 +977,7 @@ export function TerminalPane({
         </p>
       )}
       {!running && !starting && (
-        <p className="shell-help" hidden={!!hostId}>
+        <p className="shell-help" hidden={!!hostId || !!serialId}>
           Installed shells: {shells.join(', ') || 'None discovered'}. The saved default shell is
           used when configured. Closing a session stops its foreground work.
         </p>
@@ -983,7 +1019,7 @@ export function TerminalPane({
           inert={overlayOpen}
           ref={container}
           style={{ background: options.theme.background }}
-          aria-label={hostId ? 'SSH terminal' : 'Local terminal'}
+          aria-label={hostId ? 'SSH terminal' : serialId ? 'Serial terminal' : 'Local terminal'}
           onContextMenu={(event) => {
             event.preventDefault();
             setMenu({ x: event.clientX, y: event.clientY });
@@ -1044,7 +1080,7 @@ export function TerminalPane({
               setTools(null);
               terminal.current?.focus();
             }}
-            local={!hostId}
+            local={!hostId && !serialId}
             integration={history.integration}
             directory={history.directory}
             onInsert={insertSnippet}

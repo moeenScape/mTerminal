@@ -181,6 +181,11 @@ export class TerminalSession {
     if (!this.canExecute || !execute) throw new Error('SSH session disconnected.');
     return execute(command, signal);
   }
+  sendBreak(): Promise<void> {
+    const send = this.session?.pty.sendBreak;
+    if (this.disposed || !send) return Promise.reject(new Error('Serial session unavailable.'));
+    return send();
+  }
   get canForward(): boolean {
     return !this.disposed && !!this.session?.pty.startForward;
   }

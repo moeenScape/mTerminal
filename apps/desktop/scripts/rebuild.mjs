@@ -7,6 +7,6 @@ await rebuild({
   projectRootPath: fileURLToPath(new URL('../../../', import.meta.url)),
   electronVersion: require('electron/package.json').version,
   force: true,
-  onlyModules: ['node-pty'],
+  onlyModules: ['node-pty', '@serialport/bindings-cpp'],
 });
-console.log('node-pty rebuilt for the installed Electron version.');
+console.log('node-pty and serialport rebuilt for the installed Electron version.');

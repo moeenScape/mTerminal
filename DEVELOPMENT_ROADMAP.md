@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F52 implemented — SSH agents; Phase 6 tests deferred to the end of the phase |
-| Next feature | F53 — SSH certificates |
+| Active feature | F55 implemented — Serial; Phase 6 tests deferred to the end of the phase |
+| Next feature | F56 — Telnet (F53/F54 deferred until needed) |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
@@ -209,9 +209,9 @@ Dependencies: Stable SSH and session lifecycle. Prototype each adapter before se
 - [x] **F50 — Jump hosts (implementation):** Per-host jump host chains up to three hops, saved-login authentication and host-key verification per hop, and cleanup of every hop with the session. Tests written, execution deferred to the phase run; live server acceptance pending.
 - [x] **F51 — Proxies (implementation):** Saved SOCKS5 (optional login), SOCKS4/4a and HTTP CONNECT proxies with vault-stored passwords, chosen per host for the first SSH connection, including in front of jump hosts. Tests written, execution deferred to the phase run; live proxy acceptance pending.
 - [x] **F52 — SSH agents (implementation):** System agent discovery (SSH_AUTH_SOCK, Pageant, Windows OpenSSH pipe) with key listing, per-host or per-connection agent sign-in including jump hops, and explicit per-host agent forwarding with a trust warning. Tests written, execution deferred to the phase run; live server acceptance pending.
-- [ ] **F53 — SSH certificates:** Formats, algorithms, expiry, and interoperability.
-- [ ] **F54 — Hardware and biometric keys:** Platform integration and physical-device verification.
-- [ ] **F55 — Serial:** Port discovery, configuration, permissions, and disconnect handling.
+- [ ] **F53 — SSH certificates (deferred, revisit on demand):** Formats, algorithms, expiry, and interoperability. ssh2 1.17 has no OpenSSH certificate support: user certificates would need a signing wrapper prototyped against a real CA-trusting server, and host certificates cannot be requested. Certificates held in an SSH agent may already work through F52 (unverified).
+- [ ] **F54 — Hardware and biometric keys (deferred, revisit on demand):** Platform integration and physical-device verification. ssh2 1.17 does not support FIDO (`sk-*`) keys; revisit with a library upgrade or agent-based signing when a user needs it.
+- [x] **F55 — Serial (implementation):** Port discovery, saved profiles with full line configuration, Enter translation and local echo, actionable permission/busy/missing errors, disconnect handling and Send break. Tests written, execution deferred to the phase run; hardware acceptance pending.
 - [ ] **F56 — Telnet:** Separate protocol adapter and clear connection properties.
 - [ ] **F57 — Mosh:** Client integration, server requirements, and packaging investigation.
 - [ ] **F58 — Cryptography:** Supported library algorithms and compatibility checks.
@@ -1695,3 +1695,22 @@ hops and targets. Existing downgrade tests were updated. New tests in
 `tests/unit/ssh-agent.test.ts` are written and not run, per the phase workflow. `npm run check`
 and `npm run build` pass. Live server, visual and macOS/Windows acceptance pending. Next is
 F53 — SSH certificates.
+
+### 2026-11-19 — F53 and F54 deferred
+
+F53 (SSH certificates) and F54 (hardware/biometric keys) are deferred until a user needs them.
+ssh2 1.17 contains no OpenSSH certificate code and no FIDO `sk-*` key support, so either would
+require a library change or a prototype verified against real infrastructure. Neither blocks
+other features; password, key and agent sign-in cover current use. Next is F55 — Serial.
+
+### 2026-11-22 — F55 Serial
+
+**Hosts → Serial devices** lists detected ports (`serialport` 12.0.0, native bindings rebuilt
+for Electron and unpacked in the `.deb`) and manages saved profiles (schema v13
+`serial_profiles`, max 50). Profiles open as terminal tabs through the shared registry, with
+Enter translation, optional local echo, **Send break**, and permission (dialout), busy, missing
+and disconnect messages. Splits of serial tabs open local shells; history suggestions and
+startup snippets are disabled on serial tabs. Existing downgrade tests were updated. New tests in
+`tests/unit/serial.test.ts` use serialport's mock port and are written but not run, per the
+phase workflow. `npm run check` and `npm run build` pass. Real hardware, packaged `.deb`,
+visual and macOS/Windows acceptance pending. Next is F56 — Telnet.

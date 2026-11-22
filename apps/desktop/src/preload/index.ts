@@ -22,6 +22,7 @@ import {
   type PortForwardRule,
 } from '../shared/port-forwarding.js';
 import { AGENT_STATUS, type AgentStatus } from '../shared/agent.js';
+import { serialChannels, type SerialPortInfo, type SerialProfile } from '../shared/serial.js';
 import { proxyChannels, type ProxySummary, type SavedProxy } from '../shared/proxies.js';
 import { snippetChannels, SNIPPETS_CHANGED, type Snippet } from '../shared/snippets.js';
 import { templateChannels } from '../shared/workspace-templates.js';
@@ -130,6 +131,21 @@ const api: DesktopApi = {
     const handler = () => listener();
     ipcRenderer.on(BATCH_CHANGED, handler);
     return () => ipcRenderer.removeListener(BATCH_CHANGED, handler);
+  },
+  listSerialPorts: () => proxyRequest<SerialPortInfo[]>(serialChannels.ports),
+  listSerialProfiles: () => proxyRequest<SerialProfile[]>(serialChannels.profiles),
+  saveSerialProfile: (settings, id) =>
+    proxyRequest<SerialProfile>(serialChannels.save, settings, ...(id === undefined ? [] : [id])),
+  deleteSerialProfile: (id) => proxyRequest<void>(serialChannels.delete, id),
+  sendSerialBreak: (id) => proxyRequest<void>(serialChannels.sendBreak, id),
+  openSerialTerminal: async (id, size, profileId) => {
+    const result: TerminalOpenResult = await ipcRenderer.invoke(
+      serialChannels.open,
+      id,
+      size,
+      profileId,
+    );
+    if (!result.ok) throw new Error(failureMessages[result.code]);
   },
   getAgentStatus: () => ipcRenderer.invoke(AGENT_STATUS) as Promise<AgentStatus>,
   listProxies: () => proxyRequest<ProxySummary[]>(proxyChannels.list),

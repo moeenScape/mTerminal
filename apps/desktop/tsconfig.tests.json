@@ -60,6 +60,8 @@
     "src/main/terminal/jump.ts",
     "src/main/terminal/proxy.ts",
     "src/main/proxies-ipc.ts",
-    "src/main/terminal/agent.ts"
+    "src/main/terminal/agent.ts",
+    "src/main/terminal/serial.ts",
+    "src/main/terminal/serial-ipc.ts"
   ]
 }

@@ -46,6 +46,12 @@ export class TerminalRegistry {
       throw new Error('SSH session unavailable.');
     return session.executeCommand(command, signal);
   }
+  sendBreak(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (this.disposed || this.suspended || !session)
+      return Promise.reject(new Error('Serial session unavailable.'));
+    return session.sendBreak();
+  }
   canForward(id: string): boolean {
     return !this.disposed && !this.suspended && !!this.sessions.get(id)?.canForward;
   }

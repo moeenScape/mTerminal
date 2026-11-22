@@ -50,6 +50,8 @@ export interface TerminalTab {
   title: string;
   phase: TabPhase;
   hostId?: string;
+  /** Serial profile opened by this tab; never copied to splits or templates. */
+  serialId?: string;
   sessionId?: string;
   autoStart?: false;
 }
@@ -60,7 +62,7 @@ export interface TabsState {
 }
 export type TabsAction =
   | { type: 'restore'; workspace: TabsState }
-  | { type: 'add'; id: string; title: string; hostId?: string }
+  | { type: 'add'; id: string; title: string; hostId?: string; serialId?: string }
   | { type: 'split'; id: string; sourceId: string; title: string; direction: SplitDirection }
   | { type: 'resize'; id: string; splitId: string; ratio: number }
   | { type: 'select'; id: string }
@@ -111,6 +113,9 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
           title,
           phase: 'idle',
           ...(hostId ? { hostId } : {}),
+          ...(action.type === 'add' && action.serialId && !hostId
+            ? { serialId: action.serialId }
+            : {}),
         },
       ],
       layouts:

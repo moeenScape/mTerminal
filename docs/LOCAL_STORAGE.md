@@ -64,6 +64,10 @@ Schema v12 adds `hosts.useAgent` and `hosts.agentForwarding` (0/1 integers, defa
 preferences only; agent keys are never copied into mTerminal. Both are included in workspace
 exports.
 
+Schema v13 adds `serial_profiles` (UUID plus JSON name, device path, line settings, Enter
+translation and local echo; at most 50). Profiles contain no secrets and are not yet included
+in workspace exports.
+
 Unknown application IDs, newer schema versions, malformed migration history, and
 failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates

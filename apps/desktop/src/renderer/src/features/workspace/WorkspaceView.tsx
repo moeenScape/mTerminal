@@ -109,7 +109,7 @@ export function WorkspaceView({
   toolsPreferences,
   onToolsPreferenceChange,
 }: {
-  sshRequest: { id: string; hostId: string; title: string } | null;
+  sshRequest: { id: string; hostId?: string; serialId?: string; title: string } | null;
   active: boolean;
   appearance: 'dark' | 'light';
   navigationShortcuts: boolean;
@@ -182,7 +182,8 @@ export function WorkspaceView({
         type: 'add',
         id: sshRequest.id,
         title: sshRequest.title,
-        hostId: sshRequest.hostId,
+        ...(sshRequest.hostId ? { hostId: sshRequest.hostId } : {}),
+        ...(sshRequest.serialId ? { serialId: sshRequest.serialId } : {}),
       });
     });
     return () => cancelAnimationFrame(frame);
@@ -505,6 +506,7 @@ export function WorkspaceView({
                   id={tab.id}
                   title={tab.title}
                   hostId={tab.hostId}
+                  serialId={tab.serialId}
                   active={active && state.activeId === tab.id}
                   autoStart={tab.autoStart !== false}
                   visible={active && visiblePanes.some((pane) => pane.id === tab.id)}

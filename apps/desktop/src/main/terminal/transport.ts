@@ -20,6 +20,8 @@ export type TerminalTransport = Pick<
     expected?: import('../../shared/transfers.js').PartialInspection,
   ) => Promise<import('../../shared/transfers.js').PartialInspection>;
   transferPeer?: import('../../shared/transfers.js').TransferPeer;
+  /** Serial only: sends a line break signal. */
+  sendBreak?: () => Promise<void>;
   startForward?: (
     rule: import('../../shared/port-forwarding.js').PortForwardDraft,
     events: import('./port-forward.js').ForwardEvents,
