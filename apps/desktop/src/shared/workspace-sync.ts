@@ -1,13 +1,20 @@
 import type { AccountErrorCode } from '../../../../packages/shared/accounts.ts';
+export { accountErrors } from '../../../../packages/shared/accounts.ts';
 import { validateWorkspaceBackup, type WorkspaceBackup } from './backup.js';
 
 export const SYNC_WORKSPACE_REQUEST = 'workspace-sync:request';
+export const SYNC_QUEUE_CHANGED = 'workspace-sync:queue-changed';
 
 export type WorkspaceSyncAction =
-  { kind: 'generate-key' } | { kind: 'publish' | 'merge'; key: string };
+  | { kind: 'generate-key' | 'queue-status' | 'discard-publication' }
+  | { kind: 'publish' | 'merge' | 'retry-publication'; key: string };
+
+export type SyncQueueState =
+  { status: 'idle' | 'needs-key' | 'retrying' } | { status: 'blocked'; code: AccountErrorCode };
 
 export type WorkspaceSyncResult =
   | { kind: 'generated'; key: string }
+  | { kind: 'queue-status'; queue: SyncQueueState }
   | { kind: 'published' | 'merged'; revision: number; count: number };
 
 export type WorkspaceSyncReply =
@@ -15,6 +22,7 @@ export type WorkspaceSyncReply =
 
 export interface WorkspaceSyncApi {
   syncWorkspace: (action: WorkspaceSyncAction) => Promise<WorkspaceSyncResult>;
+  onWorkspaceSyncQueueChanged: (listener: () => void) => () => void;
 }
 
 export class WorkspaceSyncFailure extends Error {

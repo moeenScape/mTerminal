@@ -16,6 +16,7 @@ export type AccountAction =
 
 export type AccountState =
   | { status: 'unconfigured' | 'signed-out' }
+  | { status: 'offline' }
   | { status: 'signed-in'; account: AccountSummary; retained: boolean };
 
 export type AccountResponse =

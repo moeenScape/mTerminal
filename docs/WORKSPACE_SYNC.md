@@ -1,4 +1,4 @@
-# Encrypted workspace sync (F61)
+# Encrypted workspace sync (F61–F62)
 
 ## Publish and merge
 
@@ -18,9 +18,27 @@ identity profiles. Credentials, environment variables, proxy assignments, agent 
 trusted fingerprints, logs, and terminal history stay on the device. Trust the host key
 through the normal SSH connection flow on each device.
 
-F61 handles additions. Offline sync, propagating edits and deletions, and resolving divergent
-records are later roadmap steps. The service stores one current snapshot per account and
+Sync handles additions. Propagating edits and deletions and resolving divergent records are
+later roadmap steps. The service stores one current snapshot per account and
 accepts up to 1 MiB of plaintext metadata before encoding and encryption.
+
+## Publishing offline
+
+After signing in online once with a current account service, keep editing hosts, groups, and
+identity profiles normally. In **Encrypted workspace sync**, enter your saved sync key and
+choose **Publish local records**. The app saves an encrypted publication on this device before
+contacting the service. In Settings, an unreachable service leaves the queue controls available.
+
+While mTerminal is open, it retries service outages and rate limits about every 30 seconds.
+**Retry queued publication** sends the saved batch with the key you enter. A new explicit
+**Publish local records** adds the current local snapshot to the queued batch. For matching
+records, the new local value takes precedence within that batch. Records removed locally remain
+in the queued batch. Changes made after queuing stay local until you publish them explicitly.
+
+Queued publications are tied to the account and service address. They survive restart and
+sign-out. Enter the sync key again to resume after either. A revoked or expired server session
+requires signing in again. A conflict keeps the batch queued for review. Use **Discard queued
+publication** to remove that copy after confirmation. Your local workspace records are kept.
 
 ## Key and service behavior
 
@@ -31,8 +49,9 @@ The service receives the encrypted envelope and a separate derived publication p
 only a hash of that proof and requires it for later publications. Service calls require a valid
 account session. [Node.js authenticated encryption API](https://nodejs.org/docs/latest-v24.x/api/crypto.html#deciphersetadbuffer-options)
 
-The sync key is entered for each operation and is neither persisted by the app nor sent to the
-service. An existing encrypted copy requires its original key. Preserve the key independently
+The desktop keeps the key in memory while retrying a queued publication. The key stays on
+the device and is cleared on sign-out or close. An existing encrypted copy requires its
+original key. Preserve the key independently
 of the account password. If a device is lost, revoke its account session from another device.
 Revocation ends service access from that session. A device that already copied the key and
 ciphertext can still decrypt its copy. Losing the key makes the cloud copy unreadable.
@@ -47,6 +66,7 @@ of deliberate rollback by the service or key rotation.
 ## Verification
 
 The regression cases cover encrypted envelopes and data exclusion, wrong keys or altered
-envelopes, account isolation, stale writes, local merge conflicts, and the desktop controls.
+envelopes, account isolation, stale writes, local merge conflicts, encrypted queue persistence,
+disconnected publication, retry after a committed write loses its reply, and desktop controls.
 Run the desktop unit and E2E suites and the PostgreSQL integration case at the Phase 7 gate.
 [Account service verification commands](ACCOUNTS.md#verification-commands)

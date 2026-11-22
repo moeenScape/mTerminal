@@ -355,7 +355,7 @@ export function createAccounts(
 
     async session(token: string): Promise<AccountSummary> {
       const result = await pool.query<AccountSummary>(
-        `SELECT a.email, a.mfa_secret IS NOT NULL AS "mfaEnabled", s.id AS "currentSessionId", s.device_id AS "currentDeviceId",
+        `SELECT a.id AS "accountId", a.email, a.mfa_secret IS NOT NULL AS "mfaEnabled", s.id AS "currentSessionId", s.device_id AS "currentDeviceId",
            (SELECT jsonb_agg(d) FROM (
              SELECT id, name, last_signed_in_at AS "lastSignedInAt" FROM account_devices
              WHERE account_id = a.id ORDER BY (id = s.device_id) DESC, last_signed_in_at DESC LIMIT 50

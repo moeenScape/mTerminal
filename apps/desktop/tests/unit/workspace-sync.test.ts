@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -9,8 +9,14 @@ import {
   decryptWorkspace,
   encryptWorkspace,
   generateSyncKey,
+  publishWorkspace,
   syncWorkspace,
 } from '../../src/main/storage/workspace-sync.js';
+import {
+  WorkspacePublication,
+  WorkspacePublicationRunner,
+} from '../../src/main/storage/workspace-publication.js';
+import { WorkspaceSyncFailure } from '../../src/shared/workspace-sync.js';
 import type { WorkspaceBackup } from '../../src/shared/backup.js';
 import type { SavedHost } from '../../src/shared/hosts.js';
 import {
@@ -162,6 +168,101 @@ describe('encrypted workspace sync', () => {
       expect(database.listHosts().some((entry) => entry.id === third.id)).toBe(false);
     } finally {
       database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('queued workspace publication', () => {
+  it('persists encrypted metadata, coalesces later edits, and isolates each account and origin', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-publication-'));
+    try {
+      const key = decodeSyncKey(generateSyncKey());
+      const original = host('Original');
+      const removedLocally = host('OnlyQueued');
+      const storage = new WorkspacePublication(directory, 'https://account.example', accountId);
+      await storage.enqueue(backup([original, removedLocally]), key);
+      const before = await readFile(storage.path, 'utf8');
+      expect(before).not.toContain(original.address);
+      expect(before).not.toContain(key.toString('base64url'));
+      const reopened = new WorkspacePublication(directory, 'https://account.example', accountId);
+      const wrong = decodeSyncKey(generateSyncKey());
+      await expect(reopened.enqueue(backup([host('Another')]), wrong)).rejects.toThrow('sync-key');
+      expect(await readFile(storage.path, 'utf8')).toBe(before);
+      await reopened.enqueue(backup([{ ...original, name: 'Updated' }]), key);
+      const saved = await reopened.snapshot(key);
+      expect(saved?.hosts.map((item) => item.name)).toEqual(['Updated', 'OnlyQueued']);
+      expect(
+        await new WorkspacePublication(directory, 'https://other.example', accountId).pending(),
+      ).toBe(false);
+      expect(
+        await new WorkspacePublication(
+          directory,
+          'https://account.example',
+          randomUUID(),
+        ).pending(),
+      ).toBe(false);
+      await reopened.remove();
+      expect(await storage.pending()).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('retries a captured batch after reconnection and recognizes a write whose reply was lost', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-publication-'));
+    const storage = new WorkspacePublication(directory, 'https://account.example', accountId);
+    const record = host('Batch');
+    const cloud: SyncSnapshot = { accountId, revision: 0, envelope: null };
+    const uploaded = vi.fn();
+    let finish!: () => void;
+    const retried = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const runner = new WorkspacePublicationRunner(
+      storage,
+      (data, key) =>
+        publishWorkspace(
+          data,
+          key,
+          async (_path, method, body) => {
+            if (method === 'GET') return { ...cloud };
+            const input = body as { envelope: NonNullable<SyncSnapshot['envelope']> };
+            cloud.revision = 1;
+            cloud.envelope = input.envelope;
+            uploaded();
+            throw new WorkspaceSyncFailure('unavailable');
+          },
+          accountId,
+        ),
+      async (run) => {
+        await run();
+        finish();
+      },
+      () => {},
+    );
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const key = generateSyncKey();
+      const initial = backup([record]);
+      await expect(runner.start(key, initial)).resolves.toEqual({
+        kind: 'queue-status',
+        queue: { status: 'retrying' },
+      });
+      expect(await storage.pending()).toBe(true);
+      initial.hosts.push(host('EditedAfterQueue'));
+      await vi.advanceTimersByTimeAsync(30_000);
+      await retried;
+      expect(uploaded).toHaveBeenCalledTimes(1);
+      expect(
+        decryptWorkspace(cloud.envelope!, decodeSyncKey(key), accountId, 1).hosts.map(
+          ({ id }) => id,
+        ),
+      ).toEqual([record.id]);
+      expect(await storage.pending()).toBe(false);
+    } finally {
+      runner.dispose();
+      vi.useRealTimers();
       await rm(directory, { recursive: true, force: true });
     }
   });

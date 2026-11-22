@@ -51,7 +51,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
 import { ACCOUNT_REQUEST, type AccountResult } from '../shared/accounts.js';
-import { SYNC_WORKSPACE_REQUEST, type WorkspaceSyncReply } from '../shared/workspace-sync.js';
+import {
+  SYNC_QUEUE_CHANGED,
+  SYNC_WORKSPACE_REQUEST,
+  type WorkspaceSyncReply,
+} from '../shared/workspace-sync.js';
 import { accountErrors } from '../../../../packages/shared/accounts.ts';
 import { historyChannels, historyEvents, type CommandHistoryEntry } from '../shared/history.js';
 import {
@@ -106,6 +110,13 @@ const api: DesktopApi = {
     const reply: WorkspaceSyncReply = await ipcRenderer.invoke(SYNC_WORKSPACE_REQUEST, action);
     if (!reply.ok) throw new Error(accountErrors[reply.code]);
     return reply.result;
+  },
+  onWorkspaceSyncQueueChanged: (listener) => {
+    const notify = () => listener();
+    ipcRenderer.on(SYNC_QUEUE_CHANGED, notify);
+    return () => {
+      ipcRenderer.removeListener(SYNC_QUEUE_CHANGED, notify);
+    };
   },
   account: async (action) => {
     const result: AccountResult = await ipcRenderer.invoke(ACCOUNT_REQUEST, action);

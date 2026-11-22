@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F61 implemented — encrypted workspace sync |
-| Next feature | F62 — Offline editing. Phase 6 manual verification continues independently |
+| Active feature | F62 implemented — offline workspace publication queue |
+| Next feature | F63 — Conflicts. Phase 6 manual verification continues independently |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -225,7 +225,7 @@ Dependencies: Stable data model, secure storage, migrations, and key-management 
 - [x] **F59 — Accounts (implementation):** PostgreSQL-backed registration with email verification, sign-in, per-installation devices and sessions, and current-session sign-out in Settings. Account service is optional. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [x] **F60 — Account protection (implementation):** Authenticator MFA, single-use recovery codes and email password reset, PostgreSQL-backed rate limits, and revocation of other sessions. Tests written for the Phase 7 gate. See `docs/ACCOUNTS.md`.
 - [x] **F61 — Encrypted sync (implementation):** Local key generation, client-side encryption for workspace metadata, versioned per-account snapshots with revision checks, and explicit additive publish and merge. Regressions written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
-- [ ] **F62 — Offline editing:** Queued changes and reconnection synchronization.
+- [x] **F62 — Offline editing (implementation):** Explicit workspace publication persists an encrypted, account-scoped batch before network access. Reconnection retries it while the app holds the entered key. The batch survives restart and supports manual retry or confirmed discard. Tests written for the Phase 7 gate. See `docs/WORKSPACE_SYNC.md`.
 - [ ] **F63 — Conflicts:** Concurrent edits, deletions, stale devices, and version compatibility.
 - [ ] **F64 — Sync preferences:** Independent handling of credentials and metadata.
 - [ ] **F65 — Device identity:** Optional public-key directory and device lifecycle.
@@ -1788,3 +1788,14 @@ Differing records stop the operation without replacing either copy. `npm run che
 build`, and main-entry syntax checks passed on Linux x64. Desktop and PostgreSQL regression
 tests are written and deferred to the Phase 7 gate. Live migration, cross-device acceptance,
 and independent security review remain pending. Next is F62 — Offline editing.
+
+### 2026-11-22 — F62 Offline workspace publication
+
+Explicit publication captures allowed workspace metadata in an encrypted local queue.
+Repeated publication combines pending additions with the latest explicit capture. The main
+process retries transient failures while it has the key and a matching account session.
+Restart and sign-out release the key but preserve the pending batch. Conflicts leave the
+batch available for retry or confirmed discard. `npm run check`, `npm run build`, and the
+generated desktop main entry point syntax check passed on Linux x64. Tests are written
+and deferred to the Phase 7 gate. Live reconnect and desktop UI acceptance remain pending.
+Next is F63 — Conflicts.

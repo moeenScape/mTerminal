@@ -24,10 +24,15 @@ import { secureStorageAvailable } from './storage/secret-store.js';
 import { SYNC_HTTP_LIMIT } from '../../../../packages/shared/workspace-sync.ts';
 import {
   SYNC_WORKSPACE_REQUEST,
+  SYNC_QUEUE_CHANGED,
   WorkspaceSyncFailure,
   type WorkspaceSyncReply,
 } from '../shared/workspace-sync.js';
-import { syncWorkspace } from './storage/workspace-sync.js';
+import { publishWorkspace, syncWorkspace } from './storage/workspace-sync.js';
+import {
+  WorkspacePublication,
+  WorkspacePublicationRunner,
+} from './storage/workspace-publication.js';
 import type { LocalDatabase } from './storage/database.js';
 
 class AccountFailure extends Error {
@@ -69,7 +74,8 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function summary(value: Record<string, unknown>): AccountSummary {
-  const { email, mfaEnabled, currentDeviceId, currentSessionId, devices, sessions } = value;
+  const { accountId, email, mfaEnabled, currentDeviceId, currentSessionId, devices, sessions } =
+    value;
   if (
     typeof email !== 'string' ||
     !normalizeAccountEmail(email) ||
@@ -87,6 +93,7 @@ function summary(value: Record<string, unknown>): AccountSummary {
     throw new AccountFailure('unavailable');
   };
   return {
+    ...(validAccountId(accountId) ? { accountId } : {}),
     email,
     mfaEnabled,
     currentDeviceId,
@@ -136,7 +143,8 @@ export function attachAccounts(
 ): void {
   const deviceId = database.workspaceId;
   const origin = accountOrigin(process.env.MTERMINAL_ACCOUNT_URL);
-  const tokenFile = join(app.getPath('userData'), 'account-session.enc');
+  const userData = app.getPath('userData');
+  const tokenFile = join(userData, 'account-session.enc');
   const deviceName =
     process.platform === 'darwin'
       ? 'mTerminal for macOS'
@@ -146,6 +154,31 @@ export function attachAccounts(
   let token: string | undefined;
   let loaded = false;
   let retained = false;
+  let accountId: string | undefined;
+  let publication: WorkspacePublicationRunner | undefined;
+
+  function notifyPublication(): void {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed())
+      window.webContents.send(SYNC_QUEUE_CHANGED);
+  }
+
+  function pausePublication(): void {
+    publication?.dispose();
+    publication = undefined;
+    notifyPublication();
+  }
+
+  function currentPublication(): WorkspacePublicationRunner {
+    if (!origin || !accountId) throw new AccountFailure('sync-account-unverified');
+    const expected = accountId;
+    publication ??= new WorkspacePublicationRunner(
+      new WorkspacePublication(userData, origin, expected),
+      (data, key) => publishWorkspace(data, key, syncRequest, expected),
+      queueAccountOperation,
+      notifyPublication,
+    );
+    return publication;
+  }
 
   async function loadToken(): Promise<void> {
     if (loaded) return;
@@ -160,6 +193,7 @@ export function attachAccounts(
       const saved = record(JSON.parse(decrypted.result));
       if (saved?.origin === origin && validAccountToken(saved?.token)) {
         token = saved.token;
+        accountId = validAccountId(saved.accountId) ? saved.accountId : undefined;
         retained = true;
       }
     } catch {
@@ -174,7 +208,7 @@ export function attachAccounts(
     try {
       if (!(await secureStorageAvailable(safeStorage, process.platform))) return;
       const encrypted = await safeStorage.encryptStringAsync(
-        JSON.stringify({ origin, token: value }),
+        JSON.stringify({ origin, token: value, accountId }),
       );
       await writeFile(temporary, encrypted, { mode: 0o600, flag: 'wx' });
       await rename(temporary, tokenFile);
@@ -187,11 +221,27 @@ export function attachAccounts(
 
   async function clearToken(): Promise<void> {
     token = undefined;
+    accountId = undefined;
     retained = false;
+    pausePublication();
     await rm(tokenFile, { force: true }).catch(() => {});
   }
 
   async function request(
+    path: string,
+    method: string,
+    payload?: object,
+    responseLimit?: number,
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await sendRequest(path, method, payload, responseLimit);
+    } catch (error) {
+      if (error instanceof AccountFailure) throw error;
+      throw new AccountFailure('unavailable');
+    }
+  }
+
+  async function sendRequest(
     path: string,
     method: string,
     payload?: object,
@@ -235,15 +285,39 @@ export function attachAccounts(
     return result;
   }
 
+  async function syncRequest(
+    path: string,
+    method: 'GET' | 'PUT',
+    payload?: object,
+  ): Promise<Record<string, unknown>> {
+    if (window.isDestroyed()) throw new WorkspaceSyncFailure('unavailable');
+    try {
+      if (!token) throw new AccountFailure('sign-in-required');
+      return await request(path, method, payload, SYNC_HTTP_LIMIT);
+    } catch (error) {
+      if (!(error instanceof AccountFailure)) throw error;
+      if (error.code === 'sign-in-required') await clearToken();
+      throw new WorkspaceSyncFailure(error.code);
+    }
+  }
+
   async function status(): Promise<AccountState> {
     if (token) {
       try {
+        const account = summary(await request(accountRoutes.session, 'GET'));
+        if (account.accountId && accountId !== account.accountId) {
+          pausePublication();
+          accountId = account.accountId;
+          await saveToken(token);
+        }
         return {
           status: 'signed-in',
-          account: summary(await request(accountRoutes.session, 'GET')),
+          account,
           retained,
         };
       } catch (error) {
+        if (error instanceof AccountFailure && error.code === 'unavailable' && accountId)
+          return { status: 'offline' };
         if (!(error instanceof AccountFailure) || error.code !== 'sign-in-required') throw error;
         await clearToken();
       }
@@ -297,6 +371,7 @@ export function attachAccounts(
     const action = record(value);
     if (action?.kind === 'status') return status();
     if (action?.kind === 'sign-out') {
+      pausePublication();
       if (token) await request(accountRoutes.session, 'DELETE');
       await clearToken();
       return { status: 'signed-out' };
@@ -361,15 +436,17 @@ export function attachAccounts(
           if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
           await loadToken();
           if (!token) throw new AccountFailure('sign-in-required');
-          try {
-            return await syncWorkspace(args[0], database, (path, method, body) =>
-              request(path, method, body, SYNC_HTTP_LIMIT),
-            );
-          } catch (error) {
-            if (error instanceof AccountFailure && error.code === 'sign-in-required')
-              await clearToken();
-            throw error;
+          const action = record(args[0]);
+          if (action?.kind === 'queue-status') {
+            return accountId
+              ? await currentPublication().status()
+              : { kind: 'queue-status' as const, queue: { status: 'idle' as const } };
           }
+          if (action?.kind === 'discard-publication') return currentPublication().discard();
+          if (action?.kind === 'retry-publication') return currentPublication().start(action.key);
+          if (action?.kind === 'publish')
+            return currentPublication().start(action.key, database.exportWorkspace());
+          return syncWorkspace(action, database, syncRequest);
         });
         return { ok: true, result };
       } catch (error) {
@@ -382,6 +459,7 @@ export function attachAccounts(
     },
   );
   window.once('closed', () => {
+    publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
   });

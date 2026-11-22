@@ -150,6 +150,21 @@ export function AccountSettings() {
       {state?.status === 'unconfigured' && (
         <p className="field-hint">Account service is unconfigured on this installation.</p>
       )}
+      {state?.status === 'offline' && (
+        <>
+          <p role="status">
+            The account service is unreachable. Workspace changes can still be queued.
+          </p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={busy}
+            onClick={() => void perform({ kind: 'status' })}
+          >
+            Retry account connection
+          </button>
+        </>
+      )}
       {state?.status === 'signed-out' && (
         <form key={mode} onSubmit={submit}>
           <fieldset className="preference-fields" disabled={busy}>
@@ -280,7 +295,6 @@ export function AccountSettings() {
               setRecoveryCodes([]);
             }}
           />
-          <WorkspaceSyncSettings />
           <h3>Devices</h3>
           <ul>
             {state.account.devices.map((device) => (
@@ -336,6 +350,7 @@ export function AccountSettings() {
           </div>
         </>
       )}
+      {(state?.status === 'signed-in' || state?.status === 'offline') && <WorkspaceSyncSettings />}
       {revoking && (
         <ConfirmDialog
           title="Revoke account session?"

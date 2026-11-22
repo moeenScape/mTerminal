@@ -1,6 +1,10 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { errorMessage } from '../../components/ConfirmDialog';
-import type { WorkspaceSyncAction } from '../../../../shared/workspace-sync.js';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
+import {
+  accountErrors,
+  type SyncQueueState,
+  type WorkspaceSyncAction,
+} from '../../../../shared/workspace-sync.js';
 
 export function WorkspaceSyncSettings() {
   const keyField = useRef<HTMLInputElement>(null);
@@ -8,6 +12,28 @@ export function WorkspaceSyncSettings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [queue, setQueue] = useState<SyncQueueState>({ status: 'idle' });
+  const [discarding, setDiscarding] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void window.mterminal.syncWorkspace({ kind: 'queue-status' }).then(
+        (result) => {
+          if (active && result.kind === 'queue-status') setQueue(result.queue);
+        },
+        (cause: unknown) => {
+          if (active) setError(errorMessage(cause, 'Could not read the publication queue.'));
+        },
+      );
+    };
+    const unsubscribe = window.mterminal.onWorkspaceSyncQueueChanged(refresh);
+    refresh();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   async function perform(action: WorkspaceSyncAction) {
     setBusy(true);
@@ -18,7 +44,12 @@ export function WorkspaceSyncSettings() {
       if (result.kind === 'generated') {
         setGeneratedKey(result.key);
         if (keyField.current) keyField.current.value = result.key;
+      } else if (result.kind === 'queue-status') {
+        setQueue(result.queue);
+        setGeneratedKey('');
+        if (keyField.current) keyField.current.value = '';
       } else {
+        if (result.kind === 'published') setQueue({ status: 'idle' });
         setGeneratedKey('');
         if (keyField.current) keyField.current.value = '';
         const actionText =
@@ -41,7 +72,7 @@ export function WorkspaceSyncSettings() {
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     if (!(submitter instanceof HTMLButtonElement)) return;
     const kind = submitter.value;
-    if (kind !== 'publish' && kind !== 'merge') return;
+    if (kind !== 'publish' && kind !== 'merge' && kind !== 'retry-publication') return;
     void perform({ kind, key: keyField.current?.value.trim() ?? '' });
   }
 
@@ -49,6 +80,15 @@ export function WorkspaceSyncSettings() {
     <div>
       <h3>Encrypted workspace sync</h3>
       <p>Sync adds hosts, groups, and identity profiles. Existing records stay in place.</p>
+      {queue.status === 'retrying' && (
+        <p role="status">Publication is queued. mTerminal retries while it is open.</p>
+      )}
+      {queue.status === 'needs-key' && (
+        <p role="status">A publication is queued. Enter your sync key to retry.</p>
+      )}
+      {queue.status === 'blocked' && (
+        <p role="alert">Publication is still queued. {accountErrors[queue.code]}</p>
+      )}
       <form onSubmit={submit}>
         <fieldset className="preference-fields" disabled={busy}>
           <div className="setting-row">
@@ -70,6 +110,20 @@ export function WorkspaceSyncSettings() {
             <button className="secondary-button" type="submit" value="merge">
               Merge cloud records
             </button>
+            {queue.status !== 'idle' && (
+              <>
+                <button className="secondary-button" type="submit" value="retry-publication">
+                  Retry queued publication
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setDiscarding(true)}
+                >
+                  Discard queued publication
+                </button>
+              </>
+            )}
             <button
               className="secondary-button"
               type="button"
@@ -114,6 +168,26 @@ export function WorkspaceSyncSettings() {
           {error && <p role="alert">{error}</p>}
         </fieldset>
       </form>
+      {discarding && (
+        <ConfirmDialog
+          title="Discard queued publication?"
+          confirmLabel="Discard publication"
+          danger
+          onCancel={() => setDiscarding(false)}
+          onConfirm={async () => {
+            await window.mterminal.syncWorkspace({ kind: 'discard-publication' });
+            setQueue({ status: 'idle' });
+            setDiscarding(false);
+            setError('');
+            setMessage('Queued publication discarded. Local workspace records were kept.');
+          }}
+        >
+          <p>
+            This removes the saved publication from this device. Your local workspace records are
+            kept.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

@@ -22,6 +22,7 @@ export interface AccountSession {
 }
 
 export interface AccountSummary {
+  accountId?: string;
   email: string;
   mfaEnabled: boolean;
   currentSessionId: string;
@@ -47,6 +48,10 @@ export const accountErrors = {
   'sync-size': 'The workspace sync copy exceeds the 1 MiB limit.',
   'sync-empty': 'There is no workspace data to sync for this operation.',
   'sync-exists': 'This account already has an encrypted workspace copy. Use its existing sync key.',
+  'sync-queue-empty': 'There is no publication queued for this account.',
+  'sync-queue-storage': 'The saved workspace publication could not be read or written.',
+  'sync-account-unverified':
+    'Connect to the account service once to enable offline workspace publication.',
   'sign-in-required': 'Your account session has ended. Sign in again.',
   'rate-limited': 'Too many attempts. Wait a minute and try again.',
   unavailable: 'The account service is unavailable. Try again in a moment.',

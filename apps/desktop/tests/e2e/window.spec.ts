@@ -164,6 +164,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'onTerminalEvent',
       'onTransfersChanged',
       'onVaultLocked',
+      'onWorkspaceSyncQueueChanged',
       'openSshTerminal',
       'openTerminal',
       'prepareBatch',

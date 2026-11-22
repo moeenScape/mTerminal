@@ -128,10 +128,53 @@ function readSnapshot(value: Record<string, unknown>): SyncSnapshot {
   return { accountId, revision, envelope };
 }
 
+type SyncRequest = (
+  path: string,
+  method: 'GET' | 'PUT',
+  body?: object,
+) => Promise<Record<string, unknown>>;
+
+export async function publishWorkspace(
+  local: WorkspaceBackup,
+  key: Buffer,
+  request: SyncRequest,
+  expectedAccountId?: string,
+): Promise<Extract<WorkspaceSyncResult, { revision: number }>> {
+  const { accountId, revision, envelope } = readSnapshot(
+    await request(WORKSPACE_SYNC_ROUTE, 'GET'),
+  );
+  if (expectedAccountId !== undefined && accountId !== expectedAccountId)
+    throw new WorkspaceSyncFailure('sign-in-required');
+  const cloud = envelope ? decryptWorkspace(envelope, key, accountId, revision) : undefined;
+  const additions = cloud ? syncAdditions(cloud, local) : local;
+  const count = additions.hosts.length + additions.groups.length + additions.identities.length;
+  if (count === 0) {
+    if (!cloud) throw new WorkspaceSyncFailure('sync-empty');
+    return { kind: 'published', revision, count };
+  }
+  if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
+  const data: WorkspaceBackup = {
+    ...local,
+    hosts: [...(cloud?.hosts ?? []), ...additions.hosts],
+    groups: [...(cloud?.groups ?? []), ...additions.groups],
+    identities: [...(cloud?.identities ?? []), ...additions.identities],
+  };
+  const publicationKey = deriveKey(key, accountId, 'publication');
+  const writeProof = publicationKey.toString('base64url');
+  publicationKey.fill(0);
+  const result = await request(WORKSPACE_SYNC_ROUTE, 'PUT', {
+    expectedRevision: revision,
+    envelope: encryptWorkspace(data, key, accountId, revision + 1),
+    writeProof,
+  });
+  if (result.revision !== revision + 1) throw new WorkspaceSyncFailure('sync-format');
+  return { kind: 'published', revision: result.revision, count };
+}
+
 export async function syncWorkspace(
   action: unknown,
   database: Pick<LocalDatabase, 'exportWorkspace' | 'mergeSyncedWorkspace'>,
-  request: (path: string, method: 'GET' | 'PUT', body?: object) => Promise<Record<string, unknown>>,
+  request: SyncRequest,
 ): Promise<WorkspaceSyncResult> {
   if (!action || typeof action !== 'object') throw new WorkspaceSyncFailure('invalid-input');
   const { kind, key: input } = action as Record<string, unknown>;
@@ -143,38 +186,14 @@ export async function syncWorkspace(
   if (kind !== 'publish' && kind !== 'merge') throw new WorkspaceSyncFailure('invalid-input');
   const key = decodeSyncKey(input);
   try {
+    if (kind === 'publish')
+      return await publishWorkspace(syncMetadata(database.exportWorkspace()), key, request);
     const { accountId, revision, envelope } = readSnapshot(
       await request(WORKSPACE_SYNC_ROUTE, 'GET'),
     );
-    const cloud = envelope ? decryptWorkspace(envelope, key, accountId, revision) : undefined;
-    if (kind === 'merge') {
-      if (!cloud) throw new WorkspaceSyncFailure('sync-empty');
-      return { kind: 'merged', revision, count: database.mergeSyncedWorkspace(cloud) };
-    }
-    const local = syncMetadata(database.exportWorkspace());
-    const additions = cloud ? syncAdditions(cloud, local) : local;
-    const count = additions.hosts.length + additions.groups.length + additions.identities.length;
-    if (count === 0) {
-      if (!cloud) throw new WorkspaceSyncFailure('sync-empty');
-      return { kind: 'published', revision, count };
-    }
-    if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
-    const data: WorkspaceBackup = {
-      ...local,
-      hosts: [...(cloud?.hosts ?? []), ...additions.hosts],
-      groups: [...(cloud?.groups ?? []), ...additions.groups],
-      identities: [...(cloud?.identities ?? []), ...additions.identities],
-    };
-    const publicationKey = deriveKey(key, accountId, 'publication');
-    const writeProof = publicationKey.toString('base64url');
-    publicationKey.fill(0);
-    const result = await request(WORKSPACE_SYNC_ROUTE, 'PUT', {
-      expectedRevision: revision,
-      envelope: encryptWorkspace(data, key, accountId, revision + 1),
-      writeProof,
-    });
-    if (result.revision !== revision + 1) throw new WorkspaceSyncFailure('sync-format');
-    return { kind: 'published', revision: result.revision, count };
+    if (!envelope) throw new WorkspaceSyncFailure('sync-empty');
+    const cloud = decryptWorkspace(envelope, key, accountId, revision);
+    return { kind: 'merged', revision, count: database.mergeSyncedWorkspace(cloud) };
   } finally {
     key.fill(0);
   }

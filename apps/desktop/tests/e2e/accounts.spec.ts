@@ -29,6 +29,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     envelope: null,
   };
   let publishedBody = '';
+  let workspaceAvailable = true;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     const write = (status: number, data: object) => {
@@ -40,6 +41,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       request.headers.authorization === `Bearer ${token}` &&
       !signedOut
     ) {
+      if (!workspaceAvailable) return write(503, { code: 'unavailable' });
       if (request.method === 'GET') return write(200, cloud);
       if (request.method === 'PUT') {
         const parts: Buffer[] = [];
@@ -95,6 +97,7 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       }
       if (request.method === 'GET')
         return write(200, {
+          accountId: cloud.accountId,
           email,
           mfaEnabled,
           currentDeviceId: deviceId,
@@ -178,7 +181,15 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     const syncKey = section.getByLabel('Workspace sync key', { exact: true });
     await expect(syncKey).toHaveValue(/^mterminal-sync-v1_/);
     const generated = await syncKey.inputValue();
+    workspaceAvailable = false;
     await section.getByRole('button', { name: 'Publish local records' }).click();
+    await expect(section).toContainText(
+      'Publication is queued. mTerminal retries while it is open.',
+    );
+    expect(cloud.revision).toBe(0);
+    workspaceAvailable = true;
+    await syncKey.fill(generated);
+    await section.getByRole('button', { name: 'Retry queued publication' }).click();
     await expect(section).toContainText(
       '1 record published to the encrypted copy. Cloud revision 1.',
     );
