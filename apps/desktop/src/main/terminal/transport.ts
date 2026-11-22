@@ -1,4 +1,5 @@
 import type { IDisposable, IPty } from 'node-pty';
+import type { SshExitFailureCode } from '../../shared/terminal.js';
 export type TerminalTransport = Pick<
   IPty,
   'write' | 'resize' | 'kill' | 'onData' | 'pause' | 'resume'
@@ -49,5 +50,5 @@ export type TerminalTransport = Pick<
 export interface TerminalExit {
   exitCode: number;
   connectionState?: 'disconnected' | 'failed';
-  failureCode?: 'ssh-keepalive-timeout';
+  failureCode?: SshExitFailureCode;
 }

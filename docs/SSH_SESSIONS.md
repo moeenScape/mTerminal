@@ -93,6 +93,27 @@ Reconnect SSH starts a fresh attempt. Active verification/authentication tabs st
 require close confirmation. Connected SSH tabs contribute to the session count.
 Local terminal statuses retain their existing behavior.
 
+## SSH algorithm compatibility (F58)
+
+mTerminal uses the algorithm defaults of its bundled ssh2 1.17.0. The offer depends on
+the runtime's cryptographic capabilities. The table gives examples from the library's
+default offer.
+
+| Negotiation category | Default examples |
+| --- | --- |
+| Key exchange | Curve25519, NIST ECDH, and SHA-2 Diffie–Hellman groups |
+| Server host key | Ed25519, NIST ECDSA, RSA SHA-2, and legacy `ssh-rsa` |
+| Cipher | AES-GCM, AES-CTR, and ChaCha20-Poly1305 |
+| Integrity for non-AEAD ciphers | HMAC-SHA-2 and HMAC-SHA-1, including encrypt-then-MAC variants |
+
+A server restricted to an algorithm outside the client offer can fail before sign-in.
+For example, `diffie-hellman-group14-sha1` and `aes128-cbc` are outside the default offer.
+If mTerminal reports **SSH key exchange failed**, ask the administrator to check the
+server's or jump host's enabled algorithms and enable an option it shares with the
+client. Changing the login password will not resolve a negotiation mismatch. The app
+reports the failure without retrying with weaker settings or exposing the server's raw
+error text. Host-key fingerprint verification still applies after negotiation.
+
 The desktop flow allows up to 120 seconds for handshake/overall setup, including
 identity confirmation and interactive authentication; each confirmation expires
 after 60 seconds. Direct pinned transport use without prompts retains its shorter

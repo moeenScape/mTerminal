@@ -1,12 +1,22 @@
 import { createServer, connect, type Socket } from 'node:net';
 import type { TerminalTransport, TerminalExit } from '../../src/main/terminal/transport.js';
 import { generateKeyPairSync, createHash } from 'node:crypto';
-import { Server, utils, type Connection, type AuthContext } from 'ssh2';
+import {
+  Server,
+  utils,
+  type AuthContext,
+  type Connection,
+  type NegotiatedAlgorithms,
+  type ServerConfig,
+} from 'ssh2';
 import { describe, expect, it, vi } from 'vitest';
 import { SshChallenges } from '../../src/main/terminal/ssh-challenges.js';
 import { openSsh, fingerprintMatches } from '../../src/main/terminal/ssh.js';
 import type { SshConnectionState } from '../../src/shared/terminal.js';
-import { validateSshCredentials } from '../../src/shared/ssh.js';
+import { formatSshPublicKey, validateSshCredentials } from '../../src/shared/ssh.js';
+import { openJumpChain } from '../../src/main/terminal/jump.js';
+import { installPublicKey } from '../../src/main/terminal/install-public-key.js';
+import { isSshKeyExchangeFailure } from '../../src/main/ssh2-module.js';
 
 const host = {
   name: 'Fixture',
@@ -24,8 +34,10 @@ async function fixture(
     windows: number[][],
     connectionCount: () => number,
     environmentRequests: { name: string; value: string }[],
+    handshake: { negotiated: NegotiatedAlgorithms[]; publicKey: string },
   ) => Promise<void>,
   authenticate?: (context: AuthContext) => void,
+  algorithms?: ServerConfig['algorithms'],
 ) {
   const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({
     type: 'pkcs1',
@@ -40,10 +52,13 @@ async function fixture(
   let authCount = 0;
   const windows: number[][] = [];
   const environmentRequests: { name: string; value: string }[] = [];
-  const server = new Server({ hostKeys: [key] }, (connection) => {
+  const negotiated: NegotiatedAlgorithms[] = [];
+  const config: ServerConfig = { hostKeys: [key], ...(algorithms ? { algorithms } : {}) };
+  const server = new Server(config, (connection) => {
     connections.add(connection);
     connection.on('error', () => {});
     connection.on('close', () => connections.delete(connection));
+    connection.on('handshake', (result) => negotiated.push(result));
     connection.on('authentication', (context) => {
       authCount++;
       if (authenticate) {
@@ -127,12 +142,110 @@ async function fixture(
       windows,
       () => connections.size,
       environmentRequests,
+      { negotiated, publicKey: formatSshPublicKey(parsed.type, parsed.getPublicSSH()) },
     );
   } finally {
     for (const connection of connections) connection.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
+
+describe('SSH algorithm compatibility', () => {
+  it.each(['aes128-gcm@openssh.com', 'aes256-ctr'] as const)(
+    'opens a verified terminal with RSA SHA-2 and %s',
+    async (cipher) => {
+      await fixture(
+        async (port, fingerprint, _auth, _windows, _connections, _environment, { negotiated }) => {
+          const transport = await openSsh(
+            { ...host, port },
+            { username: 'user', password: 'test-password', fingerprint },
+            size,
+            new AbortController().signal,
+          );
+          try {
+            const mac = cipher === 'aes256-ctr' ? 'hmac-sha2-256' : '';
+            expect(negotiated).toMatchObject([
+              {
+                kex: 'ecdh-sha2-nistp256',
+                serverHostKey: 'rsa-sha2-256',
+                cs: { cipher, mac },
+                sc: { cipher, mac },
+              },
+            ]);
+          } finally {
+            transport.kill();
+          }
+        },
+        undefined,
+        {
+          kex: ['ecdh-sha2-nistp256'],
+          serverHostKey: ['rsa-sha2-256'],
+          cipher: [cipher],
+          hmac: ['hmac-sha2-256'],
+        },
+      );
+    },
+  );
+
+  const incompatibleOffers: { name: string; algorithms: ServerConfig['algorithms'] }[] = [
+    { name: 'key exchange', algorithms: { kex: ['diffie-hellman-group14-sha1'] } },
+    { name: 'cipher', algorithms: { cipher: ['aes128-cbc'] } },
+    { name: 'MAC', algorithms: { cipher: ['aes256-ctr'], hmac: ['hmac-sha2-256-96'] } },
+  ];
+  it.each(incompatibleOffers)(
+    'reports incompatible $name before authentication',
+    async ({ algorithms }) => {
+      await fixture(
+        async (port, fingerprint, authCount) => {
+          await expect(
+            openSsh(
+              { ...host, port },
+              { username: 'user', password: 'test-password', fingerprint },
+              size,
+              new AbortController().signal,
+            ),
+          ).rejects.toMatchObject({ code: 'ssh-key-exchange-failed' });
+          expect(authCount()).toBe(0);
+        },
+        undefined,
+        algorithms,
+      );
+    },
+  );
+
+  it('reports incompatible algorithms for jump hosts and key installation', async () => {
+    await fixture(
+      async (port, fingerprint, authCount, _windows, _connections, _environment, { publicKey }) => {
+        const credentials = { username: 'user', password: 'test-password', fingerprint };
+        const verify = vi.fn(async () => true);
+        await expect(
+          openJumpChain(
+            [{ ...host, port, credentials }],
+            host,
+            new AbortController().signal,
+            verify,
+          ),
+        ).rejects.toMatchObject({ code: 'ssh-key-exchange-failed' });
+        await expect(
+          installPublicKey({ ...host, port }, 'user', 'test-password', fingerprint, publicKey),
+        ).rejects.toMatchObject({ code: 'ssh-key-exchange-failed' });
+        expect(verify).not.toHaveBeenCalled();
+        expect(authCount()).toBe(0);
+      },
+      undefined,
+      { kex: ['diffie-hellman-group14-sha1'] },
+    );
+  });
+
+  it('recognizes the library error and peer reason without trusting peer text', () => {
+    const message = 'Handshake failed: no matching host key format';
+    expect(isSshKeyExchangeFailure(Object.assign(new Error(message), { level: 'handshake' }))).toBe(
+      true,
+    );
+    expect(isSshKeyExchangeFailure(Object.assign(new Error(''), { code: 3 }))).toBe(true);
+    expect(isSshKeyExchangeFailure(Object.assign(new Error(message), { code: 2 }))).toBe(false);
+  });
+});
 
 describe('SSH terminal transport', () => {
   it('browses SFTP on the verified connection and keeps its terminal usable', async () => {

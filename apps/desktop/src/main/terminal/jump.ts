@@ -1,6 +1,6 @@
 import type { Duplex } from 'node:stream';
 import type { Client as SshClient, ClientChannel } from 'ssh2';
-import { Client } from '../ssh2-module.js';
+import { Client, isSshKeyExchangeFailure } from '../ssh2-module.js';
 import { resolveHost, type HostDraft, type SavedHost } from '../../shared/hosts.js';
 import type { SshCredentials } from '../../shared/ssh.js';
 import { AppFailure } from '../failures.js';
@@ -107,7 +107,9 @@ export function openJumpChain(
       for (const client of clients.reverse()) client.destroy();
       firstSock?.destroy();
     };
-    const fail = (code: 'ssh-jump-failed' | 'ssh-cancelled' | 'ssh-key-mismatch') => {
+    const fail = (
+      code: 'ssh-jump-failed' | 'ssh-cancelled' | 'ssh-key-mismatch' | 'ssh-key-exchange-failed',
+    ) => {
       closeAll();
       if (settled) return;
       settled = true;
@@ -124,10 +126,17 @@ export function openJumpChain(
       const next = hops[index + 1] ?? target;
       const client = new Client();
       clients.push(client);
-      const lost = () => {
+      const lost = (error?: unknown) => {
+        if (closed) return;
         if (!settled)
           fail(
-            signal.aborted ? 'ssh-cancelled' : mismatch ? 'ssh-key-mismatch' : 'ssh-jump-failed',
+            signal.aborted
+              ? 'ssh-cancelled'
+              : mismatch
+                ? 'ssh-key-mismatch'
+                : isSshKeyExchangeFailure(error)
+                  ? 'ssh-key-exchange-failed'
+                  : 'ssh-jump-failed',
           );
         // After the tunnel is handed over, losing any hop ends the session through it.
         else closeAll();
@@ -175,8 +184,8 @@ export function openJumpChain(
               });
           },
         });
-      } catch {
-        fail('ssh-jump-failed');
+      } catch (error) {
+        lost(error);
       }
     };
     connectHop(0, firstSock);

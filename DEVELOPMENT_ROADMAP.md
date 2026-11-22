@@ -23,14 +23,14 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M2 — Secure credentials and SFTP |
-| Active feature | F55 implemented — Serial; Phase 6 tests deferred to the end of the phase |
-| Next feature | F56 — Telnet (F53/F54 deferred until needed) |
+| Current milestone | M3 — Workspaces, automation, logs, and advanced connections |
+| Active feature | F58 implemented — SSH cryptography compatibility; Phase 6 tests await user authorization |
+| Next feature | Phase 6 verification when authorized, then F59 — Accounts |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | User reported the application opens on Ubuntu; automated security and F03 visual verification remain pending |
 | Current blocker | Sandbox-enabled E2E launch aborts: chrome-sandbox ownership/mode is invalid in this environment; no OS permissions changed |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-19 |
+| Last roadmap update | 2026-11-22 |
 
 ## Selected technology stack
 
@@ -212,9 +212,9 @@ Dependencies: Stable SSH and session lifecycle. Prototype each adapter before se
 - [ ] **F53 — SSH certificates (deferred, revisit on demand):** Formats, algorithms, expiry, and interoperability. ssh2 1.17 has no OpenSSH certificate support: user certificates would need a signing wrapper prototyped against a real CA-trusting server, and host certificates cannot be requested. Certificates held in an SSH agent may already work through F52 (unverified).
 - [ ] **F54 — Hardware and biometric keys (deferred, revisit on demand):** Platform integration and physical-device verification. ssh2 1.17 does not support FIDO (`sk-*`) keys; revisit with a library upgrade or agent-based signing when a user needs it.
 - [x] **F55 — Serial (implementation):** Port discovery, saved profiles with full line configuration, Enter translation and local echo, actionable permission/busy/missing errors, disconnect handling and Send break. Tests written, execution deferred to the phase run; hardware acceptance pending.
-- [ ] **F56 — Telnet:** Separate protocol adapter and clear connection properties.
-- [ ] **F57 — Mosh:** Client integration, server requirements, and packaging investigation.
-- [ ] **F58 — Cryptography:** Supported library algorithms and compatibility checks.
+- [ ] **F56 — Telnet (deferred, revisit on demand):** Revisit when a user needs network access to legacy equipment that only supports Telnet. Use a separate protocol adapter and clearly identify the connection as unencrypted.
+- [ ] **F57 — Mosh (deferred, revisit on demand):** Revisit when users need remote terminal sessions that survive network changes or brief outages. Investigate client integration, server requirements, and packaging at that point.
+- [x] **F58 — Cryptography (implementation):** Document bundled SSH algorithm defaults and report key exchange failures for target sessions, jump hosts, and public-key installation. Regression tests written; execution awaits user authorization. See `docs/SSH_SESSIONS.md`.
 
 Completion criteria: Publish prerequisites and platform support. Test tunnel conflicts, denied forwarding, multi-hop failures, hardware access, and unsupported algorithms. Do not implement custom cryptographic primitives.
 
@@ -1714,3 +1714,23 @@ startup snippets are disabled on serial tabs. Existing downgrade tests were upda
 `tests/unit/serial.test.ts` use serialport's mock port and are written but not run, per the
 phase workflow. `npm run check` and `npm run build` pass. Real hardware, packaged `.deb`,
 visual and macOS/Windows acceptance pending. Next is F56 — Telnet.
+
+### 2026-11-22 — F56 Telnet deferred
+
+Defer Telnet until a user needs it for a legacy device or workflow. Next is F57 — Mosh.
+
+### 2026-11-22 — F57 Mosh deferred
+
+Defer Mosh until users need remote terminal sessions that survive network changes or brief
+outages. Next is F58 — Cryptography.
+
+### 2026-11-22 — F58 SSH cryptography compatibility
+
+SSH setup reports a fixed key exchange failure for a local negotiation mismatch or a
+peer key exchange disconnect. It applies to target sessions, jump hosts, and public-key
+installation. Target sessions also surface the failure if it occurs during rekeying.
+Default offers and fingerprint checks remain in place. The SSH documentation lists
+algorithm families and server-side troubleshooting. The regression tests use loopback SSH
+fixtures for modern algorithm combinations and incompatible offers. `npm run check` and
+`npm run build` passed on Linux x64 with Node 24.12.0. Test execution awaits user authorization.
+Phase 6 verification and live-server/platform acceptance remain pending.

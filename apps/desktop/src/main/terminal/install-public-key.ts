@@ -1,5 +1,11 @@
 import { posix } from 'node:path';
-import { Client, utils, type SFTPWrapper, type Stats } from '../ssh2-module.js';
+import {
+  Client,
+  isSshKeyExchangeFailure,
+  utils,
+  type SFTPWrapper,
+  type Stats,
+} from '../ssh2-module.js';
 import type { HostDraft } from '../../shared/hosts.js';
 import { AppFailure } from '../failures.js';
 import { fingerprintMatches } from './ssh.js';
@@ -110,12 +116,17 @@ export async function installPublicKey(
       if (error) reject(error);
       else resolve();
     };
-    client.on('error', () =>
-      finish(new AppFailure(mismatch ? 'ssh-key-mismatch' : 'ssh-key-install-failed')),
-    );
+    const connectionFailed = (error?: unknown) => {
+      const code = mismatch
+        ? 'ssh-key-mismatch'
+        : isSshKeyExchangeFailure(error)
+          ? 'ssh-key-exchange-failed'
+          : 'ssh-key-install-failed';
+      finish(new AppFailure(code));
+    };
+    client.on('error', connectionFailed);
     client.on('close', () => {
-      if (!settled)
-        finish(new AppFailure(mismatch ? 'ssh-key-mismatch' : 'ssh-key-install-failed'));
+      if (!settled) connectionFailed();
     });
     client.once('ready', () => {
       client.sftp((error, sftp) => {
@@ -139,8 +150,8 @@ export async function installPublicKey(
           return accepted;
         },
       });
-    } catch {
-      finish(new AppFailure('ssh-key-install-failed'));
+    } catch (error) {
+      connectionFailed(error);
     }
   });
 }

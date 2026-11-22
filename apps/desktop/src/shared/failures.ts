@@ -54,6 +54,8 @@ export const failureMessages = {
   'ssh-keepalive-timeout':
     'SSH server stopped responding to keepalive probes. The connection was closed. Reconnect to start a new shell; previous commands will not be replayed.',
   'ssh-auth-failed': 'The server rejected the username or password. Check them and try again.',
+  'ssh-key-exchange-failed':
+    'SSH key exchange failed. Ask the administrator to check the SSH algorithms offered by the server or jump host and enable a compatible configuration.',
   'ssh-failed':
     'SSH connection failed. Check the address, port, username, password and server availability, then retry.',
   'ssh-key-mismatch':

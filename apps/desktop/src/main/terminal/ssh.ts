@@ -4,13 +4,14 @@ import { startForward } from './port-forward.js';
 import { createHash } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 import type { AuthenticationType, ConnectConfig } from 'ssh2';
-import { Client, type ClientChannel } from '../ssh2-module.js';
+import { Client, isSshKeyExchangeFailure, type ClientChannel } from '../ssh2-module.js';
 import type { TerminalTransport, TerminalExit } from './transport.js';
 import type { HostDraft } from '../../shared/hosts.js';
 import { validateSshQuestion, type SshQuestion, type SshCredentials } from '../../shared/ssh.js';
 import type { TerminalSize, SshConnectionState } from '../../shared/terminal.js';
 import { AppFailure } from '../failures.js';
 import { RemoteFileBrowser } from '../files/remote.js';
+import type { FailureCode } from '../../shared/failures.js';
 
 export function keyFingerprint(key: Buffer): string {
   return 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
@@ -83,7 +84,7 @@ export function openSsh(
     let exitCode = 255;
     let fingerprint = '';
     let mismatch = false;
-    let authRejected = false;
+    let setupFailure: FailureCode = 'ssh-failed';
     let failed = false;
     let failureCode: TerminalExit['failureCode'];
     let lastState: SshConnectionState | undefined;
@@ -120,13 +121,7 @@ export function openSsh(
         settled = true;
         reject(
           new AppFailure(
-            signal.aborted
-              ? 'ssh-cancelled'
-              : mismatch
-                ? 'ssh-key-mismatch'
-                : authRejected
-                  ? 'ssh-auth-failed'
-                  : 'ssh-failed',
+            signal.aborted ? 'ssh-cancelled' : mismatch ? 'ssh-key-mismatch' : setupFailure,
           ),
         );
       } else for (const listener of exitListeners) listener(outcome());
@@ -136,22 +131,16 @@ export function openSsh(
     };
     const fail = (error?: unknown) => {
       if (!ended) {
-        if (
-          !settled &&
-          error &&
-          typeof error === 'object' &&
-          'level' in error &&
-          error.level === 'client-authentication'
-        )
-          authRejected = true;
-        if (
-          settled &&
-          error &&
-          typeof error === 'object' &&
-          'level' in error &&
-          error.level === 'client-timeout'
-        )
+        const level =
+          error && typeof error === 'object' && 'level' in error ? error.level : undefined;
+        if (isSshKeyExchangeFailure(error)) {
+          if (settled) failureCode = 'ssh-key-exchange-failed';
+          else setupFailure = 'ssh-key-exchange-failed';
+        } else if (!settled && level === 'client-authentication') {
+          setupFailure = 'ssh-auth-failed';
+        } else if (settled && level === 'client-timeout') {
           failureCode = 'ssh-keepalive-timeout';
+        }
         failed = true;
         finish();
       }
@@ -317,8 +306,8 @@ export function openSsh(
           }
         },
       });
-    } catch {
-      finish();
+    } catch (error) {
+      fail(error);
     }
   });
 }

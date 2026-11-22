@@ -31,6 +31,7 @@ export const sshStateMessages = {
   connected: 'SSH connected',
 } as const;
 export type SshConnectionState = keyof typeof sshStateMessages;
+export type SshExitFailureCode = 'ssh-keepalive-timeout' | 'ssh-key-exchange-failed';
 export type TerminalEvent =
   | { kind: 'history-status'; id: string; status: 'unsupported' | 'starting' }
   | { kind: 'history-error'; id: string; code: FailureCode }
@@ -41,7 +42,7 @@ export type TerminalEvent =
       id: string;
       exitCode: number;
       connectionState?: 'disconnected' | 'failed';
-      failureCode?: 'ssh-keepalive-timeout';
+      failureCode?: SshExitFailureCode;
     }
   | { kind: 'error'; id: string; code: 'terminal-failed' | 'terminal-overflow' };
 export const terminalLimits = { minCols: 2, maxCols: 500, minRows: 1, maxRows: 300 } as const;
