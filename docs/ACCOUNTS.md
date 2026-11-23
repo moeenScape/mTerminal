@@ -2,20 +2,53 @@
 
 ## Run locally
 
-Use the repository's Node 24 and npm 11 toolchain, a dedicated PostgreSQL database,
-and an SMTP relay. For development, a local mail catcher works as the relay.
+Use the repository's Node 24 and npm 11 toolchain. Docker Compose can run PostgreSQL and
+Mailpit while the account server and desktop run directly on the host. You can also use
+an existing PostgreSQL test database and SMTP relay by setting their URLs in
+`apps/server/.env` and skipping Compose.
 
-1. Run `npm ci` from the repository root.
-2. Copy `apps/server/.env.example` to `apps/server/.env` and set the database URL, SMTP
-   URL, and sender address. Generate a random `MTERMINAL_ACCOUNT_MFA_KEY` with
-   `openssl rand -hex 32`. Keep the key private and back it up with your deployment secrets.
-   Every server process must use the same key. The database role needs permission to create
-   and migrate the account schema.
-3. Run `npm run start:server`. The service applies its PostgreSQL migrations and binds
+1. Run `npm ci` from the repository root if dependencies are missing.
+2. Create `apps/server/.env` from `apps/server/.env.example` if you do not already have one.
+   For Compose, replace `replace-me` with the same local database password in
+   `MTERMINAL_POSTGRES_PASSWORD` and `DATABASE_URL`. A hex password from
+   `openssl rand -hex 16` works in both fields. If you use an existing database, set its
+   URL and make sure its role can apply the account migrations.
+3. Generate a separate key for `MTERMINAL_ACCOUNT_MFA_KEY` with `openssl rand -hex 32`.
+   Keep this key private and reuse it after restart. Every account server process sharing
+   the database must use the same key.
+4. From the repository root, start the local backing services.
+
+   ```sh
+   docker compose --env-file apps/server/.env up -d --wait
+   ```
+
+   PostgreSQL is available at `127.0.0.1:5433`, SMTP at `127.0.0.1:1025`, and
+   the [Mailpit inbox](http://127.0.0.1:8025/) shows verification and reset messages.
+   Stop any standalone test containers already using those ports before starting Compose.
+5. Run `npm run start:server`. The account service applies its migrations and binds
    to `127.0.0.1:8787` by default.
-4. Run `MTERMINAL_ACCOUNT_URL=http://127.0.0.1:8787 npm run dev` and open
+6. Run `MTERMINAL_ACCOUNT_URL=http://127.0.0.1:8787 npm run dev` and open
    **Settings → Account**. Set the environment variable in your shell before running
    the app if your shell uses different environment assignment syntax.
+
+For a two-device manual test, run `npm run build` once. Launch these commands in two
+terminals from the repository root. Start with separate fresh data directories and keep
+each path the same when restarting its instance.
+
+```sh
+# Device A
+MTERMINAL_ACCOUNT_URL=http://127.0.0.1:8787 \
+MTERMINAL_USER_DATA=/tmp/mterminal-phase7-a npm start
+
+# Device B
+MTERMINAL_ACCOUNT_URL=http://127.0.0.1:8787 \
+MTERMINAL_USER_DATA=/tmp/mterminal-phase7-b npm start
+```
+
+For offline sync verification, stop the local account server while leaving Compose running.
+When finished, use `docker compose --env-file apps/server/.env down` to stop and remove
+the backing containers while preserving the named PostgreSQL volume. PostgreSQL initializes
+its password when the volume is first created.
 
 For packaged clients, configure `MTERMINAL_ACCOUNT_URL` as an HTTPS origin. Serve the
 loopback service behind an HTTPS reverse proxy. Plain HTTP is accepted only for loopback
