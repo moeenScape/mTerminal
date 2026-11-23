@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import {
+  ORGANIZATION_ROUTE,
+  type OrganizationView,
+} from '../../../../packages/shared/organizations.ts';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
@@ -22,6 +26,8 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   const recoveryCodes = Array.from({ length: 8 }, (_, index) => String(index).repeat(32));
   let deviceId = '';
   let deviceName = 'E2E machine';
+  const organizationId = '05e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+  const orgView: OrganizationView = { organizations: [], invitations: [] };
   let verified = false;
   let signedOut = false;
   let mfaEnabled = false;
@@ -88,6 +94,37 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       ) {
         deviceName = input.name;
         return write(200, { keys: [] });
+      }
+      if (
+        request.url === ORGANIZATION_ROUTE &&
+        request.headers.authorization === `Bearer ${token}`
+      ) {
+        if (input.kind === 'status')
+          return write(200, { organizations: orgView.organizations, invitations: [] });
+        if (input.kind === 'create' && input.name === 'Release team') {
+          orgView.organizations = [{ id: organizationId, name: input.name, owner: true }];
+          orgView.roster = {
+            organizationId,
+            members: [{ id: cloud.accountId, email, owner: true }],
+            invitations: [],
+          };
+          return write(200, orgView);
+        }
+        if (
+          input.kind === 'invite' &&
+          input.organizationId === organizationId &&
+          input.email === 'member@example.com' &&
+          orgView.roster
+        ) {
+          orgView.roster.invitations = [
+            {
+              id: 'b5ed7e42-2977-424e-a083-27968e902146',
+              email: input.email,
+              expiresAt: '2026-12-01T00:00:00.000Z',
+            },
+          ];
+          return write(200, orgView);
+        }
       }
       if (request.url === accountRoutes.register && input.email === email) return write(202, {});
       if (
@@ -196,6 +233,17 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     expect(state).not.toContain(token);
     expect(state).not.toContain(setupKey);
     expect(state).not.toContain(recoveryCodes[0]!);
+    const organizations = section.getByRole('region', { name: 'Organizations', exact: true });
+    await organizations.getByRole('button', { name: 'Show organizations' }).click();
+    await organizations.getByLabel('Organization name').fill('Release team');
+    await organizations.getByRole('button', { name: 'Create organization', exact: true }).click();
+    await expect(organizations).toContainText('Release team · Owner');
+    const roster = organizations.getByRole('region', { name: 'Manage Release team' });
+    await roster.getByLabel('Account email', { exact: true }).fill('member@example.com');
+    await roster.getByRole('button', { name: 'Invite member', exact: true }).click();
+    await expect(roster.getByRole('list', { name: 'Outgoing invitations' })).toContainText(
+      'member@example.com',
+    );
     const devices = section.getByRole('region', { name: 'Account devices' });
     await devices.getByRole('button', { name: 'Rename E2E machine' }).click();
     await devices.getByLabel('Device name', { exact: true }).fill('Travel laptop');

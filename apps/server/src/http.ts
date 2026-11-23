@@ -19,6 +19,11 @@ import {
   validSyncRevision,
 } from '../../../packages/shared/workspace-sync.ts';
 
+import {
+  ORGANIZATION_ROUTE,
+  parseOrganizationAction,
+} from '../../../packages/shared/organizations.ts';
+
 const MAX_BODY = 4096;
 
 function reply(response: ServerResponse, status: number, value: object): void {
@@ -91,6 +96,12 @@ const statuses = {
   'sync-credential-key-exists': 409,
   'sync-vault-locked': 409,
   'sync-vault-unavailable': 503,
+  'organization-denied': 403,
+  'organization-owner': 409,
+  'organization-member-missing': 404,
+  'organization-invite-missing': 404,
+  'organization-already-member': 409,
+  'organization-limit': 409,
   'sign-in-required': 401,
   'rate-limited': 429,
   unavailable: 503,
@@ -195,6 +206,16 @@ export function createAccountServer(
           await accounts.rateLimit('device-peer', peerAddress(request, trustProxy), 50);
           const action = request.method === 'POST' ? await body(request) : undefined;
           return reply(response, 200, await accounts.deviceDirectory(token, action));
+        }
+        if (request.url === ORGANIZATION_ROUTE && request.method === 'POST') {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit('organization-peer', peerAddress(request, trustProxy), 60);
+          const action = parseOrganizationAction(await body(request));
+          if (!action) throw new AccountFailure('invalid-input');
+          return reply(response, 200, await accounts.organizations(token, action));
         }
         const { register, verify, signIn, recover, reset, protection } = accountRoutes;
         const path = request.url;

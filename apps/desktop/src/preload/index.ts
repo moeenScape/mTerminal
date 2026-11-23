@@ -55,6 +55,8 @@ import {
   DEVICE_DIRECTORY_REQUEST,
   type AccountResult,
   type DeviceDirectoryResult,
+  ORGANIZATION_REQUEST,
+  type OrganizationResult,
 } from '../shared/accounts.js';
 import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
 import {
@@ -128,6 +130,11 @@ const api: DesktopApi = {
     return () => {
       ipcRenderer.removeListener(SYNC_QUEUE_CHANGED, notify);
     };
+  },
+  organizations: async (action) => {
+    const result: OrganizationResult = await ipcRenderer.invoke(ORGANIZATION_REQUEST, action);
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.view;
   },
   deviceDirectory: async (action) => {
     const result: DeviceDirectoryResult = await ipcRenderer.invoke(

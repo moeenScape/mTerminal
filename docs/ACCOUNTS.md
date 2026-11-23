@@ -131,6 +131,8 @@ to revoke SSH access there.
 Deploy the F65 service and migration before using the directory in the desktop. Directory reads
 and writes have a separate limit of 50 requests per peer per minute.
 
+For team invitations and membership, see [Organizations](ORGANIZATIONS.md).
+
 ## Verification commands
 
 `npm run check` type-checks both workspaces and runs lint and formatting checks.

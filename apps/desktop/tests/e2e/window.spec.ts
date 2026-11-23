@@ -168,6 +168,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'onWorkspaceSyncQueueChanged',
       'openSshTerminal',
       'openTerminal',
+      'organizations',
       'prepareBatch',
       'readClipboardText',
       'reopenRemoteEdit',

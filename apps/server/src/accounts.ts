@@ -7,10 +7,12 @@ import {
   sshPublicKeyPattern,
   validAccountId,
   validDeviceLabel,
-  type AccountErrorCode,
   type AccountSummary,
   type DeviceDirectoryKey,
 } from '../../../packages/shared/accounts.ts';
+import type { OrganizationAction } from '../../../packages/shared/organizations.ts';
+import { AccountFailure } from './account-failure.ts';
+import { organizationView } from './organizations.ts';
 import { transaction } from './database.ts';
 import type { SyncEnvelope, SyncSnapshot } from '../../../packages/shared/workspace-sync.ts';
 import {
@@ -19,6 +21,8 @@ import {
   openAuthenticator,
   sealAuthenticator,
 } from './account-mfa.ts';
+
+export { AccountFailure } from './account-failure.ts';
 
 const scryptOptions = { N: 32_768, r: 8, p: 3, maxmem: 48 * 1024 * 1024 };
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -32,6 +36,7 @@ export interface DeviceInput {
 
 interface AccountRow {
   id: string;
+  email: string;
   password_hash: string;
   mfa_secret: string | null;
   mfa_last_step: string | null;
@@ -41,7 +46,7 @@ interface AccountRow {
   mfa_pending_valid: boolean | null;
 }
 
-const accountFields = `id, password_hash, mfa_secret, mfa_last_step, mfa_recovery_hashes,
+const accountFields = `id, email, password_hash, mfa_secret, mfa_last_step, mfa_recovery_hashes,
   mfa_pending_secret, mfa_pending_session_id, mfa_pending_until > now() AS mfa_pending_valid`;
 
 export type ProtectionAction =
@@ -49,15 +54,6 @@ export type ProtectionAction =
   | { kind: 'enable-mfa'; factor: string }
   | { kind: 'disable-mfa'; password: string; factor: string }
   | { kind: 'revoke-session'; sessionId: string };
-
-export class AccountFailure extends Error {
-  readonly code: AccountErrorCode;
-
-  constructor(code: AccountErrorCode) {
-    super(code);
-    this.code = code;
-  }
-}
 
 function passwordHash(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -491,6 +487,13 @@ export function createAccounts(
           [account.id],
         );
         return { keys: result.rows };
+      });
+    },
+
+    async organizations(token: string, action: OrganizationAction) {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        return organizationView(client, account, action);
       });
     },
 

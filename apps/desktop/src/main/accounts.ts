@@ -22,10 +22,17 @@ import {
   ACCOUNT_REQUEST,
   DEVICE_DIRECTORY_REQUEST,
   type DeviceDirectoryResult,
+  ORGANIZATION_REQUEST,
+  type OrganizationResult,
   type AccountResponse,
   type AccountResult,
   type AccountState,
 } from '../shared/accounts.js';
+import {
+  ORGANIZATION_ROUTE,
+  parseOrganizationAction,
+  type OrganizationView,
+} from '../../../../packages/shared/organizations.ts';
 import { AppFailure } from './failures.js';
 import { validFingerprint } from '../shared/ssh.js';
 import { validateAppInfoRequest } from './security.js';
@@ -85,6 +92,73 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function organizationResponse(value: Record<string, unknown>): OrganizationView {
+  function items<T>(
+    entries: unknown,
+    limit: number,
+    read: (entry: Record<string, unknown>) => T,
+  ): T[] {
+    if (!Array.isArray(entries) || entries.length > limit) throw new AccountFailure('unavailable');
+    return entries.map((entry: unknown) => {
+      const item = record(entry);
+      if (!item) throw new AccountFailure('unavailable');
+      return read(item);
+    });
+  }
+  function expiration(value: unknown): string {
+    if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)))
+      throw new AccountFailure('unavailable');
+    return value;
+  }
+  const view: OrganizationView = {
+    organizations: items(value.organizations, 50, ({ id, name, owner }) => {
+      if (!validAccountId(id) || !validDeviceLabel(name) || typeof owner !== 'boolean')
+        throw new AccountFailure('unavailable');
+      return { id, name, owner };
+    }),
+    invitations: items(value.invitations, 100, ({ id, organizationName, expiresAt }) => {
+      if (!validAccountId(id) || !validDeviceLabel(organizationName))
+        throw new AccountFailure('unavailable');
+      return { id, organizationName, expiresAt: expiration(expiresAt) };
+    }),
+  };
+  if (value.roster !== undefined) {
+    const roster = record(value.roster);
+    const organizationId = roster?.organizationId;
+    if (
+      !roster ||
+      !validAccountId(organizationId) ||
+      !view.organizations.some(
+        (organization) => organization.id === organizationId && organization.owner,
+      )
+    )
+      throw new AccountFailure('unavailable');
+    view.roster = {
+      organizationId,
+      members: items(roster.members, 100, ({ id, email, owner }) => {
+        if (
+          !validAccountId(id) ||
+          typeof email !== 'string' ||
+          normalizeAccountEmail(email) !== email ||
+          typeof owner !== 'boolean'
+        )
+          throw new AccountFailure('unavailable');
+        return { id, email, owner };
+      }),
+      invitations: items(roster.invitations, 100, ({ id, email, expiresAt }) => {
+        if (
+          !validAccountId(id) ||
+          typeof email !== 'string' ||
+          normalizeAccountEmail(email) !== email
+        )
+          throw new AccountFailure('unavailable');
+        return { id, email, expiresAt: expiration(expiresAt) };
+      }),
+    };
+  }
+  return view;
 }
 
 function summary(value: Record<string, unknown>): AccountSummary {
@@ -722,11 +796,32 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    ORGANIZATION_REQUEST,
+    async (event, ...args: unknown[]): Promise<OrganizationResult> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const action = args.length === 1 ? parseOrganizationAction(args[0]) : undefined;
+      if (!action) return { ok: false, code: 'invalid-input' };
+      try {
+        const view = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          const response = await request(ORGANIZATION_ROUTE, 'POST', action, 256 * 1024);
+          return organizationResponse(response);
+        });
+        return { ok: true, view };
+      } catch (error) {
+        return { ok: false, code: error instanceof AccountFailure ? error.code : 'unavailable' };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
     ipcMain.removeHandler(DEVICE_DIRECTORY_REQUEST);
+    ipcMain.removeHandler(ORGANIZATION_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
     ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });

@@ -104,6 +104,12 @@ export const accountErrors = {
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',
+  'organization-denied': 'You do not have access to manage this organization.',
+  'organization-owner': 'The owner must transfer ownership to another member before leaving.',
+  'organization-member-missing': 'This account is no longer a member of the organization.',
+  'organization-invite-missing': 'This invitation has expired or is no longer available.',
+  'organization-already-member': 'This account is already an organization member.',
+  'organization-limit': 'The organization, membership, or invitation limit has been reached.',
   'sign-in-required': 'Your account session has ended. Sign in again.',
   'rate-limited': 'Too many attempts. Wait a minute and try again.',
   unavailable: 'The account service is unavailable. Try again in a moment.',

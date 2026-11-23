@@ -23,14 +23,14 @@ This is a proposed development plan based on public capabilities, not a claim of
 
 | Field | Value |
 | --- | --- |
-| Current milestone | M4 — Accounts and encrypted synchronization |
-| Active feature | F65 implemented — device lifecycle and optional SSH public-key directory |
-| Next step | Phase 7 verification once authorized. F66 Organizations follows in Phase 8 |
+| Current milestone | M5 — Shared vaults and collaboration |
+| Active feature | F66 implemented — organization invitations, membership, ownership, and offboarding |
+| Next step | F67 Shared vaults. Phase 7 verification and security review remain open |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-22 |
+| Last roadmap update | 2026-11-23 |
 
 ## Selected technology stack
 
@@ -57,7 +57,7 @@ The Electron, TypeScript, React, xterm.js, and node-pty foundation is selected. 
 | M2 | 3–4 | Secure persistent credentials and SFTP | Planned |
 | M3 | 5–6 | Workspaces, automation, logs, advanced connections | Planned |
 | M4 | 7 | Accounts and encrypted synchronization | Planned |
-| M5 | 8 | Shared vaults and collaboration | Planned |
+| M5 | 8 | Shared vaults and collaboration | In progress |
 | M6 | 9 | AI, integrations, enterprise and commercial features | Planned |
 
 Release engineering applies throughout development. Implement phases in order unless a feature has an independent, reviewed dependency path. Do not postpone host verification or persist plaintext secrets while waiting for secure storage.
@@ -238,7 +238,7 @@ Removing a directory entry does not revoke public keys already installed on remo
 
 Dependencies: Phase 7 with reviewed authorization and encryption boundaries.
 
-- [ ] **F66 — Organizations:** Invitations, membership, ownership, and offboarding.
+- [x] **F66 — Organizations (implementation):** Create organizations, invite verified accounts through an in-app inbox, accept or decline, transfer ownership, and remove members. Server checks account sessions and ownership on every operation. Tests written for the Phase 8 gate. See `docs/ORGANIZATIONS.md`.
 - [ ] **F67 — Shared vaults:** Hosts, identities, snippets, and settings.
 - [ ] **F68 — Permissions:** Multiple vaults and server-enforced authorization.
 - [ ] **F69 — Shared logs:** Access controls, retention, bookmarks, and comments.
@@ -1833,3 +1833,16 @@ removal. Migration 005 adds retirement state and the directory.
 passed on Linux x64. Server and desktop regressions were written and deferred. The next
 step is Phase 7 verification, including live PostgreSQL migration and cross-device
 acceptance. F66 — Organizations follows in Phase 8.
+
+### 2026-11-23 — F66 Organizations
+
+Signed-in accounts can create organizations, invite verified email addresses through
+the in-app inbox, accept or decline invitations, transfer ownership, and remove members.
+Migration 006 stores these records separately from personal workspace snapshots. The
+service checks the live account session and organization authority on each request and
+serializes ownership and membership changes within the organization. Offboarding
+removes team membership while preserving the account's personal workspace.
+
+`npm run check`, `npm run build`, and the built main and preload syntax checks passed.
+PostgreSQL and desktop regressions were written and deferred. Live migration and
+multi-account acceptance remain pending. Next is F67 — Shared vaults.

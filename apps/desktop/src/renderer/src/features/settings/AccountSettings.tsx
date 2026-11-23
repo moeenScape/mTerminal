@@ -6,6 +6,7 @@ import {
 } from '../../../../shared/accounts.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AccountDevices } from './AccountDevices';
+import { OrganizationSettings } from './OrganizationSettings';
 import { AccountProtection } from './AccountProtection';
 import { SyncPreferencesSettings } from './SyncPreferencesSettings';
 
@@ -296,6 +297,7 @@ export function AccountSettings() {
               setRecoveryCodes([]);
             }}
           />
+          <OrganizationSettings key={state.account.accountId ?? state.account.email} busy={busy} />
           <AccountDevices
             key={state.account.accountId ?? state.account.email}
             account={state.account}

@@ -3,9 +3,17 @@ import type {
   AccountSummary,
   DeviceDirectoryKey,
 } from '../../../../packages/shared/accounts.ts';
+import type {
+  OrganizationAction,
+  OrganizationView,
+} from '../../../../packages/shared/organizations.ts';
 export { accountPasswordLimits } from '../../../../packages/shared/accounts.ts';
 
 export const ACCOUNT_REQUEST = 'account:request';
+export const ORGANIZATION_REQUEST = 'account:organizations';
+export type OrganizationResult =
+  { ok: true; view: OrganizationView } | { ok: false; code: AccountErrorCode };
+
 export const DEVICE_DIRECTORY_REQUEST = 'account:device-directory';
 
 export type DeviceDirectoryAction =
@@ -43,8 +51,9 @@ export type AccountResult =
   { ok: true; state: AccountResponse } | { ok: false; code: AccountErrorCode };
 
 export interface AccountApi {
+  organizations: (action: OrganizationAction) => Promise<OrganizationView>;
   deviceDirectory: (action: DeviceDirectoryAction) => Promise<DeviceDirectoryKey[]>;
   account: (action: AccountAction) => Promise<AccountResponse>;
 }
 
-export type { AccountSummary, DeviceDirectoryKey };
+export type { AccountSummary, DeviceDirectoryKey, OrganizationAction, OrganizationView };
