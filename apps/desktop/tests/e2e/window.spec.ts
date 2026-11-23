@@ -170,6 +170,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'openSshTerminal',
       'openTerminal',
       'organizationVault',
+      'organizationVaultAccess',
       'organizations',
       'prepareBatch',
       'readClipboardText',

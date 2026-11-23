@@ -13,10 +13,11 @@ import {
 import type { OrganizationAction } from '../../../packages/shared/organizations.ts';
 import { AccountFailure } from './account-failure.ts';
 import type {
-  OrganizationVaultSnapshot,
+  VaultAccessAction,
   OrganizationVaultWrite,
 } from '../../../packages/shared/organization-vault.ts';
-import { lockOrganization, organizationView } from './organizations.ts';
+import { vaultAccessView, vaultSnapshot } from './vault-access.ts';
+import { organizationView } from './organizations.ts';
 import { transaction } from './database.ts';
 import type { SyncEnvelope, SyncSnapshot } from '../../../packages/shared/workspace-sync.ts';
 import {
@@ -501,44 +502,23 @@ export function createAccounts(
       });
     },
 
-    async organizationVault(token: string, organizationId: string, write?: OrganizationVaultWrite) {
-      return transaction(
-        pool,
-        async (client): Promise<OrganizationVaultSnapshot | { revision: number }> => {
-          const { account } = await accountForSession(client, token);
-          const owner = await lockOrganization(client, organizationId);
-          if (write) {
-            if (owner !== account.id) throw new AccountFailure('organization-denied');
-            const { expectedRevision, envelope, writeProof } = write;
-            const hash = hashToken(writeProof);
-            const revision = expectedRevision + 1;
-            const result =
-              expectedRevision === 0
-                ? await client.query(
-                    `INSERT INTO organization_vaults (organization_id, revision, envelope, write_hash)
-                 VALUES ($1, 1, $2, $3) ON CONFLICT (organization_id) DO NOTHING`,
-                    [organizationId, JSON.stringify(envelope), hash],
-                  )
-                : await client.query(
-                    `UPDATE organization_vaults SET revision = $2, envelope = $3
-                 WHERE organization_id = $1 AND revision = $4 AND write_hash = $5`,
-                    [organizationId, revision, JSON.stringify(envelope), expectedRevision, hash],
-                  );
-            if (!result.rowCount) throw new AccountFailure('sync-conflict');
-            return { revision };
-          }
-          const member = await client.query(
-            'SELECT 1 FROM organization_members WHERE organization_id = $1 AND account_id = $2',
-            [organizationId, account.id],
-          );
-          if (!member.rowCount) throw new AccountFailure('organization-denied');
-          const vault = await client.query<Omit<OrganizationVaultSnapshot, 'organizationId'>>(
-            'SELECT revision, envelope FROM organization_vaults WHERE organization_id = $1',
-            [organizationId],
-          );
-          return { organizationId, ...(vault.rows[0] ?? { revision: 0, envelope: null }) };
-        },
-      );
+    async organizationVault(
+      token: string,
+      organizationId: string,
+      vaultId: string,
+      write?: OrganizationVaultWrite,
+    ) {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        return vaultSnapshot(client, account.id, organizationId, vaultId, write);
+      });
+    },
+
+    async organizationVaultAccess(token: string, action: VaultAccessAction) {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        return vaultAccessView(client, account.id, action);
+      });
     },
 
     async signOut(token: string): Promise<void> {

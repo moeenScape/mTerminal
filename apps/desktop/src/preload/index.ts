@@ -64,6 +64,8 @@ import {
 } from '../shared/accounts.js';
 import {
   ORGANIZATION_VAULT_REQUEST,
+  VAULT_ACCESS_REQUEST,
+  type VaultAccessReply,
   sharedVaultErrors,
   type SharedVaultReply,
   type SharedVaultSettings,
@@ -124,6 +126,11 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  organizationVaultAccess: async (action) => {
+    const reply: VaultAccessReply = await ipcRenderer.invoke(VAULT_ACCESS_REQUEST, action);
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.view;
+  },
   organizationVault: async (action) => {
     const reply: SharedVaultReply = await ipcRenderer.invoke(ORGANIZATION_VAULT_REQUEST, action);
     if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);

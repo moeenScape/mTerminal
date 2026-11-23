@@ -10,7 +10,11 @@ import {
   ORGANIZATION_ROUTE,
   type OrganizationView,
 } from '../../../../packages/shared/organizations.ts';
-import { organizationVaultRoute } from '../../../../packages/shared/organization-vault.ts';
+import {
+  ORGANIZATION_VAULTS_ROUTE,
+  organizationVaultRoute,
+  type VaultAccessView,
+} from '../../../../packages/shared/organization-vault.ts';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
@@ -28,7 +32,11 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   let deviceId = '';
   let deviceName = 'E2E machine';
   const organizationId = '05e9f162-d3cd-4c8f-a70a-2323a1751a9b';
-  const vaultRoute = organizationVaultRoute(organizationId);
+  const vaultRoute = organizationVaultRoute(organizationId, organizationId);
+  const extraVaultId = 'f5ad7e42-2977-424e-a083-27968e902146';
+  const vaultAccess: VaultAccessView = {
+    vaults: [{ id: organizationId, name: 'Shared vault', access: 'owner', allMembers: false }],
+  };
   let sharedRevision = 0;
   let sharedEnvelope: ReturnType<typeof parseSyncEnvelope> | null = null;
   let sharedBody = '';
@@ -88,7 +96,13 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       return write(200, { keys: [] });
     if (request.url === vaultRoute && request.headers.authorization === `Bearer ${token}`) {
       if (request.method === 'GET')
-        return write(200, { organizationId, revision: sharedRevision, envelope: sharedEnvelope });
+        return write(200, {
+          organizationId,
+          vaultId: organizationId,
+          access: 'owner',
+          revision: sharedRevision,
+          envelope: sharedEnvelope,
+        });
       if (request.method === 'PUT') {
         const chunks: Buffer[] = [];
         for await (const chunk of request) chunks.push(chunk as Buffer);
@@ -145,6 +159,42 @@ test('creates an account, enables an authenticator, and signs out from Settings'
             },
           ];
           return write(200, orgView);
+        }
+      }
+      if (
+        request.url === ORGANIZATION_VAULTS_ROUTE &&
+        request.headers.authorization === `Bearer ${token}` &&
+        input.organizationId === organizationId
+      ) {
+        if (input.kind === 'list') return write(200, { vaults: vaultAccess.vaults });
+        if (input.kind === 'create' && input.name === 'Restricted operations') {
+          vaultAccess.vaults.push({
+            id: extraVaultId,
+            name: input.name,
+            access: 'owner',
+            allMembers: false,
+          });
+          vaultAccess.administration = {
+            vaultId: extraVaultId,
+            members: [
+              {
+                id: 'dd3ed7e4-2977-424e-a083-27968e902146',
+                email: 'member@example.com',
+                grant: null,
+              },
+            ],
+          };
+          return write(200, vaultAccess);
+        }
+        if (
+          input.kind === 'grant' &&
+          input.vaultId === extraVaultId &&
+          input.grant === 'editor' &&
+          input.memberId === 'dd3ed7e4-2977-424e-a083-27968e902146' &&
+          vaultAccess.administration
+        ) {
+          vaultAccess.administration.members[0]!.grant = 'editor';
+          return write(200, vaultAccess);
         }
       }
       if (request.url === accountRoutes.register && input.email === email) return write(202, {});
@@ -265,16 +315,28 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     await expect(roster.getByRole('list', { name: 'Outgoing invitations' })).toContainText(
       'member@example.com',
     );
-    await organizations.getByRole('button', { name: 'Shared vault for Release team' }).click();
-    const sharedVault = organizations.getByRole('region', {
-      name: 'Shared vault for Release team',
-    });
+    await organizations.getByRole('button', { name: 'Vaults for Release team' }).click();
+    const vaults = organizations.getByRole('region', { name: 'Vaults for Release team' });
+    await vaults.getByRole('button', { name: 'Show vaults' }).click();
+    await vaults.getByLabel('Vault name').fill('Restricted operations');
+    await vaults.getByRole('button', { name: 'Create vault' }).click();
+    const access = vaults.getByRole('region', { name: 'Access for Restricted operations' });
+    await expect(access).toContainText('Members need an explicit grant');
+    await access.getByLabel('member@example.com').selectOption('editor');
+    await access.getByRole('button', { name: 'Save access for member@example.com' }).click();
+    await page
+      .getByRole('dialog', { name: 'Change vault access?' })
+      .getByRole('button', { name: 'Change access' })
+      .click();
+    await expect(access.getByLabel('member@example.com')).toHaveValue('editor');
+    await vaults.getByRole('button', { name: 'Open Shared vault', exact: true }).click();
+    const sharedVault = vaults.getByRole('region', { name: 'Shared vault for Shared vault' });
     await sharedVault.getByRole('button', { name: 'Generate vault key' }).click();
     const sharedKey = sharedVault.getByLabel('Shared vault key');
     await expect(sharedKey).toHaveValue(/^mterminal-org-v1_/);
     await sharedVault.getByRole('button', { name: 'Publish settings' }).click();
     await page
-      .getByRole('dialog', { name: 'Publish to Release team?' })
+      .getByRole('dialog', { name: 'Publish to Shared vault?' })
       .getByRole('button', { name: 'Publish category' })
       .click();
     await expect(sharedVault).toContainText('Published vault revision 1.');

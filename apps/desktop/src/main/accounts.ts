@@ -61,9 +61,17 @@ import { PORTABLE_PREFERENCES_CHANGED } from '../shared/preferences.js';
 import { SNIPPETS_CHANGED } from '../shared/snippets.js';
 import {
   ORGANIZATION_VAULT_REQUEST,
+  VAULT_ACCESS_REQUEST,
+  type VaultAccessReply,
   parseSharedVaultAction,
   type SharedVaultReply,
 } from '../shared/organization-vault.js';
+import {
+  ORGANIZATION_VAULTS_ROUTE,
+  parseVaultAccessAction,
+  validVaultGrant,
+  type VaultAccessView,
+} from '../../../../packages/shared/organization-vault.ts';
 import { sharedVault } from './storage/organization-vault.js';
 
 class AccountFailure extends Error {
@@ -102,6 +110,56 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function vaultAccessResponse(value: Record<string, unknown>): VaultAccessView {
+  if (!Array.isArray(value.vaults) || value.vaults.length > 50)
+    throw new AccountFailure('unavailable');
+  const view: VaultAccessView = {
+    vaults: value.vaults.map((item: unknown) => {
+      const vault = record(item);
+      if (!vault) throw new AccountFailure('unavailable');
+      const { id, name, access, allMembers } = vault;
+      if (
+        !validAccountId(id) ||
+        !validDeviceLabel(name) ||
+        (access !== 'owner' && !validVaultGrant(access)) ||
+        typeof allMembers !== 'boolean'
+      )
+        throw new AccountFailure('unavailable');
+      return { id, name, access, allMembers };
+    }),
+  };
+  if (value.administration !== undefined) {
+    const admin = record(value.administration);
+    if (
+      !admin ||
+      !validAccountId(admin.vaultId) ||
+      !Array.isArray(admin.members) ||
+      admin.members.length > 100
+    )
+      throw new AccountFailure('unavailable');
+    const vaultId = admin.vaultId;
+    if (!view.vaults.some((vault) => vault.id === vaultId && vault.access === 'owner'))
+      throw new AccountFailure('unavailable');
+    view.administration = {
+      vaultId,
+      members: admin.members.map((item: unknown) => {
+        const member = record(item);
+        if (!member) throw new AccountFailure('unavailable');
+        const { id, email, grant } = member;
+        if (
+          !validAccountId(id) ||
+          typeof email !== 'string' ||
+          normalizeAccountEmail(email) !== email ||
+          (grant !== null && !validVaultGrant(grant))
+        )
+          throw new AccountFailure('unavailable');
+        return { id, email, grant };
+      }),
+    };
+  }
+  return view;
 }
 
 function organizationResponse(value: Record<string, unknown>): OrganizationView {
@@ -858,6 +916,25 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    VAULT_ACCESS_REQUEST,
+    async (event, ...args: unknown[]): Promise<VaultAccessReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const action = args.length === 1 ? parseVaultAccessAction(args[0]) : undefined;
+      if (!action) return { ok: false, code: 'invalid-input' };
+      try {
+        const view = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          return vaultAccessResponse(await request(ORGANIZATION_VAULTS_ROUTE, 'POST', action));
+        });
+        return { ok: true, view };
+      } catch (error) {
+        return { ok: false, code: error instanceof AccountFailure ? error.code : 'unavailable' };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
@@ -865,6 +942,7 @@ export function attachAccounts(
     ipcMain.removeHandler(DEVICE_DIRECTORY_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_VAULT_REQUEST);
+    ipcMain.removeHandler(VAULT_ACCESS_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
     ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });

@@ -6,6 +6,7 @@ import { readSharedVault, sharedVault } from '../../src/main/storage/organizatio
 import {
   generateSyncKey,
   openSyncPayload,
+  writeSyncPayload,
   decodeSyncKey,
   type SyncRequest,
 } from '../../src/main/storage/workspace-sync.js';
@@ -54,21 +55,22 @@ function fixture() {
     applyPortableSettings: vi.fn(async () => {}),
   };
   const snapshot = { organizationId, revision: 0, envelope: null as SyncEnvelope | null };
+  const vaultId = randomUUID();
   const request: SyncRequest = vi.fn(async (path, method, data) => {
-    expect(path).toBe(organizationVaultRoute(organizationId));
-    if (method === 'GET') return { ...snapshot };
+    expect(path).toBe(organizationVaultRoute(organizationId, vaultId));
+    if (method === 'GET') return { ...snapshot, vaultId, access: 'owner' };
     const write = data as { expectedRevision: number; envelope: SyncEnvelope; writeProof: string };
     expect(write.expectedRevision).toBe(snapshot.revision);
     expect(write.writeProof).toMatch(/^[A-Za-z0-9_-]{43}$/);
     snapshot.envelope = write.envelope;
     return { revision: ++snapshot.revision };
   });
-  return { organizationId, request, database, secrets, preferences, snapshot, snippets };
+  return { organizationId, vaultId, request, database, secrets, preferences, snapshot, snippets };
 }
 
 describe('organization vault', () => {
   it('preserves other categories on publish and authenticates organization, revision and key', async () => {
-    const { organizationId, request, database, secrets, preferences, snapshot, snippets } =
+    const { organizationId, vaultId, request, database, secrets, preferences, snapshot, snippets } =
       fixture();
     const key = generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX);
     const apply = (action: Parameters<typeof sharedVault>[0]) =>
@@ -76,6 +78,7 @@ describe('organization vault', () => {
     const workspace = await apply({
       kind: 'publish',
       organizationId,
+      vaultId,
       key,
       category: 'workspace',
       revision: 0,
@@ -86,6 +89,7 @@ describe('organization vault', () => {
     const sharedSnippets = await apply({
       kind: 'publish',
       organizationId,
+      vaultId,
       key,
       category: 'snippets',
       revision: 1,
@@ -96,27 +100,86 @@ describe('organization vault', () => {
     expect(JSON.stringify(snapshot)).not.toContain('uptime');
     const decodedKey = decodeSyncKey(key, ORGANIZATION_VAULT_KEY_PREFIX);
     expect(() =>
-      openSyncPayload(snapshot.envelope!, decodedKey, `organization-vault:${randomUUID()}`, 2),
+      openSyncPayload(
+        snapshot.envelope!,
+        decodedKey,
+        `organization-vault:${organizationId}:${randomUUID()}`,
+        2,
+      ),
     ).toThrow('sync-key');
     expect(() =>
-      openSyncPayload(snapshot.envelope!, decodedKey, `organization-vault:${organizationId}`, 1),
+      openSyncPayload(
+        snapshot.envelope!,
+        decodedKey,
+        `organization-vault:${organizationId}:${vaultId}`,
+        1,
+      ),
     ).toThrow('sync-key');
-    await expect(apply({ kind: 'open', organizationId, key: generateSyncKey() })).rejects.toThrow(
-      'sync-key',
-    );
     await expect(
-      apply({ kind: 'open', organizationId, key: generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX) }),
+      apply({ kind: 'open', organizationId, vaultId, key: generateSyncKey() }),
+    ).rejects.toThrow('sync-key');
+    await expect(
+      apply({
+        kind: 'open',
+        organizationId,
+        vaultId,
+        key: generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX),
+      }),
     ).rejects.toThrow('sync-key');
   });
 
+  it('opens legacy ciphertext with the default vault ID and blocks local publication for readers', async () => {
+    const { organizationId, database, secrets, preferences } = fixture();
+    const key = generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX);
+    const decodedKey = decodeSyncKey(key, ORGANIZATION_VAULT_KEY_PREFIX);
+    const legacyContext = `organization-vault:${organizationId}`;
+    const route = organizationVaultRoute(organizationId, organizationId);
+    let existing: SyncEnvelope | undefined;
+    await writeSyncPayload(
+      { revision: 0 },
+      { version: 1, snippets: [] },
+      decodedKey,
+      async (_path, _method, body) => {
+        existing = (body as { envelope: SyncEnvelope }).envelope;
+        return { revision: 1 };
+      },
+      route,
+      legacyContext,
+      1,
+    );
+    const request = vi.fn(async () => ({
+      organizationId,
+      vaultId: organizationId,
+      revision: 1,
+      access: 'reader',
+      envelope: existing,
+    }));
+    const target = { organizationId, vaultId: organizationId, key };
+    await expect(
+      sharedVault({ kind: 'open', ...target }, request, database, secrets, preferences),
+    ).resolves.toMatchObject({ revision: 1, document: { snippets: [] } });
+    await expect(
+      sharedVault(
+        { kind: 'publish', ...target, category: 'workspace', revision: 1 },
+        request,
+        database,
+        secrets,
+        preferences,
+      ),
+    ).rejects.toThrow('organization-vault-denied');
+    expect(database.exportWorkspace).not.toHaveBeenCalled();
+    expect(request.mock.calls).toHaveLength(2);
+  });
+
   it('refuses a stale local import and applies only the portable settings', async () => {
-    const { organizationId, request, database, secrets, preferences } = fixture();
+    const { organizationId, vaultId, request, database, secrets, preferences } = fixture();
     const key = generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX);
     const apply = (action: Parameters<typeof sharedVault>[0]) =>
       sharedVault(action, request, database, secrets, preferences);
     const visible = await apply({
       kind: 'publish',
       organizationId,
+      vaultId,
       key,
       category: 'settings',
       revision: 0,
@@ -128,10 +191,17 @@ describe('organization vault', () => {
       copyOnSelect: true,
     });
     await expect(
-      apply({ kind: 'import', organizationId, key, category: 'settings', revision: 0 }),
+      apply({ kind: 'import', organizationId, vaultId, key, category: 'settings', revision: 0 }),
     ).rejects.toThrow('sync-conflict');
     expect(preferences.applyPortableSettings).not.toHaveBeenCalled();
-    await apply({ kind: 'import', organizationId, key, category: 'settings', revision: 1 });
+    await apply({
+      kind: 'import',
+      organizationId,
+      vaultId,
+      key,
+      category: 'settings',
+      revision: 1,
+    });
     expect(preferences.applyPortableSettings).toHaveBeenCalledWith(visible.document?.settings);
     expect(() => readSharedVault({ version: 1, settings: { ...defaultPreferences } })).toThrow(
       'sync-format',

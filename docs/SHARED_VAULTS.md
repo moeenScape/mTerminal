@@ -1,19 +1,20 @@
-# Shared vaults (F67)
+# Shared vaults and permissions (F67–F68)
 
-Each organization has one shared vault. An owner publishes its contents, and each
-current member can open the vault with its key. Open **Settings → Account → Organizations**
-and select **Shared vault** beside the organization.
+Each organization can have up to 50 named shared vaults. Open **Settings → Account → Organizations**,
+choose **Vaults** beside the organization, and select **Show vaults**. The list shows the vaults
+your account can access. Owners can create additional vaults.
 
 ## Publish and open
 
-1. The owner chooses **Generate vault key** for an empty vault and saves it privately.
-   Share the generated key through a trusted channel with the members who need it.
-   The organization vault uses a different key format from personal workspace sync.
+1. An owner or editor opens an empty vault, chooses **Generate vault key**, and saves
+   it privately. Use a separate generated key for each vault. Share it through a
+   trusted channel with the people who have access. The shared vault key has a different
+   format from a personal workspace sync key.
 2. Publish a category to replace that category from the local device. The confirmation
    explains what will be shared. Other published categories are preserved. The vault
    accepts a combined document of up to 1 MiB before encryption.
-3. A member opens the same organization on their device, enters the shared key, and
-   selects **Open vault**. Open it again to see the latest revision.
+3. An authorized member selects the vault, enters its shared key, and chooses
+   **Open vault**. Open it again to see the latest revision.
 
 | Category | Published contents |
 | --- | --- |
@@ -26,29 +27,50 @@ and applied one category at a time. Hosts and snippets are added only. A conflic
 that category's local records intact. Imported snippets are available to review and use
 manually. Shared settings replace the four portable values after confirmation.
 
-## Access and storage
+## Manage access
 
-Migration `007_organization_vault.sql` adds a revisioned encrypted snapshot per
-organization. The desktop uses the workspace encryption primitives with a separate
-organization context and checks the revision before import or publication. The
-server verifies the live account session and the current organization membership.
-It accepts writes only from the current owner and rejects stale revisions. Personal
-workspace and credential sync have separate storage and access scopes.
+An owner can use **Manage access** beside a vault to control its visibility and
+assign each organization member a grant.
 
-Losing the vault key makes the existing published content unreadable. The key stays
-in the vault screen while it is open. F67 provides manual key sharing and has no key
-rotation workflow. Removing a member stops future downloads from the account service.
-Previously imported records, copied keys, and previously downloaded ciphertext remain
-with anyone who retained them. Rotating or revoking SSH credentials on servers is a
-separate operation.
+| Role | Allowed actions |
+| --- | --- |
+| Owner | Create vaults, manage grants and visibility, open the vault, and publish with the vault key. |
+| Editor | Open, import, and publish with the vault key. |
+| Reader | Open and import with the vault key. |
+
+New vaults start restricted. **Allow all members to read** gives current and future
+organization members Reader access. Explicit Editor grants still apply. Clearing a
+grant restores the vault's default access. To revoke a member's read access in an
+organization-wide vault, restrict that vault and grant access to the people who
+should keep it. Owners always have management access. After a transfer, the new
+owner's prior grants are cleared because ownership grants access directly.
+
+Membership and permissions are checked on each server request. Removing or losing
+membership removes that account's grants. Rejoining requires a fresh grant for a
+restricted vault. Permission changes do not remove previously imported records,
+copied keys, or ciphertext retained by a member. Offboarding from the organization
+and revoking credentials on SSH servers are separate operations.
+
+## Storage and upgrade
+
+Migration `008_vault_permissions.sql` adds the vault catalog and grants. An existing
+F67 vault keeps its revision, ciphertext, key, and organization-wide Reader default.
+The older endpoint for the default vault also uses the new access checks. New vaults
+use a separate encryption context for each vault. All writes check the current role,
+the revision, and the vault's existing publication proof. Personal workspace and
+credential snapshots use separate storage and access.
+
+The key stays in the vault screen while it is open. Losing it makes the existing
+published content unreadable. Key rotation is outside this workflow.
 
 ## Manual verification
 
-Use two different verified accounts in the same organization. Publish each category
-from the owner profile. Open it from the member profile with the key, try an incorrect
-key, import each category, then remove the member and confirm the next open is denied.
-Also verify that a member cannot publish, that publishing one category preserves the
-others, and that an existing local conflict leaves the category unchanged. Server and
-desktop regressions are included for the Phase 8 test gate.
+Use two different verified accounts in the same organization. Create two restricted
+vaults and grant the member Reader on one vault. Verify they can open that vault with
+its key and the other vault stays hidden. Promote them to Editor and publish a category.
+Clear their grant and verify the next read and write are denied. Then remove and reinvite
+the member and verify they need a fresh grant. Upgrade a database containing an F67
+vault and verify it still opens with its existing key. Server and desktop regressions
+are included for the Phase 8 test gate.
 
 [Organizations guide](ORGANIZATIONS.md)

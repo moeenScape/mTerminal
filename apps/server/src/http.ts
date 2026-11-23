@@ -24,6 +24,11 @@ import {
   parseOrganizationAction,
 } from '../../../packages/shared/organizations.ts';
 
+import {
+  ORGANIZATION_VAULTS_ROUTE,
+  parseVaultAccessAction,
+} from '../../../packages/shared/organization-vault.ts';
+
 const MAX_BODY = 4096;
 
 function reply(response: ServerResponse, status: number, value: object): void {
@@ -96,6 +101,8 @@ const statuses = {
   'sync-credential-key-exists': 409,
   'sync-vault-locked': 409,
   'sync-vault-unavailable': 503,
+  'organization-vault-denied': 403,
+  'organization-vault-name': 409,
   'organization-vault-empty': 404,
   'organization-vault-local': 503,
   'organization-snippet-conflict': 409,
@@ -213,21 +220,37 @@ export function createAccountServer(
         if (
           (request.method === 'GET' || request.method === 'PUT') &&
           request.url?.startsWith(`${ORGANIZATION_ROUTE}/`) &&
-          request.url.endsWith('/vault')
+          (request.url.endsWith('/vault') || request.url.includes('/vaults/'))
         ) {
           if (active >= 4) throw new AccountFailure('rate-limited');
           active++;
           admitted = true;
-          const organizationId = request.url.slice(ORGANIZATION_ROUTE.length + 1, -'/vault'.length);
-          if (!validAccountId(organizationId)) throw new AccountFailure('invalid-input');
+          const [rawOrg, scope, rawVault, ...extra] = request.url
+            .slice(ORGANIZATION_ROUTE.length + 1)
+            .split('/');
+          const legacy = scope === 'vault' && rawVault === undefined;
+          const selected = legacy ? rawOrg : rawVault;
+          if (
+            !validAccountId(rawOrg) ||
+            !validAccountId(selected) ||
+            (!legacy && scope !== 'vaults') ||
+            extra.length
+          )
+            throw new AccountFailure('invalid-input');
+          const organizationId = rawOrg.toLowerCase();
+          const vaultId = selected.toLowerCase();
           const token = bearer(request);
           await accounts.rateLimit('organization-vault-peer', peerAddress(request, trustProxy), 30);
-          if (request.method === 'GET')
-            return reply(
-              response,
-              200,
-              await accounts.organizationVault(token, organizationId.toLowerCase()),
-            );
+          if (request.method === 'GET') {
+            const snapshot = await accounts.organizationVault(token, organizationId, vaultId);
+            if (legacy && 'envelope' in snapshot)
+              return reply(response, 200, {
+                organizationId,
+                revision: snapshot.revision,
+                envelope: snapshot.envelope,
+              });
+            return reply(response, 200, snapshot);
+          }
           const input = await body(request, true);
           const { expectedRevision, writeProof } = input;
           const envelope = parseSyncEnvelope(input.envelope);
@@ -242,12 +265,26 @@ export function createAccountServer(
           return reply(
             response,
             200,
-            await accounts.organizationVault(token, organizationId.toLowerCase(), {
+            await accounts.organizationVault(token, organizationId, vaultId, {
               expectedRevision,
               envelope,
               writeProof,
             }),
           );
+        }
+        if (request.url === ORGANIZATION_VAULTS_ROUTE && request.method === 'POST') {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit(
+            'organization-vault-policy-peer',
+            peerAddress(request, trustProxy),
+            60,
+          );
+          const action = parseVaultAccessAction(await body(request));
+          if (!action) throw new AccountFailure('invalid-input');
+          return reply(response, 200, await accounts.organizationVaultAccess(token, action));
         }
         if (request.url === ORGANIZATION_ROUTE && request.method === 'POST') {
           if (active >= 4) throw new AccountFailure('rate-limited');

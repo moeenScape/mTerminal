@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import type { Organization } from '../../../../shared/accounts.js';
 import {
   sharedVaultCategories,
   type SharedVaultAction,
   type SharedVaultCategory,
   type SharedVaultView,
+  type VaultDescriptor,
 } from '../../../../shared/organization-vault.js';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
@@ -25,12 +25,16 @@ const importDetails: Record<SharedVaultCategory, string> = {
 };
 
 export function SharedVaultSettings({
-  organization,
+  organizationId,
+  vault,
   busy,
 }: {
-  organization: Organization;
+  organizationId: string;
+  vault: VaultDescriptor;
   busy: boolean;
 }) {
+  const canPublish = vault.access === 'owner' || vault.access === 'editor';
+  const ids = { organizationId, vaultId: vault.id };
   const [key, setKey] = useState('');
   const [view, setView] = useState<SharedVaultView>();
   const [pending, setPending] = useState(false);
@@ -70,10 +74,7 @@ export function SharedVaultSettings({
 
   async function open(kind: 'generate-key' | 'open') {
     try {
-      const organizationId = organization.id;
-      await request(
-        kind === 'open' ? { kind, organizationId, key: key.trim() } : { kind, organizationId },
-      );
+      await request(kind === 'open' ? { kind, ...ids, key: key.trim() } : { kind, ...ids });
     } catch (cause) {
       setView(undefined);
       setError(errorMessage(cause, 'Could not open the shared vault.'));
@@ -81,8 +82,8 @@ export function SharedVaultSettings({
   }
 
   return (
-    <section aria-label={`Shared vault for ${organization.name}`}>
-      <h4>{organization.name} shared vault</h4>
+    <section aria-label={`Shared vault for ${vault.name}`}>
+      <h4>{vault.name} shared vault</h4>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -111,7 +112,7 @@ export function SharedVaultSettings({
           <button className="secondary-button" type="submit" disabled={disabled || !key.trim()}>
             Open vault
           </button>
-          {organization.owner && (!view || view.revision === 0) && (
+          {canPublish && (!view || view.revision === 0) && (
             <button
               className="secondary-button"
               type="button"
@@ -201,7 +202,7 @@ export function SharedVaultSettings({
                   </ul>
                 )}
                 <div className="settings-actions">
-                  {organization.owner && (
+                  {canPublish && (
                     <button
                       className="secondary-button"
                       type="button"
@@ -232,9 +233,7 @@ export function SharedVaultSettings({
       {confirmation && view && (
         <ConfirmDialog
           title={
-            confirmation.kind === 'publish'
-              ? `Publish to ${organization.name}?`
-              : 'Add to this device?'
+            confirmation.kind === 'publish' ? `Publish to ${vault.name}?` : 'Add to this device?'
           }
           confirmLabel={
             confirmation.kind === 'publish' ? 'Publish category' : 'Apply to this device'
@@ -243,7 +242,7 @@ export function SharedVaultSettings({
           onConfirm={async () => {
             await request({
               ...confirmation,
-              organizationId: organization.id,
+              ...ids,
               key: key.trim(),
               revision: view.revision,
             });

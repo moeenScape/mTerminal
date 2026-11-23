@@ -1,4 +1,7 @@
-import { organizationVaultRoute } from '../../../../../packages/shared/organization-vault.ts';
+import {
+  organizationVaultRoute,
+  validVaultGrant,
+} from '../../../../../packages/shared/organization-vault.ts';
 import {
   parseSyncEnvelope,
   validSyncRevision,
@@ -81,18 +84,25 @@ export async function sharedVault(
   secrets: Pick<SshSecretStore, 'listSnippets' | 'mergeSharedSnippets'>,
   preferences: Pick<PreferencesStore, 'preferences' | 'applyPortableSettings'>,
 ): Promise<SharedVaultView> {
-  const { organizationId } = action;
-  const route = organizationVaultRoute(organizationId);
-  const context = `organization-vault:${organizationId}`;
+  const { organizationId, vaultId } = action;
+  const route = organizationVaultRoute(organizationId, vaultId);
+  const context =
+    vaultId === organizationId
+      ? `organization-vault:${organizationId}`
+      : `organization-vault:${organizationId}:${vaultId}`;
   const snapshot = await request(route, 'GET');
-  const { revision } = snapshot;
+  const { revision, access } = snapshot;
   const envelope = parseSyncEnvelope(snapshot.envelope);
   if (
     snapshot.organizationId !== organizationId ||
+    snapshot.vaultId !== vaultId ||
+    (access !== 'owner' && !validVaultGrant(access)) ||
     !validSyncRevision(revision) ||
     (revision === 0 ? snapshot.envelope !== null : envelope?.version !== 1)
   )
     throw new WorkspaceSyncFailure('sync-format');
+  if (access === 'reader' && (action.kind === 'generate-key' || action.kind === 'publish'))
+    throw new WorkspaceSyncFailure('organization-vault-denied');
   if (action.kind === 'generate-key') {
     if (revision !== 0) throw new WorkspaceSyncFailure('sync-exists');
     return { revision, vaultKey: generateSyncKey(ORGANIZATION_VAULT_KEY_PREFIX) };

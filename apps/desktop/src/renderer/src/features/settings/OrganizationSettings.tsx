@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { OrganizationAction, OrganizationView } from '../../../../shared/accounts.js';
-import { SharedVaultSettings } from './SharedVaultSettings';
+import { OrganizationVaults } from './OrganizationVaults';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
 interface PendingChange {
@@ -95,13 +95,13 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
                       className="secondary-button"
                       type="button"
                       disabled={disabled}
-                      aria-label={`Shared vault for ${organization.name}`}
+                      aria-label={`Vaults for ${organization.name}`}
                       aria-expanded={vaultId === organization.id}
                       onClick={() =>
                         setVaultId(vaultId === organization.id ? undefined : organization.id)
                       }
                     >
-                      Shared vault
+                      Vaults
                     </button>
                     {organization.owner ? (
                       <button
@@ -170,7 +170,7 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
         </>
       )}
       {vaultOrganization && (
-        <SharedVaultSettings
+        <OrganizationVaults
           key={vaultOrganization.id}
           organization={vaultOrganization}
           busy={disabled}

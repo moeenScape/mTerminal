@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { Pool } from 'pg';
@@ -9,7 +10,12 @@ import {
   type OrganizationAction,
   type OrganizationView,
 } from '../../../packages/shared/organizations.ts';
-import { organizationVaultRoute } from '../../../packages/shared/organization-vault.ts';
+import {
+  ORGANIZATION_VAULTS_ROUTE,
+  organizationVaultRoute,
+  type VaultAccessAction,
+  type VaultAccessView,
+} from '../../../packages/shared/organization-vault.ts';
 import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts';
 import { createAccounts } from '../src/accounts.ts';
 import { migrateAccounts } from '../src/database.ts';
@@ -77,6 +83,16 @@ test(
         const response = await request(token, body);
         assert.equal(response.status, 200);
         return (await response.json()) as OrganizationView;
+      };
+      const accessRequest = (token: string, action: VaultAccessAction) =>
+        call(ORGANIZATION_VAULTS_ROUTE, 'POST', token, action);
+      const accessView = async (
+        token: string,
+        action: VaultAccessAction,
+      ): Promise<VaultAccessView> => {
+        const response = await accessRequest(token, action);
+        assert.equal(response.status, 200);
+        return (await response.json()) as VaultAccessView;
       };
       const owner = await signUp('owner@example.com');
       const teammate = await signUp('teammate@example.com');
@@ -186,6 +202,58 @@ test(
       assert.equal((await request(teammate, manage)).status, 403);
       assert.equal((await request(owner, invite)).status, 409);
 
+      const listVaults = { kind: 'list', organizationId } as const;
+      assert.equal((await accessRequest(outsider, listVaults)).status, 403);
+      assert.deepEqual((await accessView(teammate, listVaults)).vaults, []);
+      assert.equal((await call(vault, 'GET', teammate)).status, 403);
+      await accessView(owner, {
+        kind: 'visibility',
+        organizationId,
+        vaultId: organizationId,
+        allMembers: true,
+      });
+      const privateVaults = await accessView(owner, {
+        kind: 'create',
+        organizationId,
+        name: 'Private operations',
+      });
+      const privateVaultId = privateVaults.administration?.vaultId;
+      const teammateId = privateVaults.administration?.members[0]?.id;
+      assert.ok(privateVaultId && teammateId);
+      const privateRoute = organizationVaultRoute(organizationId, privateVaultId);
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
+      assert.equal(
+        (await call(organizationVaultRoute(otherOrg, privateVaultId), 'GET', outsider)).status,
+        403,
+      );
+      assert.deepEqual(
+        (await accessView(teammate, listVaults)).vaults.map((item) => item.id),
+        [organizationId],
+      );
+      const grant = {
+        kind: 'grant',
+        organizationId,
+        vaultId: privateVaultId,
+        memberId: teammateId,
+      } as const;
+      assert.equal((await accessRequest(teammate, { ...grant, grant: 'editor' })).status, 403);
+      await accessView(owner, { ...grant, grant: 'reader' });
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 200);
+      assert.equal((await call(privateRoute, 'PUT', teammate, initial)).status, 403);
+      await accessView(owner, { ...grant, grant: 'editor' });
+      const editorWrite = await call(privateRoute, 'PUT', teammate, initial);
+      assert.equal(editorWrite.status, 200);
+      assert.deepEqual(await editorWrite.json(), { revision: 1 });
+      await accessView(owner, { ...grant, grant: null });
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
+      assert.equal(
+        (await call(privateRoute, 'PUT', teammate, { ...initial, expectedRevision: 1 })).status,
+        403,
+      );
+      assert.equal(
+        (await call(organizationVaultRoute(organizationId, organizationId), 'GET', owner)).status,
+        200,
+      );
       const shared = await call(vault, 'GET', teammate);
       assert.equal(shared.status, 200);
       assert.deepEqual(await shared.json(), {
@@ -210,6 +278,7 @@ test(
       const ownUpdate = await call(vault, 'PUT', teammate, update);
       assert.equal(ownUpdate.status, 200);
       assert.deepEqual(await ownUpdate.json(), { revision: 2 });
+      await accessView(teammate, { ...grant, memberId: ownerId, grant: 'editor' });
       const removed = await view(teammate, { kind: 'remove', organizationId, memberId: ownerId });
       assert.equal(removed.roster?.members.length, 1);
       assert.deepEqual((await view(owner)).organizations, []);
@@ -226,6 +295,7 @@ test(
       const rejoin = (await view(owner)).invitations[0]?.id;
       assert.ok(rejoin);
       await view(owner, { kind: 'accept', invitationId: rejoin });
+      assert.equal((await call(privateRoute, 'GET', owner)).status, 403);
       assert.deepEqual((await view(owner, leave)).organizations, []);
       assert.equal((await call(accountRoutes.session, 'DELETE', teammate)).status, 200);
       assert.equal((await call(vault, 'GET', teammate)).status, 401);
@@ -235,6 +305,81 @@ test(
         await new Promise<void>((resolve, reject) =>
           server.close((error) => (error ? reject(error) : resolve())),
         );
+      await pool.end();
+      try {
+        await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      } finally {
+        await admin.end();
+      }
+    }
+  },
+);
+
+test(
+  'migrates a 007 vault without changing its ciphertext, revision, proof or legacy access',
+  { skip: !process.env.MTERMINAL_TEST_DATABASE_URL && 'Set MTERMINAL_TEST_DATABASE_URL.' },
+  async () => {
+    const connectionString = process.env.MTERMINAL_TEST_DATABASE_URL;
+    assert.ok(connectionString);
+    const schema = 'vault_upgrade_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString });
+    const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+    try {
+      await admin.query(`CREATE SCHEMA ${schema}`);
+      const directory = new URL('../migrations/', import.meta.url);
+      const original = (await readdir(directory))
+        .filter((file) => /^00[1-7]_.*\.sql$/.test(file))
+        .sort();
+      assert.equal(original.length, 7);
+      await pool.query('CREATE TABLE mterminal_migrations (version integer PRIMARY KEY)');
+      for (const [index, file] of original.entries()) {
+        await pool.query(await readFile(new URL(file, directory), 'utf8'));
+        await pool.query('INSERT INTO mterminal_migrations VALUES ($1)', [index + 1]);
+      }
+      const owner = randomUUID();
+      const organizationId = randomUUID();
+      await pool.query('INSERT INTO accounts (id,email,password_hash) VALUES ($1,$2,$3)', [
+        owner,
+        'owner@example.com',
+        'fixture',
+      ]);
+      const envelope = { version: 1, ciphertext: 'existing-encrypted-bytes' };
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          'INSERT INTO organizations (id,name,owner_account_id) VALUES ($1,$2,$3)',
+          [organizationId, 'Legacy team', owner],
+        );
+        await client.query(
+          'INSERT INTO organization_members (organization_id,account_id) VALUES ($1,$2)',
+          [organizationId, owner],
+        );
+        await client.query(
+          'INSERT INTO organization_vaults (organization_id,revision,write_hash,envelope) VALUES ($1,4,$2,$3)',
+          [organizationId, 'a'.repeat(64), JSON.stringify(envelope)],
+        );
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      await migrateAccounts(pool);
+      await migrateAccounts(pool);
+      const migrated = await pool.query(
+        `SELECT v.id, v.all_members, d.revision, d.write_hash, d.envelope
+         FROM organization_vault_catalog v JOIN organization_vaults d
+         ON d.organization_id = v.organization_id AND d.vault_id = v.id`,
+      );
+      assert.deepEqual(migrated.rows, [
+        {
+          id: organizationId,
+          all_members: true,
+          revision: 4,
+          write_hash: 'a'.repeat(64),
+          envelope,
+        },
+      ]);
+    } finally {
       await pool.end();
       try {
         await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

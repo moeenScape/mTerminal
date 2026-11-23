@@ -104,6 +104,8 @@ export const accountErrors = {
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',
+  'organization-vault-denied': 'You do not have permission for this shared vault action.',
+  'organization-vault-name': 'A vault with this name already exists in the organization.',
   'organization-vault-empty': 'Open the shared vault with its key and choose a published category.',
   'organization-vault-local':
     'Could not read or update local shared-vault data. Check the local vault and try again.',

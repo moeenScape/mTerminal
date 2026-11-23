@@ -50,6 +50,11 @@ async function changeOrganization(
       'INSERT INTO organization_members (organization_id, account_id) VALUES ($1, $2)',
       [id, account.id],
     );
+    await client.query(
+      `INSERT INTO organization_vault_catalog (id, organization_id, name)
+       VALUES ($1, $1, 'Shared vault')`,
+      [id],
+    );
     return id;
   }
 
@@ -131,6 +136,10 @@ async function changeOrganization(
         [id, memberId],
       );
       if (!changed.rowCount) throw new AccountFailure('organization-member-missing');
+      await client.query(
+        'DELETE FROM organization_vault_grants WHERE organization_id = $1 AND account_id = $2',
+        [id, memberId],
+      );
       return;
     }
     const removed = await client.query(
