@@ -370,7 +370,7 @@ export async function createMainWindow(
   const broadcasts = attachBroadcast(window, rendererUrl, terminals);
   attachForwards(window, rendererUrl, terminals, database);
   attachSerial(window, rendererUrl, terminals, database, diagnostics);
-  attachAccounts(window, rendererUrl, database, secrets);
+  attachAccounts(window, rendererUrl, database, secrets, store);
   attachFiles(
     window,
     rendererUrl,
@@ -491,7 +491,7 @@ export async function createMainWindow(
     terminals.suspend(true);
     closing = true;
     void store
-      .save(store.preferences, {
+      .saveWindow({
         width: bounds.width,
         height: bounds.height,
         maximized: window.isMaximized(),

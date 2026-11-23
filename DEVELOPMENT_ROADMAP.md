@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M5 — Shared vaults and collaboration |
-| Active feature | F66 implemented — organization invitations, membership, ownership, and offboarding |
-| Next step | F67 Shared vaults. Phase 7 verification and security review remain open |
+| Active feature | F67 implemented — one encrypted shared vault per organization |
+| Next step | F68 Permissions. Phase 7 verification and security review remain open |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -239,7 +239,7 @@ Removing a directory entry does not revoke public keys already installed on remo
 Dependencies: Phase 7 with reviewed authorization and encryption boundaries.
 
 - [x] **F66 — Organizations (implementation):** Create organizations, invite verified accounts through an in-app inbox, accept or decline, transfer ownership, and remove members. Server checks account sessions and ownership on every operation. Tests written for the Phase 8 gate. See `docs/ORGANIZATIONS.md`.
-- [ ] **F67 — Shared vaults:** Hosts, identities, snippets, and settings.
+- [x] **F67 — Shared vaults (implementation):** One revisioned encrypted vault per organization. Owners publish host and identity profiles, snippets, and portable settings. Members with the key can preview and explicitly import categories. Regressions written for the Phase 8 gate. See `docs/SHARED_VAULTS.md`.
 - [ ] **F68 — Permissions:** Multiple vaults and server-enforced authorization.
 - [ ] **F69 — Shared logs:** Access controls, retention, bookmarks, and comments.
 - [ ] **F70 — Multiplayer:** Authorized invitations, encrypted relay, typing ownership, and revocation.
@@ -1846,3 +1846,18 @@ removes team membership while preserving the account's personal workspace.
 `npm run check`, `npm run build`, and the built main and preload syntax checks passed.
 PostgreSQL and desktop regressions were written and deferred. Live migration and
 multi-account acceptance remain pending. Next is F67 — Shared vaults.
+
+### 2026-11-23 — F67 Shared vaults
+
+Each organization has one encrypted vault for host and identity profiles, snippets,
+and portable settings. An owner publishes one category at a time, and each current
+member can open the vault with the shared key and explicitly import a category.
+Migration 007 stores a separate revisioned snapshot. Reads require current membership,
+and writes require current ownership and the expected revision. Local host and snippet
+conflicts leave the existing category intact. Shared snapshots omit SSH secrets and startup
+assignments. Offboarding ends server access while retained keys and local copies remain
+with the former member.
+
+`npm run check`, `npm run build`, and built main and preload syntax checks passed.
+Server, unit, and desktop regressions were written and deferred. Live migration and
+cross-account desktop verification remain pending. Next is F68 — Permissions.

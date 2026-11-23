@@ -26,18 +26,14 @@ import {
 const KEY_PREFIX = 'mterminal-sync-v1_';
 const TAG_BYTES = 16;
 
-export function generateSyncKey(): string {
-  return KEY_PREFIX + randomBytes(32).toString('base64url');
+export function generateSyncKey(prefix = KEY_PREFIX): string {
+  return prefix + randomBytes(32).toString('base64url');
 }
 
-export function decodeSyncKey(value: unknown): Buffer {
-  if (
-    typeof value !== 'string' ||
-    value.length !== KEY_PREFIX.length + 43 ||
-    !value.startsWith(KEY_PREFIX)
-  )
+export function decodeSyncKey(value: unknown, prefix = KEY_PREFIX): Buffer {
+  if (typeof value !== 'string' || value.length !== prefix.length + 43 || !value.startsWith(prefix))
     throw new WorkspaceSyncFailure('sync-key');
-  const encoded = value.slice(KEY_PREFIX.length);
+  const encoded = value.slice(prefix.length);
   const key = Buffer.from(encoded, 'base64url');
   if (key.length !== 32 || key.toString('base64url') !== encoded) {
     key.fill(0);
@@ -232,7 +228,7 @@ export async function writeCloudWorkspace(
 }
 
 export async function writeSyncPayload(
-  snapshot: SyncSnapshot,
+  snapshot: Pick<SyncSnapshot, 'revision'>,
   value: unknown,
   key: Buffer,
   request: SyncRequest,

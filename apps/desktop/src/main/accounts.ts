@@ -56,6 +56,16 @@ import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sy
 import { SyncPreferenceStore } from './storage/sync-preferences.js';
 import { credentialOwners, syncCredential } from './storage/credential-sync.js';
 
+import type { PreferencesStore } from './preferences.js';
+import { PORTABLE_PREFERENCES_CHANGED } from '../shared/preferences.js';
+import { SNIPPETS_CHANGED } from '../shared/snippets.js';
+import {
+  ORGANIZATION_VAULT_REQUEST,
+  parseSharedVaultAction,
+  type SharedVaultReply,
+} from '../shared/organization-vault.js';
+import { sharedVault } from './storage/organization-vault.js';
+
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
 
@@ -234,6 +244,7 @@ export function attachAccounts(
   rendererUrl: string,
   database: LocalDatabase,
   secrets: SshSecretStore,
+  preferences: PreferencesStore,
 ): void {
   const deviceId = database.workspaceId;
   const origin = accountOrigin(process.env.MTERMINAL_ACCOUNT_URL);
@@ -816,12 +827,44 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    ORGANIZATION_VAULT_REQUEST,
+    async (event, ...args: unknown[]): Promise<SharedVaultReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const action = args.length === 1 ? parseSharedVaultAction(args[0]) : undefined;
+      if (!action) return { ok: false, code: 'invalid-input' };
+      try {
+        const view = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          const result = await sharedVault(action, syncRequest, database, secrets, preferences);
+          if (action.kind === 'import' && !window.webContents.isDestroyed()) {
+            if (action.category === 'snippets') window.webContents.send(SNIPPETS_CHANGED);
+            if (action.category === 'settings')
+              window.webContents.send(PORTABLE_PREFERENCES_CHANGED, result.document?.settings);
+          }
+          return result;
+        });
+        return { ok: true, view };
+      } catch (error) {
+        if (error instanceof AppFailure && error.code === 'vault-locked')
+          return { ok: false, code: 'sync-vault-locked' };
+        const code =
+          error instanceof AccountFailure || error instanceof WorkspaceSyncFailure
+            ? error.code
+            : 'organization-vault-local';
+        return { ok: false, code };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
     ipcMain.removeHandler(DEVICE_DIRECTORY_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_REQUEST);
+    ipcMain.removeHandler(ORGANIZATION_VAULT_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
     ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });

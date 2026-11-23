@@ -39,7 +39,11 @@ import {
   type TerminalOpenResult,
 } from '../shared/terminal.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
-import { PREFERENCES_GET, PREFERENCES_SAVE } from '../shared/preferences.js';
+import {
+  PREFERENCES_GET,
+  PREFERENCES_SAVE,
+  PORTABLE_PREFERENCES_CHANGED,
+} from '../shared/preferences.js';
 import {
   vaultChannels,
   vaultEvents,
@@ -58,6 +62,12 @@ import {
   ORGANIZATION_REQUEST,
   type OrganizationResult,
 } from '../shared/accounts.js';
+import {
+  ORGANIZATION_VAULT_REQUEST,
+  sharedVaultErrors,
+  type SharedVaultReply,
+  type SharedVaultSettings,
+} from '../shared/organization-vault.js';
 import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
 import {
   SYNC_QUEUE_CHANGED,
@@ -114,6 +124,19 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 }
 
 const api: DesktopApi = {
+  organizationVault: async (action) => {
+    const reply: SharedVaultReply = await ipcRenderer.invoke(ORGANIZATION_VAULT_REQUEST, action);
+    if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);
+    return reply.view;
+  },
+  onPortablePreferencesChanged: (listener) => {
+    const notify = (_event: Electron.IpcRendererEvent, settings: SharedVaultSettings) =>
+      listener(settings);
+    ipcRenderer.on(PORTABLE_PREFERENCES_CHANGED, notify);
+    return () => {
+      ipcRenderer.removeListener(PORTABLE_PREFERENCES_CHANGED, notify);
+    };
+  },
   syncPreferences: async (action) => {
     const result: SyncPreferenceReply = await ipcRenderer.invoke(SYNC_PREFERENCES_REQUEST, action);
     if (!result.ok) throw new Error(accountErrors[result.code]);

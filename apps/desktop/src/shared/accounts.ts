@@ -4,6 +4,7 @@ import type {
   DeviceDirectoryKey,
 } from '../../../../packages/shared/accounts.ts';
 import type {
+  Organization,
   OrganizationAction,
   OrganizationView,
 } from '../../../../packages/shared/organizations.ts';
@@ -56,4 +57,10 @@ export interface AccountApi {
   account: (action: AccountAction) => Promise<AccountResponse>;
 }
 
-export type { AccountSummary, DeviceDirectoryKey, OrganizationAction, OrganizationView };
+export type {
+  AccountSummary,
+  DeviceDirectoryKey,
+  Organization,
+  OrganizationAction,
+  OrganizationView,
+};

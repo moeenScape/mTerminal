@@ -10,6 +10,7 @@ import {
   ORGANIZATION_ROUTE,
   type OrganizationView,
 } from '../../../../packages/shared/organizations.ts';
+import { organizationVaultRoute } from '../../../../packages/shared/organization-vault.ts';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
@@ -27,6 +28,10 @@ test('creates an account, enables an authenticator, and signs out from Settings'
   let deviceId = '';
   let deviceName = 'E2E machine';
   const organizationId = '05e9f162-d3cd-4c8f-a70a-2323a1751a9b';
+  const vaultRoute = organizationVaultRoute(organizationId);
+  let sharedRevision = 0;
+  let sharedEnvelope: ReturnType<typeof parseSyncEnvelope> | null = null;
+  let sharedBody = '';
   const orgView: OrganizationView = { organizations: [], invitations: [] };
   let verified = false;
   let signedOut = false;
@@ -81,6 +86,22 @@ test('creates an account, enables an authenticator, and signs out from Settings'
       request.headers.authorization === `Bearer ${token}`
     )
       return write(200, { keys: [] });
+    if (request.url === vaultRoute && request.headers.authorization === `Bearer ${token}`) {
+      if (request.method === 'GET')
+        return write(200, { organizationId, revision: sharedRevision, envelope: sharedEnvelope });
+      if (request.method === 'PUT') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(chunk as Buffer);
+        sharedBody = Buffer.concat(chunks).toString('utf8');
+        const input = JSON.parse(sharedBody) as Record<string, unknown>;
+        const envelope = parseSyncEnvelope(input.envelope);
+        if (envelope && input.expectedRevision === sharedRevision) {
+          sharedEnvelope = envelope;
+          return write(200, { revision: ++sharedRevision });
+        }
+      }
+      return write(409, { code: 'sync-conflict' });
+    }
     if (request.method === 'POST') {
       const parts: Buffer[] = [];
       for await (const chunk of request) parts.push(chunk as Buffer);
@@ -244,6 +265,21 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     await expect(roster.getByRole('list', { name: 'Outgoing invitations' })).toContainText(
       'member@example.com',
     );
+    await organizations.getByRole('button', { name: 'Shared vault for Release team' }).click();
+    const sharedVault = organizations.getByRole('region', {
+      name: 'Shared vault for Release team',
+    });
+    await sharedVault.getByRole('button', { name: 'Generate vault key' }).click();
+    const sharedKey = sharedVault.getByLabel('Shared vault key');
+    await expect(sharedKey).toHaveValue(/^mterminal-org-v1_/);
+    await sharedVault.getByRole('button', { name: 'Publish settings' }).click();
+    await page
+      .getByRole('dialog', { name: 'Publish to Release team?' })
+      .getByRole('button', { name: 'Publish category' })
+      .click();
+    await expect(sharedVault).toContainText('Published vault revision 1.');
+    expect(sharedBody).not.toContain(await sharedKey.inputValue());
+    expect(sharedBody).not.toContain('appearance');
     const devices = section.getByRole('region', { name: 'Account devices' });
     await devices.getByRole('button', { name: 'Rename E2E machine' }).click();
     await devices.getByLabel('Device name', { exact: true }).fill('Travel laptop');

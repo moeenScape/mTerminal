@@ -9,6 +9,7 @@ import {
   type OrganizationAction,
   type OrganizationView,
 } from '../../../packages/shared/organizations.ts';
+import { organizationVaultRoute } from '../../../packages/shared/organization-vault.ts';
 import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts';
 import { createAccounts } from '../src/accounts.ts';
 import { migrateAccounts } from '../src/database.ts';
@@ -96,6 +97,41 @@ test(
       const organizationId = created.organizations[0]?.id;
       const ownerId = created.roster?.members[0]?.id;
       assert.ok(organizationId && ownerId && created.roster?.members[0]?.owner);
+      const vault = organizationVaultRoute(organizationId);
+      const initial = {
+        expectedRevision: 0,
+        envelope: {
+          version: 1,
+          nonce: 'n'.repeat(16),
+          tag: 't'.repeat(22),
+          ciphertext: 'Y2lwaGVy',
+        },
+        writeProof: 'p'.repeat(43),
+      };
+      const empty = await call(vault, 'GET', owner);
+      assert.equal(empty.status, 200);
+      assert.deepEqual(await empty.json(), { organizationId, revision: 0, envelope: null });
+      assert.equal((await call(vault, 'GET')).status, 401);
+      assert.equal((await call(vault, 'GET', outsider)).status, 403);
+      assert.equal((await call(vault, 'PUT', outsider, initial)).status, 403);
+      assert.equal(
+        (await call(vault, 'PUT', owner, { ...initial, plaintext: 'rejected' })).status,
+        400,
+      );
+      const saved = await call(vault, 'PUT', owner, initial);
+      assert.equal(saved.status, 200);
+      assert.deepEqual(await saved.json(), { revision: 1 });
+      assert.equal((await call(vault, 'PUT', owner, initial)).status, 409);
+      assert.equal(
+        (
+          await call(vault, 'PUT', owner, {
+            ...initial,
+            expectedRevision: 1,
+            writeProof: 'q'.repeat(43),
+          })
+        ).status,
+        409,
+      );
       const manage = { kind: 'manage', organizationId } as const;
       const leave = { kind: 'leave', organizationId } as const;
       assert.equal((await request(owner, leave)).status, 409);
@@ -109,6 +145,18 @@ test(
       const accept = { kind: 'accept', invitationId: firstInvite } as const;
       assert.deepEqual(await view(outsider), { organizations: [], invitations: [] });
       assert.equal((await request(outsider, accept)).status, 404);
+      const otherOrg = (await view(outsider, { kind: 'create', name: 'Other team' }))
+        .organizations[0]?.id;
+      assert.ok(otherOrg);
+      const isolatedVault = await call(organizationVaultRoute(otherOrg), 'GET', outsider);
+      assert.equal(isolatedVault.status, 200);
+      assert.deepEqual(await isolatedVault.json(), {
+        organizationId: otherOrg,
+        revision: 0,
+        envelope: null,
+      });
+      assert.equal((await call(vault, 'GET', outsider)).status, 403);
+
       await view(owner, { kind: 'cancel-invite', organizationId, invitationId: firstInvite });
       assert.equal((await request(teammate, accept)).status, 404);
 
@@ -138,6 +186,15 @@ test(
       assert.equal((await request(teammate, manage)).status, 403);
       assert.equal((await request(owner, invite)).status, 409);
 
+      const shared = await call(vault, 'GET', teammate);
+      assert.equal(shared.status, 200);
+      assert.deepEqual(await shared.json(), {
+        organizationId,
+        revision: 1,
+        envelope: initial.envelope,
+      });
+      const update = { ...initial, expectedRevision: 1 };
+      assert.equal((await call(vault, 'PUT', teammate, update)).status, 403);
       const memberId = (await view(owner, manage)).roster?.members.find(
         (member) => !member.owner,
       )?.id;
@@ -149,10 +206,15 @@ test(
       assert.equal(transferred.roster, undefined);
       assert.equal((await request(owner, manage)).status, 403);
       assert.equal((await request(teammate, leave)).status, 409);
+      assert.equal((await call(vault, 'PUT', owner, update)).status, 403);
+      const ownUpdate = await call(vault, 'PUT', teammate, update);
+      assert.equal(ownUpdate.status, 200);
+      assert.deepEqual(await ownUpdate.json(), { revision: 2 });
       const removed = await view(teammate, { kind: 'remove', organizationId, memberId: ownerId });
       assert.equal(removed.roster?.members.length, 1);
       assert.deepEqual((await view(owner)).organizations, []);
       assert.equal((await request(owner, manage)).status, 403);
+      assert.equal((await call(vault, 'GET', owner)).status, 403);
       assert.equal((await call(WORKSPACE_SYNC_ROUTE, 'GET', owner)).status, 200);
 
       await view(teammate, { ...invite, email: 'owner@example.com' });
@@ -166,6 +228,7 @@ test(
       await view(owner, { kind: 'accept', invitationId: rejoin });
       assert.deepEqual((await view(owner, leave)).organizations, []);
       assert.equal((await call(accountRoutes.session, 'DELETE', teammate)).status, 200);
+      assert.equal((await call(vault, 'GET', teammate)).status, 401);
       assert.equal((await request(teammate, manage)).status, 401);
     } finally {
       if (server.listening)

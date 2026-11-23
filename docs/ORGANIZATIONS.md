@@ -36,4 +36,4 @@ outside the group to check invitation isolation. Verify creation, invitation exp
 cancellation, acceptance, ownership transfer, and removal. After removal, refresh the former
 member's view and verify they can still access their personal workspace.
 
-[Account service setup](ACCOUNTS.md#run-locally)
+[Account service setup](ACCOUNTS.md#run-locally) · [Shared vaults](SHARED_VAULTS.md)

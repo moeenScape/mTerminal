@@ -19,6 +19,7 @@ import { lstat, mkdir, open, readFile, rename, rm, chmod, readdir, link } from '
 import { join } from 'node:path';
 import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
+import { WorkspaceSyncFailure } from '../../shared/workspace-sync.js';
 import { AppFailure } from '../failures.js';
 import type { SshPasswordStatus } from '../../shared/vault.js';
 import { validateSshCredentials, formatSshPublicKey } from '../../shared/ssh.js';
@@ -560,6 +561,33 @@ export class SshSecretStore {
   }
   listSnippets(): Promise<Snippet[]> {
     return this.serialize(async () => (await this.readSnippetCatalog()).snippets);
+  }
+  mergeSharedSnippets(value: unknown): Promise<number> {
+    const { snippets } = validateSnippetCatalog({ version: 1, snippets: value });
+    return this.serialize(async () => {
+      const catalog = await this.readSnippetCatalog();
+      const ids = new Map(catalog.snippets.map((snippet) => [snippet.id, snippet]));
+      const nameKey = (snippet: Snippet) =>
+        JSON.stringify([snippet.folder, snippet.name.toLowerCase()]);
+      const names = new Set(catalog.snippets.map(nameKey));
+      const additions: Snippet[] = [];
+      for (const snippet of snippets) {
+        const prior = ids.get(snippet.id);
+        if (prior && JSON.stringify(prior) === JSON.stringify(snippet)) continue;
+        if (prior || names.has(nameKey(snippet)))
+          throw new WorkspaceSyncFailure('organization-snippet-conflict');
+        additions.push(snippet);
+        names.add(nameKey(snippet));
+      }
+      if (catalog.snippets.length + additions.length > MAX_SNIPPETS)
+        throw new AppFailure('snippet-limit');
+      if (additions.length)
+        await this.writeSnippetCatalog({
+          ...catalog,
+          snippets: [...catalog.snippets, ...additions],
+        });
+      return additions.length;
+    });
   }
   saveSnippet(value: unknown, id?: string): Promise<Snippet> {
     const draft = validateSnippet(value);

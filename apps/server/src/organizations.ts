@@ -20,7 +20,10 @@ async function checkMembershipLimit(client: PoolClient, accountId: string): Prom
   if (count.rows[0]!.count >= MEMBERSHIP_LIMIT) throw new AccountFailure('organization-limit');
 }
 
-async function lockOrganization(client: PoolClient, organizationId: string): Promise<string> {
+export async function lockOrganization(
+  client: PoolClient,
+  organizationId: string,
+): Promise<string> {
   const org = await client.query<{ owner_account_id: string }>(
     'SELECT owner_account_id FROM organizations WHERE id = $1 FOR UPDATE',
     [organizationId],

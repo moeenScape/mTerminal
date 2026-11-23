@@ -1,5 +1,6 @@
 export const PREFERENCES_GET = 'preferences:get';
 export const PREFERENCES_SAVE = 'preferences:save';
+export const PORTABLE_PREFERENCES_CHANGED = 'preferences:portable-changed';
 export interface Preferences {
   appearance: 'dark' | 'light';
   defaultShell: string;

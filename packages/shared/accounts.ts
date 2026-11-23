@@ -104,6 +104,11 @@ export const accountErrors = {
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',
+  'organization-vault-empty': 'Open the shared vault with its key and choose a published category.',
+  'organization-vault-local':
+    'Could not read or update local shared-vault data. Check the local vault and try again.',
+  'organization-snippet-conflict':
+    'A local snippet has the same ID or name with different contents. No snippets were added.',
   'organization-denied': 'You do not have access to manage this organization.',
   'organization-owner': 'The owner must transfer ownership to another member before leaving.',
   'organization-member-missing': 'This account is no longer a member of the organization.',

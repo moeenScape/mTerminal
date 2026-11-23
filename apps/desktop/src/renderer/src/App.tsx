@@ -77,6 +77,14 @@ export function App() {
     };
   }, []);
 
+  useEffect(
+    () =>
+      window.mterminal.onPortablePreferencesChanged((values) =>
+        setPreferences((current) => ({ ...current, ...values })),
+      ),
+    [],
+  );
+
   useEffect(() => {
     let mounted = true;
     void window.mterminal

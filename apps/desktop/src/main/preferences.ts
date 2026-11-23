@@ -6,6 +6,8 @@ import {
   type Preferences,
 } from '../shared/preferences.js';
 
+import type { SharedVaultSettings } from '../shared/organization-vault.js';
+
 interface WindowState {
   width: number;
   height: number;
@@ -57,10 +59,22 @@ export class PreferencesStore {
   get window(): WindowState {
     return { ...this.state.window };
   }
-  save(preferences: Preferences, window = this.state.window): Promise<void> {
+  save(preferences: Preferences): Promise<void> {
     const validated = validatePreferences(preferences);
+    return this.saveState((current) => ({ ...current, preferences: validated }));
+  }
+  saveWindow(window: WindowState): Promise<void> {
+    return this.saveState((current) => ({ ...current, window }));
+  }
+  applyPortableSettings(values: SharedVaultSettings): Promise<void> {
+    return this.saveState((current) => ({
+      ...current,
+      preferences: validatePreferences({ ...current.preferences, ...values }),
+    }));
+  }
+  private saveState(update: (current: Settings) => Settings): Promise<void> {
     const operation = this.writes.then(async () => {
-      const next: Settings = { version: 1, preferences: validated, window };
+      const next = update(this.state);
       await mkdir(dirname(this.path), { recursive: true });
       await writeFile(this.path + '.tmp', JSON.stringify(next, null, 2), { mode: 0o600 });
       await rename(this.path + '.tmp', this.path);

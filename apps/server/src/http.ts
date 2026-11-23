@@ -96,6 +96,9 @@ const statuses = {
   'sync-credential-key-exists': 409,
   'sync-vault-locked': 409,
   'sync-vault-unavailable': 503,
+  'organization-vault-empty': 404,
+  'organization-vault-local': 503,
+  'organization-snippet-conflict': 409,
   'organization-denied': 403,
   'organization-owner': 409,
   'organization-member-missing': 404,
@@ -206,6 +209,45 @@ export function createAccountServer(
           await accounts.rateLimit('device-peer', peerAddress(request, trustProxy), 50);
           const action = request.method === 'POST' ? await body(request) : undefined;
           return reply(response, 200, await accounts.deviceDirectory(token, action));
+        }
+        if (
+          (request.method === 'GET' || request.method === 'PUT') &&
+          request.url?.startsWith(`${ORGANIZATION_ROUTE}/`) &&
+          request.url.endsWith('/vault')
+        ) {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const organizationId = request.url.slice(ORGANIZATION_ROUTE.length + 1, -'/vault'.length);
+          if (!validAccountId(organizationId)) throw new AccountFailure('invalid-input');
+          const token = bearer(request);
+          await accounts.rateLimit('organization-vault-peer', peerAddress(request, trustProxy), 30);
+          if (request.method === 'GET')
+            return reply(
+              response,
+              200,
+              await accounts.organizationVault(token, organizationId.toLowerCase()),
+            );
+          const input = await body(request, true);
+          const { expectedRevision, writeProof } = input;
+          const envelope = parseSyncEnvelope(input.envelope);
+          if (
+            Object.keys(input).length !== 3 ||
+            envelope?.version !== 1 ||
+            !validAccountToken(writeProof) ||
+            !validSyncRevision(expectedRevision) ||
+            expectedRevision >= SYNC_MAX_REVISION
+          )
+            throw new AccountFailure('sync-format');
+          return reply(
+            response,
+            200,
+            await accounts.organizationVault(token, organizationId.toLowerCase(), {
+              expectedRevision,
+              envelope,
+              writeProof,
+            }),
+          );
         }
         if (request.url === ORGANIZATION_ROUTE && request.method === 'POST') {
           if (active >= 4) throw new AccountFailure('rate-limited');

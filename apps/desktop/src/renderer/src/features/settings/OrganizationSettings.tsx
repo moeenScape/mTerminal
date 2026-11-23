@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { OrganizationAction, OrganizationView } from '../../../../shared/accounts.js';
+import { SharedVaultSettings } from './SharedVaultSettings';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
 interface PendingChange {
@@ -15,6 +16,8 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [confirmation, setConfirmation] = useState<PendingChange>();
+  const [vaultId, setVaultId] = useState<string>();
+  const vaultOrganization = view?.organizations.find((organization) => organization.id === vaultId);
   const roster = view?.roster;
   const managed = view?.organizations.find(
     (organization) => organization.id === roster?.organizationId,
@@ -88,6 +91,18 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
                 <li key={organization.id}>
                   {organization.name} · {organization.owner ? 'Owner' : 'Member'}
                   <div className="settings-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={disabled}
+                      aria-label={`Shared vault for ${organization.name}`}
+                      aria-expanded={vaultId === organization.id}
+                      onClick={() =>
+                        setVaultId(vaultId === organization.id ? undefined : organization.id)
+                      }
+                    >
+                      Shared vault
+                    </button>
                     {organization.owner ? (
                       <button
                         className="secondary-button"
@@ -153,6 +168,13 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
             </ul>
           )}
         </>
+      )}
+      {vaultOrganization && (
+        <SharedVaultSettings
+          key={vaultOrganization.id}
+          organization={vaultOrganization}
+          busy={disabled}
+        />
       )}
       {roster && managed && (
         <section aria-label={`Manage ${managed.name}`}>
