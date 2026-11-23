@@ -104,6 +104,12 @@ export const accountErrors = {
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',
+  'shared-log-missing': 'This shared recording has expired or been removed.',
+  'shared-log-limit': 'The vault has reached its shared recording or annotation limit.',
+  'shared-log-line': 'Choose a line that exists in this recording.',
+  'shared-log-local': 'Unlock the local vault and choose a completed recording.',
+  'shared-log-key':
+    'Use the current key for this shared vault. Publish a vault category first if it is empty.',
   'organization-vault-denied': 'You do not have permission for this shared vault action.',
   'organization-vault-name': 'A vault with this name already exists in the organization.',
   'organization-vault-empty': 'Open the shared vault with its key and choose a published category.',

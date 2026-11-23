@@ -108,15 +108,12 @@ export async function vaultAccessView(
   return result;
 }
 
-export async function vaultSnapshot(
+export async function requireVaultAccess(
   client: PoolClient,
   accountId: string,
   organizationId: string,
   vaultId: string,
-  write?: OrganizationVaultWrite,
-): Promise<
-  (OrganizationVaultSnapshot & { vaultId: string; access: VaultAccess }) | { revision: number }
-> {
+): Promise<VaultAccess> {
   const owner = await organizationOwner(client, organizationId, accountId);
   const result = await client.query<{ all_members: boolean; access: VaultGrant | null }>(
     `SELECT v.all_members, g.access FROM organization_vault_catalog v
@@ -128,9 +125,22 @@ export async function vaultSnapshot(
   const vault = result.rows[0];
   if (!vault) throw new AccountFailure('organization-vault-denied');
   const access = owner ? 'owner' : (vault.access ?? (vault.all_members ? 'reader' : undefined));
-  if (!access || (write && access === 'reader'))
-    throw new AccountFailure('organization-vault-denied');
+  if (!access) throw new AccountFailure('organization-vault-denied');
+  return access;
+}
+
+export async function vaultSnapshot(
+  client: PoolClient,
+  accountId: string,
+  organizationId: string,
+  vaultId: string,
+  write?: OrganizationVaultWrite,
+): Promise<
+  (OrganizationVaultSnapshot & { vaultId: string; access: VaultAccess }) | { revision: number }
+> {
+  const access = await requireVaultAccess(client, accountId, organizationId, vaultId);
   if (write) {
+    if (access === 'reader') throw new AccountFailure('organization-vault-denied');
     const { expectedRevision, envelope, writeProof } = write;
     const hash = createHash('sha256').update(writeProof).digest('hex');
     const revision = expectedRevision + 1;

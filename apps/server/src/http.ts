@@ -29,6 +29,8 @@ import {
   parseVaultAccessAction,
 } from '../../../packages/shared/organization-vault.ts';
 
+import { SHARED_LOGS_ROUTE, parseSharedLogRequest } from '../../../packages/shared/shared-logs.ts';
+
 const MAX_BODY = 4096;
 
 function reply(response: ServerResponse, status: number, value: object): void {
@@ -101,6 +103,11 @@ const statuses = {
   'sync-credential-key-exists': 409,
   'sync-vault-locked': 409,
   'sync-vault-unavailable': 503,
+  'shared-log-missing': 404,
+  'shared-log-limit': 409,
+  'shared-log-line': 400,
+  'shared-log-local': 409,
+  'shared-log-key': 409,
   'organization-vault-denied': 403,
   'organization-vault-name': 409,
   'organization-vault-empty': 404,
@@ -271,6 +278,16 @@ export function createAccountServer(
               writeProof,
             }),
           );
+        }
+        if (request.url === SHARED_LOGS_ROUTE && request.method === 'POST') {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit('shared-logs-peer', peerAddress(request, trustProxy), 40);
+          const action = parseSharedLogRequest(await body(request, true));
+          if (!action) throw new AccountFailure('invalid-input');
+          return reply(response, 200, await accounts.sharedLogs(token, action));
         }
         if (request.url === ORGANIZATION_VAULTS_ROUTE && request.method === 'POST') {
           if (active >= 4) throw new AccountFailure('rate-limited');

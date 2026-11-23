@@ -74,6 +74,14 @@ import {
 } from '../../../../packages/shared/organization-vault.ts';
 import { sharedVault } from './storage/organization-vault.js';
 
+import { SHARED_LOGS_ROUTE } from '../../../../packages/shared/shared-logs.ts';
+import {
+  SHARED_LOGS_REQUEST,
+  parseSharedLogAction,
+  type SharedLogsReply,
+} from '../shared/shared-logs.js';
+import { sharedLogs } from './storage/shared-logs.js';
+
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
 
@@ -935,6 +943,60 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(
+    SHARED_LOGS_REQUEST,
+    async (event, ...args: unknown[]): Promise<SharedLogsReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const action = args.length === 1 ? parseSharedLogAction(args[0]) : undefined;
+      if (!action) return { ok: false, code: 'invalid-input' };
+      try {
+        const view = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          return sharedLogs(
+            action,
+            async (payload) => {
+              try {
+                return await request(SHARED_LOGS_ROUTE, 'POST', payload, SYNC_HTTP_LIMIT);
+              } catch (error) {
+                if (error instanceof AccountFailure && error.code === 'sign-in-required')
+                  await clearToken();
+                throw error;
+              }
+            },
+            () => secrets.listSessionLogs(),
+            async (title) => {
+              const access = vaultAccessResponse(
+                await request(ORGANIZATION_VAULTS_ROUTE, 'POST', {
+                  kind: 'list',
+                  organizationId: action.organizationId,
+                }),
+              );
+              const vault = access.vaults.find(({ id }) => id === action.vaultId);
+              if (!vault || vault.access === 'reader')
+                throw new AccountFailure('organization-vault-denied');
+              return confirmAccountAction(
+                `Share “${title}” with “${vault.name}”?`,
+                'The recording may contain credentials or sensitive command output. Anyone with access to the vault and its key can read the shared copy. Local notes and bookmarks stay on this device.',
+                'Share recording',
+                'Shared session logs',
+              );
+            },
+          );
+        });
+        return { ok: true, view };
+      } catch (error) {
+        const code =
+          error instanceof AccountFailure || error instanceof WorkspaceSyncFailure
+            ? error.code
+            : error instanceof AppFailure
+              ? 'shared-log-local'
+              : 'sync-format';
+        return { ok: false, code };
+      }
+    },
+  );
   window.once('closed', () => {
     review.clear();
     publication?.dispose();
@@ -943,6 +1005,7 @@ export function attachAccounts(
     ipcMain.removeHandler(ORGANIZATION_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_VAULT_REQUEST);
     ipcMain.removeHandler(VAULT_ACCESS_REQUEST);
+    ipcMain.removeHandler(SHARED_LOGS_REQUEST);
     ipcMain.removeHandler(SYNC_WORKSPACE_REQUEST);
     ipcMain.removeHandler(SYNC_PREFERENCES_REQUEST);
   });

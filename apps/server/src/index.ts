@@ -4,6 +4,8 @@ import { createAccounts } from './accounts.ts';
 import { migrateAccounts } from './database.ts';
 import { createAccountServer } from './http.ts';
 
+import { purgeSharedLogs } from './shared-logs.ts';
+
 async function start(): Promise<void> {
   const {
     DATABASE_URL,
@@ -63,6 +65,7 @@ async function start(): Promise<void> {
   pool.on('error', () => console.error('An idle account database connection failed.'));
   try {
     await migrateAccounts(pool);
+    await purgeSharedLogs(pool);
     const server = createAccountServer(
       createAccounts(
         pool,
@@ -84,7 +87,18 @@ async function start(): Promise<void> {
       server.listen(port, '127.0.0.1', resolve);
     });
     console.log(`mTerminal account service listening on 127.0.0.1:${port}`);
-    const stop = () => server.close(() => void pool.end());
+    const cleanup = setInterval(
+      () => {
+        void purgeSharedLogs(pool).catch(() =>
+          console.error('Expired shared logs could not be cleared.'),
+        );
+      },
+      60 * 60 * 1000,
+    ).unref();
+    const stop = () => {
+      clearInterval(cleanup);
+      server.close(() => void pool.end());
+    };
     process.once('SIGTERM', stop);
     process.once('SIGINT', stop);
   } catch (error) {

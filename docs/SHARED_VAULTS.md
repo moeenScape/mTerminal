@@ -73,4 +73,4 @@ the member and verify they need a fresh grant. Upgrade a database containing an 
 vault and verify it still opens with its existing key. Server and desktop regressions
 are included for the Phase 8 test gate.
 
-[Organizations guide](ORGANIZATIONS.md)
+[Organizations guide](ORGANIZATIONS.md) · [Shared session logs](SHARED_LOGS.md)

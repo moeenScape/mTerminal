@@ -82,7 +82,7 @@ function encryptDocument(
   );
 }
 
-function sealSyncPayload(
+export function sealSyncPayload(
   value: unknown,
   key: Buffer,
   accountId: string,
@@ -227,6 +227,13 @@ export async function writeCloudWorkspace(
   );
 }
 
+export function syncWriteProof(key: Buffer, context: string): string {
+  const publicationKey = deriveKey(key, context, 'publication');
+  const proof = publicationKey.toString('base64url');
+  publicationKey.fill(0);
+  return proof;
+}
+
 export async function writeSyncPayload(
   snapshot: Pick<SyncSnapshot, 'revision'>,
   value: unknown,
@@ -238,9 +245,7 @@ export async function writeSyncPayload(
 ): Promise<number> {
   const { revision } = snapshot;
   if (revision >= SYNC_MAX_REVISION) throw new WorkspaceSyncFailure('sync-format');
-  const publicationKey = deriveKey(key, context, 'publication');
-  const writeProof = publicationKey.toString('base64url');
-  publicationKey.fill(0);
+  const writeProof = syncWriteProof(key, context);
   const result = await request(route, 'PUT', {
     expectedRevision: revision,
     envelope: sealSyncPayload(value, key, context, revision + 1, version),

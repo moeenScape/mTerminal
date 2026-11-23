@@ -77,6 +77,12 @@ export function readSharedVault(value: unknown): SharedVaultDocument {
   }
 }
 
+export function organizationVaultContext(organizationId: string, vaultId: string): string {
+  return vaultId === organizationId
+    ? `organization-vault:${organizationId}`
+    : `organization-vault:${organizationId}:${vaultId}`;
+}
+
 export async function sharedVault(
   action: SharedVaultAction,
   request: SyncRequest,
@@ -86,10 +92,7 @@ export async function sharedVault(
 ): Promise<SharedVaultView> {
   const { organizationId, vaultId } = action;
   const route = organizationVaultRoute(organizationId, vaultId);
-  const context =
-    vaultId === organizationId
-      ? `organization-vault:${organizationId}`
-      : `organization-vault:${organizationId}:${vaultId}`;
+  const context = organizationVaultContext(organizationId, vaultId);
   const snapshot = await request(route, 'GET');
   const { revision, access } = snapshot;
   const envelope = parseSyncEnvelope(snapshot.envelope);

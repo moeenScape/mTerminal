@@ -191,6 +191,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'sendBroadcast',
       'setStartupSnippet',
       'setupVault',
+      'sharedLogs',
       'startBatch',
       'startBroadcast',
       'startRemoteEdit',

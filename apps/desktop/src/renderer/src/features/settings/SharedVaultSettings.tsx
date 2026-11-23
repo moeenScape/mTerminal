@@ -8,6 +8,8 @@ import {
 } from '../../../../shared/organization-vault.js';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
+import { SharedLogsSettings } from './SharedLogsSettings';
+
 const categories = Object.keys(sharedVaultCategories) as SharedVaultCategory[];
 const publicationDetails: Record<SharedVaultCategory, string> = {
   workspace:
@@ -229,6 +231,9 @@ export function SharedVaultSettings({
             ))}
           </ul>
         </>
+      )}
+      {document && view && view.revision > 0 && (
+        <SharedLogsSettings organizationId={organizationId} vault={vault} vaultKey={key.trim()} />
       )}
       {confirmation && view && (
         <ConfirmDialog

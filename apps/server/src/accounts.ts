@@ -29,6 +29,9 @@ import {
 
 export { AccountFailure } from './account-failure.ts';
 
+import type { SharedLogRequest } from '../../../packages/shared/shared-logs.ts';
+import { sharedLogs } from './shared-logs.ts';
+
 const scryptOptions = { N: 32_768, r: 8, p: 3, maxmem: 48 * 1024 * 1024 };
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const makeToken = () => randomBytes(32).toString('base64url');
@@ -518,6 +521,13 @@ export function createAccounts(
       return transaction(pool, async (client) => {
         const { account } = await accountForSession(client, token);
         return vaultAccessView(client, account.id, action);
+      });
+    },
+
+    async sharedLogs(token: string, action: SharedLogRequest) {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        return sharedLogs(client, account, action);
       });
     },
 

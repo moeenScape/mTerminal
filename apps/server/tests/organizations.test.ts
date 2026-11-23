@@ -16,6 +16,8 @@ import {
   type VaultAccessAction,
   type VaultAccessView,
 } from '../../../packages/shared/organization-vault.ts';
+import { SHARED_LOGS_ROUTE } from '../../../packages/shared/shared-logs.ts';
+import { purgeSharedLogs } from '../src/shared-logs.ts';
 import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts';
 import { createAccounts } from '../src/accounts.ts';
 import { migrateAccounts } from '../src/database.ts';
@@ -244,7 +246,81 @@ test(
       const editorWrite = await call(privateRoute, 'PUT', teammate, initial);
       assert.equal(editorWrite.status, 200);
       assert.deepEqual(await editorWrite.json(), { revision: 1 });
+      const logTarget = { organizationId, vaultId: privateVaultId, logId: randomUUID() };
+      const share = {
+        ...logTarget,
+        kind: 'share',
+        label: initial.envelope,
+        transcript: initial.envelope,
+        writeProof: initial.writeProof,
+      };
+      const logRequest = (bearer: string | undefined, body: object) =>
+        call(SHARED_LOGS_ROUTE, 'POST', bearer, body);
+      const sharedLog = (kind: 'read' | 'remove') => ({ ...logTarget, kind });
+      const listLogs = { kind: 'list', organizationId, vaultId: privateVaultId };
+      assert.equal((await logRequest(undefined, listLogs)).status, 401);
+      assert.equal((await logRequest(outsider, listLogs)).status, 403);
+      assert.equal((await logRequest(owner, { ...share, plaintext: 'do not store' })).status, 400);
+      assert.equal((await logRequest(owner, { ...share, writeProof: 'q'.repeat(43) })).status, 409);
+      assert.equal((await logRequest(teammate, share)).status, 200);
+      assert.equal((await logRequest(owner, share)).status, 200);
+      const listed = await logRequest(owner, listLogs);
+      assert.equal(listed.status, 200);
+      const { logs } = (await listed.json()) as {
+        logs: { id: string; sharedAt: string; expiresAt: string }[];
+      };
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0]?.id, logTarget.logId);
+      assert.equal(Date.parse(logs[0]!.expiresAt) - Date.parse(logs[0]!.sharedAt), 30 * 86400000);
+      const annotate = {
+        ...logTarget,
+        kind: 'annotate',
+        annotationId: randomUUID(),
+        envelope: initial.envelope,
+        writeProof: initial.writeProof,
+      };
+      assert.equal(
+        (await logRequest(teammate, { ...annotate, author: 'spoof@example.com' })).status,
+        400,
+      );
+      assert.equal((await logRequest(teammate, annotate)).status, 200);
+      const retried = await logRequest(teammate, annotate);
+      const annotated = (await retried.json()) as {
+        log: { annotations: { author: string; id: string }[] };
+      };
+      assert.equal(annotated.log.annotations.length, 1);
+      assert.equal(annotated.log.annotations[0]?.id, annotate.annotationId);
+      assert.equal(annotated.log.annotations[0]?.author, 'teammate@example.com');
+      assert.equal((await logRequest(teammate, sharedLog('remove'))).status, 403);
+      await accessView(owner, { ...grant, grant: 'reader' });
+      assert.equal((await logRequest(teammate, sharedLog('read'))).status, 200);
+      assert.equal((await logRequest(teammate, annotate)).status, 403);
+      assert.equal((await logRequest(teammate, share)).status, 403);
+      await pool.query(
+        'UPDATE organization_shared_logs SET expires_at = now() WHERE organization_id = $1 AND vault_id = $2 AND id = $3',
+        [organizationId, privateVaultId, logTarget.logId],
+      );
+      assert.equal((await logRequest(owner, sharedLog('read'))).status, 404);
+      const expiredList = await logRequest(owner, listLogs);
+      assert.deepEqual(await expiredList.json(), { logs: [] });
+      await purgeSharedLogs(pool);
+      const purged = await pool.query(
+        'SELECT 1 FROM organization_log_annotations WHERE log_id = $1',
+        [logTarget.logId],
+      );
+      assert.equal(purged.rowCount, 0);
+      const secondLog = { ...share, logId: randomUUID() };
+      assert.equal((await logRequest(owner, secondLog)).status, 200);
+      assert.equal(
+        (await logRequest(owner, { ...logTarget, logId: secondLog.logId, kind: 'remove' })).status,
+        200,
+      );
+      assert.equal(
+        (await logRequest(owner, { ...logTarget, logId: secondLog.logId, kind: 'read' })).status,
+        404,
+      );
       await accessView(owner, { ...grant, grant: null });
+      assert.equal((await logRequest(teammate, listLogs)).status, 403);
       assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
       assert.equal(
         (await call(privateRoute, 'PUT', teammate, { ...initial, expectedRevision: 1 })).status,

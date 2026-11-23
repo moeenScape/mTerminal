@@ -15,6 +15,7 @@ import {
   organizationVaultRoute,
   type VaultAccessView,
 } from '../../../../packages/shared/organization-vault.ts';
+import { SHARED_LOGS_ROUTE } from '../../../../packages/shared/shared-logs.ts';
 import { accountRoutes } from '../../../../packages/shared/accounts.ts';
 import {
   WORKSPACE_SYNC_ROUTE,
@@ -197,6 +198,14 @@ test('creates an account, enables an authenticator, and signs out from Settings'
           return write(200, vaultAccess);
         }
       }
+      if (
+        request.url === SHARED_LOGS_ROUTE &&
+        request.headers.authorization === `Bearer ${token}` &&
+        input.kind === 'list' &&
+        input.organizationId === organizationId &&
+        input.vaultId === organizationId
+      )
+        return write(200, { logs: [] });
       if (request.url === accountRoutes.register && input.email === email) return write(202, {});
       if (
         request.url === accountRoutes.protection &&
@@ -342,6 +351,9 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     await expect(sharedVault).toContainText('Published vault revision 1.');
     expect(sharedBody).not.toContain(await sharedKey.inputValue());
     expect(sharedBody).not.toContain('appearance');
+    const sharedLogs = sharedVault.getByRole('region', { name: 'Shared session logs' });
+    await sharedLogs.getByRole('button', { name: 'Show shared logs' }).click();
+    await expect(sharedLogs).toContainText('No shared recordings are available.');
     const devices = section.getByRole('region', { name: 'Account devices' });
     await devices.getByRole('button', { name: 'Rename E2E machine' }).click();
     await devices.getByLabel('Device name', { exact: true }).fill('Travel laptop');

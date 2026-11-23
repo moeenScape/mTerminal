@@ -125,7 +125,14 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
   return result.value;
 }
 
+import { SHARED_LOGS_REQUEST, type SharedLogsReply } from '../shared/shared-logs.js';
+
 const api: DesktopApi = {
+  sharedLogs: async (action) => {
+    const reply: SharedLogsReply = await ipcRenderer.invoke(SHARED_LOGS_REQUEST, action);
+    if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);
+    return reply.view;
+  },
   organizationVaultAccess: async (action) => {
     const reply: VaultAccessReply = await ipcRenderer.invoke(VAULT_ACCESS_REQUEST, action);
     if (!reply.ok) throw new Error(accountErrors[reply.code]);

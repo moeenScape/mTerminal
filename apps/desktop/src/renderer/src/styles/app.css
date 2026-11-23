@@ -3311,3 +3311,10 @@ p.field-hint {
   grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
   gap: 8px;
 }
+
+.shared-log-output {
+  max-block-size: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

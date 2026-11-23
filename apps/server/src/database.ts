@@ -34,6 +34,7 @@ export async function migrateAccounts(pool: Pool): Promise<void> {
     '006_organizations.sql',
     '007_organization_vault.sql',
     '008_vault_permissions.sql',
+    '009_shared_logs.sql',
   ];
   await transaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(714059)');
