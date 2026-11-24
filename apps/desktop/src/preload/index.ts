@@ -56,6 +56,8 @@ import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-i
 import { backupChannels } from '../shared/backup.js';
 import {
   ACCOUNT_REQUEST,
+  ADMINISTRATIVE_EVENTS_REQUEST,
+  type AdministrativeReply,
   DEVICE_DIRECTORY_REQUEST,
   type AccountResult,
   type DeviceDirectoryResult,
@@ -151,6 +153,14 @@ const api: DesktopApi = {
     const reply: SharedLogsReply = await ipcRenderer.invoke(SHARED_LOGS_REQUEST, action);
     if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);
     return reply.view;
+  },
+  organizationEvents: async (query) => {
+    const reply: AdministrativeReply = await ipcRenderer.invoke(
+      ADMINISTRATIVE_EVENTS_REQUEST,
+      query,
+    );
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.page;
   },
   organizationVaultAccess: async (action) => {
     const reply: VaultAccessReply = await ipcRenderer.invoke(VAULT_ACCESS_REQUEST, action);

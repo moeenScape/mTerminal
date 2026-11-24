@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { ADMINISTRATIVE_EVENTS_ROUTE } from '../../../../packages/shared/administrative-events.ts';
 import {
   ORGANIZATION_ROUTE,
   type OrganizationView,
@@ -161,6 +162,23 @@ test('creates an account, enables an authenticator, and signs out from Settings'
           ];
           return write(200, orgView);
         }
+      }
+      if (
+        request.url === ADMINISTRATIVE_EVENTS_ROUTE &&
+        request.headers.authorization === `Bearer ${token}` &&
+        input.organizationId === organizationId
+      ) {
+        return write(200, {
+          events: [
+            {
+              id: '34',
+              actorEmail: email,
+              occurredAt: '2026-11-24T00:00:00.000Z',
+              change: { kind: 'organization-created' },
+            },
+          ],
+          nextBefore: null,
+        });
       }
       if (
         request.url === ORGANIZATION_VAULTS_ROUTE &&
@@ -324,6 +342,11 @@ test('creates an account, enables an authenticator, and signs out from Settings'
     await expect(roster.getByRole('list', { name: 'Outgoing invitations' })).toContainText(
       'member@example.com',
     );
+    const audit = roster.getByRole('region', { name: 'Administrative events' });
+    await audit.getByRole('button', { name: 'Show administrative events' }).click();
+    const history = audit.getByRole('list', { name: 'Event history' });
+    await expect(history).toContainText('Created the organization');
+    await expect(history).toContainText(email);
     await organizations.getByRole('button', { name: 'Vaults for Release team' }).click();
     const vaults = organizations.getByRole('region', { name: 'Vaults for Release team' });
     await vaults.getByRole('button', { name: 'Show vaults' }).click();

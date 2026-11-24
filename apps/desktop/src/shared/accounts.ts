@@ -10,6 +10,19 @@ import type {
 } from '../../../../packages/shared/organizations.ts';
 export { accountPasswordLimits } from '../../../../packages/shared/accounts.ts';
 
+import type {
+  AdministrativePage,
+  AdministrativeQuery,
+} from '../../../../packages/shared/administrative-events.ts';
+export type {
+  AdministrativeChange,
+  AdministrativePage,
+} from '../../../../packages/shared/administrative-events.ts';
+
+export const ADMINISTRATIVE_EVENTS_REQUEST = 'account:administrative-events';
+export type AdministrativeReply =
+  { ok: true; page: AdministrativePage } | { ok: false; code: AccountErrorCode };
+
 export const ACCOUNT_REQUEST = 'account:request';
 export const ORGANIZATION_REQUEST = 'account:organizations';
 export type OrganizationResult =
@@ -52,6 +65,7 @@ export type AccountResult =
   { ok: true; state: AccountResponse } | { ok: false; code: AccountErrorCode };
 
 export interface AccountApi {
+  organizationEvents: (query: AdministrativeQuery) => Promise<AdministrativePage>;
   organizations: (action: OrganizationAction) => Promise<OrganizationView>;
   deviceDirectory: (action: DeviceDirectoryAction) => Promise<DeviceDirectoryKey[]>;
   account: (action: AccountAction) => Promise<AccountResponse>;

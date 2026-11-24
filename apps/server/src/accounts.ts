@@ -17,7 +17,7 @@ import type {
   OrganizationVaultWrite,
 } from '../../../packages/shared/organization-vault.ts';
 import { vaultAccessView, vaultSnapshot } from './vault-access.ts';
-import { organizationView } from './organizations.ts';
+import { lockOrganization, organizationView } from './organizations.ts';
 import { transaction } from './database.ts';
 import type { SyncEnvelope, SyncSnapshot } from '../../../packages/shared/workspace-sync.ts';
 import {
@@ -34,6 +34,9 @@ import { sharedLogs } from './shared-logs.ts';
 
 import { LiveRelay } from './live-share.ts';
 import type { LiveRelayAction } from '../../../packages/shared/live-share.ts';
+
+import type { AdministrativeQuery } from '../../../packages/shared/administrative-events.ts';
+import { readAdministrativeEvents } from './administrative-events.ts';
 
 const scryptOptions = { N: 32_768, r: 8, p: 3, maxmem: 48 * 1024 * 1024 };
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -509,6 +512,15 @@ export function createAccounts(
       });
     },
 
+    async organizationEvents(token: string, query: AdministrativeQuery) {
+      return transaction(pool, async (client) => {
+        const { account } = await accountForSession(client, token);
+        if ((await lockOrganization(client, query.organizationId)) !== account.id)
+          throw new AccountFailure('organization-denied');
+        return readAdministrativeEvents(client, query);
+      });
+    },
+
     async organizationVault(
       token: string,
       organizationId: string,
@@ -517,14 +529,14 @@ export function createAccounts(
     ) {
       return transaction(pool, async (client) => {
         const { account } = await accountForSession(client, token);
-        return vaultSnapshot(client, account.id, organizationId, vaultId, write);
+        return vaultSnapshot(client, account, organizationId, vaultId, write);
       });
     },
 
     async organizationVaultAccess(token: string, action: VaultAccessAction) {
       return transaction(pool, async (client) => {
         const { account } = await accountForSession(client, token);
-        return vaultAccessView(client, account.id, action);
+        return vaultAccessView(client, account, action);
       });
     },
 

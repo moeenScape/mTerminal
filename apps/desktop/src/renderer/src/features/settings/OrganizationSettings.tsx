@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { OrganizationAction, OrganizationView } from '../../../../shared/accounts.js';
+import { AdministrativeEvents } from './AdministrativeEvents';
 import { OrganizationVaults } from './OrganizationVaults';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
 
@@ -282,6 +283,7 @@ export function OrganizationSettings({ busy }: { busy: boolean }) {
               ))}
             </ul>
           )}
+          <AdministrativeEvents key={managed.id} organizationId={managed.id} busy={disabled} />
         </section>
       )}
       {confirmation && (

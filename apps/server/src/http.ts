@@ -37,6 +37,11 @@ import {
   parseLiveRelayAction,
 } from '../../../packages/shared/live-share.ts';
 
+import {
+  ADMINISTRATIVE_EVENTS_ROUTE,
+  parseAdministrativeQuery,
+} from '../../../packages/shared/administrative-events.ts';
+
 const MAX_BODY = 4096;
 
 function reply(response: ServerResponse, status: number, value: object): void {
@@ -327,6 +332,20 @@ export function createAccountServer(
           const action = parseVaultAccessAction(await body(request));
           if (!action) throw new AccountFailure('invalid-input');
           return reply(response, 200, await accounts.organizationVaultAccess(token, action));
+        }
+        if (request.url === ADMINISTRATIVE_EVENTS_ROUTE && request.method === 'POST') {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          await accounts.rateLimit(
+            'organization-events-peer',
+            peerAddress(request, trustProxy),
+            60,
+          );
+          const query = parseAdministrativeQuery(await body(request));
+          if (!query) throw new AccountFailure('invalid-input');
+          return reply(response, 200, await accounts.organizationEvents(token, query));
         }
         if (request.url === ORGANIZATION_ROUTE && request.method === 'POST') {
           if (active >= 4) throw new AccountFailure('rate-limited');

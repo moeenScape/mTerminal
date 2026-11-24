@@ -7,6 +7,7 @@ import type {
   OrganizationRoster,
   OrganizationView,
 } from '../../../packages/shared/organizations.ts';
+import { recordAdministrativeEvent, type AdministrativeActor } from './administrative-events.ts';
 import { AccountFailure } from './account-failure.ts';
 
 const MEMBERSHIP_LIMIT = 50;
@@ -35,7 +36,7 @@ export async function lockOrganization(
 
 async function changeOrganization(
   client: PoolClient,
-  account: { id: string; email: string },
+  account: AdministrativeActor,
   action: OrganizationAction,
 ): Promise<string | undefined> {
   if (action.kind === 'status') return;
@@ -55,6 +56,7 @@ async function changeOrganization(
        VALUES ($1, $1, 'Shared vault')`,
       [id],
     );
+    await recordAdministrativeEvent(client, id, account, { kind: 'organization-created' });
     return id;
   }
 
@@ -82,6 +84,9 @@ async function changeOrganization(
       );
       if (!added.rowCount) throw new AccountFailure('organization-limit');
     }
+    await recordAdministrativeEvent(client, id, account, {
+      kind: action.kind === 'accept' ? 'invitation-accepted' : 'invitation-declined',
+    });
     return;
   }
 
@@ -94,6 +99,7 @@ async function changeOrganization(
       [id, account.id],
     );
     if (!left.rowCount) throw new AccountFailure('organization-denied');
+    await recordAdministrativeEvent(client, id, account, { kind: 'member-left' });
     return;
   }
   if (owner !== account.id) throw new AccountFailure('organization-denied');
@@ -120,19 +126,26 @@ async function changeOrganization(
       [randomUUID(), id, action.email, ROSTER_LIMIT],
     );
     if (!saved.rowCount) throw new AccountFailure('organization-limit');
+    await recordAdministrativeEvent(client, id, account, {
+      kind: 'invitation-sent',
+      email: action.email,
+    });
   } else if (action.kind === 'cancel-invite') {
-    await client.query(
-      'DELETE FROM organization_invitations WHERE organization_id = $1 AND id = $2',
+    const cancelled = await client.query<{ email: string }>(
+      'DELETE FROM organization_invitations WHERE organization_id = $1 AND id = $2 RETURNING email',
       [id, action.invitationId],
     );
+    const email = cancelled.rows[0]?.email;
+    if (email)
+      await recordAdministrativeEvent(client, id, account, { kind: 'invitation-cancelled', email });
   } else if ('memberId' in action) {
     const memberId = action.memberId.toLowerCase();
     if (memberId === account.id) throw new AccountFailure('organization-owner');
     if (action.kind === 'transfer') {
-      const changed = await client.query(
-        `UPDATE organizations SET owner_account_id = $2 WHERE id = $1 AND EXISTS (
-           SELECT 1 FROM organization_members WHERE organization_id = $1 AND account_id = $2
-         )`,
+      const changed = await client.query<{ email: string }>(
+        `UPDATE organizations o SET owner_account_id = a.id
+         FROM organization_members m JOIN accounts a ON a.id = m.account_id
+         WHERE o.id = $1 AND m.organization_id = o.id AND m.account_id = $2 RETURNING a.email`,
         [id, memberId],
       );
       if (!changed.rowCount) throw new AccountFailure('organization-member-missing');
@@ -140,20 +153,29 @@ async function changeOrganization(
         'DELETE FROM organization_vault_grants WHERE organization_id = $1 AND account_id = $2',
         [id, memberId],
       );
+      await recordAdministrativeEvent(client, id, account, {
+        kind: 'ownership-transferred',
+        email: changed.rows[0]!.email,
+      });
       return;
     }
-    const removed = await client.query(
-      'DELETE FROM organization_members WHERE organization_id = $1 AND account_id = $2',
+    const removed = await client.query<{ email: string }>(
+      `DELETE FROM organization_members m USING accounts a
+       WHERE m.organization_id = $1 AND m.account_id = $2 AND a.id = m.account_id RETURNING a.email`,
       [id, memberId],
     );
     if (!removed.rowCount) throw new AccountFailure('organization-member-missing');
+    await recordAdministrativeEvent(client, id, account, {
+      kind: 'member-removed',
+      email: removed.rows[0]!.email,
+    });
   }
   return id;
 }
 
 export async function organizationView(
   client: PoolClient,
-  account: { id: string; email: string },
+  account: AdministrativeActor,
   action: OrganizationAction,
 ): Promise<OrganizationView> {
   const id = await changeOrganization(client, account, action);

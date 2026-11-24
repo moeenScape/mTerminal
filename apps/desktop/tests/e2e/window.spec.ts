@@ -171,6 +171,7 @@ test('exposes only the intended bridge and no Node globals', async () => {
       'onWorkspaceSyncQueueChanged',
       'openSshTerminal',
       'openTerminal',
+      'organizationEvents',
       'organizationVault',
       'organizationVaultAccess',
       'organizations',

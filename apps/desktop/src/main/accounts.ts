@@ -20,6 +20,8 @@ import {
 } from '../../../../packages/shared/accounts.ts';
 import {
   ACCOUNT_REQUEST,
+  ADMINISTRATIVE_EVENTS_REQUEST,
+  type AdministrativeReply,
   DEVICE_DIRECTORY_REQUEST,
   type DeviceDirectoryResult,
   ORGANIZATION_REQUEST,
@@ -96,6 +98,12 @@ import {
   yieldLiveInput,
 } from './terminal/live-share.js';
 import type { TerminalRegistry } from './terminal/registry.js';
+
+import {
+  ADMINISTRATIVE_EVENTS_ROUTE,
+  parseAdministrativeQuery,
+  parseAdministrativePage,
+} from '../../../../packages/shared/administrative-events.ts';
 
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
@@ -1129,12 +1137,36 @@ export function attachAccounts(
       return { ok: false, code };
     }
   });
+  ipcMain.handle(
+    ADMINISTRATIVE_EVENTS_REQUEST,
+    async (event, ...args: unknown[]): Promise<AdministrativeReply> => {
+      validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+      const query = args.length === 1 ? parseAdministrativeQuery(args[0]) : undefined;
+      if (!query) return { ok: false, code: 'invalid-input' };
+      try {
+        const page = await queueAccountOperation(async () => {
+          if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+          await loadToken();
+          if (!token) throw new AccountFailure('sign-in-required');
+          const result = parseAdministrativePage(
+            await request(ADMINISTRATIVE_EVENTS_ROUTE, 'POST', query),
+          );
+          if (!result) throw new AccountFailure('unavailable');
+          return result;
+        });
+        return { ok: true, page };
+      } catch (error) {
+        return { ok: false, code: error instanceof AccountFailure ? error.code : 'unavailable' };
+      }
+    },
+  );
   window.once('closed', () => {
     live.dispose();
     ipcMain.removeHandler(LIVE_REQUEST);
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);
+    ipcMain.removeHandler(ADMINISTRATIVE_EVENTS_REQUEST);
     ipcMain.removeHandler(DEVICE_DIRECTORY_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_REQUEST);
     ipcMain.removeHandler(ORGANIZATION_VAULT_REQUEST);

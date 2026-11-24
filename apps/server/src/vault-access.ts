@@ -10,6 +10,7 @@ import type {
   VaultDescriptor,
   VaultGrant,
 } from '../../../packages/shared/organization-vault.ts';
+import { recordAdministrativeEvent, type AdministrativeActor } from './administrative-events.ts';
 import { AccountFailure } from './account-failure.ts';
 import { lockOrganization } from './organizations.ts';
 
@@ -30,10 +31,11 @@ async function organizationOwner(
 
 export async function vaultAccessView(
   client: PoolClient,
-  accountId: string,
+  account: AdministrativeActor,
   action: VaultAccessAction,
 ): Promise<VaultAccessView> {
   const { organizationId } = action;
+  const accountId = account.id;
   const owner = await organizationOwner(client, organizationId, accountId);
   if (action.kind !== 'list' && !owner) throw new AccountFailure('organization-denied');
   let selected: string | undefined;
@@ -50,36 +52,73 @@ export async function vaultAccessView(
       [selected, organizationId, action.name],
     );
     if (!inserted.rowCount) throw new AccountFailure('organization-vault-name');
+    await recordAdministrativeEvent(client, organizationId, account, {
+      kind: 'vault-created',
+      vaultId: selected,
+      vaultName: action.name,
+    });
   } else if (action.kind !== 'list') {
     selected = action.vaultId;
-    const present = await client.query(
-      'SELECT 1 FROM organization_vault_catalog WHERE organization_id = $1 AND id = $2',
+    const present = await client.query<{ name: string }>(
+      'SELECT name FROM organization_vault_catalog WHERE organization_id = $1 AND id = $2',
       [organizationId, selected],
     );
-    if (!present.rowCount) throw new AccountFailure('organization-denied');
+    const vaultName = present.rows[0]?.name;
+    if (!vaultName) throw new AccountFailure('organization-denied');
+    const vault = { vaultId: selected, vaultName };
     if (action.kind === 'visibility') {
-      await client.query(
-        'UPDATE organization_vault_catalog SET all_members = $3 WHERE organization_id = $1 AND id = $2',
+      const updated = await client.query(
+        `UPDATE organization_vault_catalog SET all_members = $3
+         WHERE organization_id = $1 AND id = $2 AND all_members IS DISTINCT FROM $3`,
         [organizationId, selected, action.allMembers],
       );
+      if (updated.rowCount)
+        await recordAdministrativeEvent(client, organizationId, account, {
+          kind: 'vault-visibility',
+          ...vault,
+          allMembers: action.allMembers,
+        });
     }
     if (action.kind === 'grant') {
       const { memberId, grant } = action;
       if (memberId === accountId) throw new AccountFailure('organization-denied');
       if (grant === null) {
-        await client.query(
-          'DELETE FROM organization_vault_grants WHERE organization_id = $1 AND vault_id = $2 AND account_id = $3',
+        const removed = await client.query<{ email: string }>(
+          `DELETE FROM organization_vault_grants g USING accounts a
+           WHERE g.organization_id = $1 AND g.vault_id = $2 AND g.account_id = $3
+             AND a.id = g.account_id RETURNING a.email`,
           [organizationId, selected, memberId],
         );
+        const email = removed.rows[0]?.email;
+        if (email)
+          await recordAdministrativeEvent(client, organizationId, account, {
+            kind: 'vault-grant',
+            ...vault,
+            email,
+            grant,
+          });
       } else {
-        const added = await client.query(
+        const member = await client.query<{ email: string }>(
+          `SELECT a.email FROM organization_members m JOIN accounts a ON a.id = m.account_id
+           WHERE m.organization_id = $1 AND m.account_id = $2`,
+          [organizationId, memberId],
+        );
+        const email = member.rows[0]?.email;
+        if (!email) throw new AccountFailure('organization-member-missing');
+        const saved = await client.query(
           `INSERT INTO organization_vault_grants (organization_id, vault_id, account_id, access)
-           SELECT $1::uuid, $2::uuid, $3::uuid, $4::text
-           WHERE EXISTS (SELECT 1 FROM organization_members WHERE organization_id = $1 AND account_id = $3)
-           ON CONFLICT (organization_id, vault_id, account_id) DO UPDATE SET access = excluded.access`,
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (organization_id, vault_id, account_id) DO UPDATE SET access = excluded.access
+           WHERE organization_vault_grants.access IS DISTINCT FROM excluded.access`,
           [organizationId, selected, memberId, grant],
         );
-        if (!added.rowCount) throw new AccountFailure('organization-member-missing');
+        if (saved.rowCount)
+          await recordAdministrativeEvent(client, organizationId, account, {
+            kind: 'vault-grant',
+            ...vault,
+            email,
+            grant,
+          });
       }
     }
   }
@@ -131,14 +170,14 @@ export async function requireVaultAccess(
 
 export async function vaultSnapshot(
   client: PoolClient,
-  accountId: string,
+  account: AdministrativeActor,
   organizationId: string,
   vaultId: string,
   write?: OrganizationVaultWrite,
 ): Promise<
   (OrganizationVaultSnapshot & { vaultId: string; access: VaultAccess }) | { revision: number }
 > {
-  const access = await requireVaultAccess(client, accountId, organizationId, vaultId);
+  const access = await requireVaultAccess(client, account.id, organizationId, vaultId);
   if (write) {
     if (access === 'reader') throw new AccountFailure('organization-vault-denied');
     const { expectedRevision, envelope, writeProof } = write;
@@ -157,6 +196,16 @@ export async function vaultSnapshot(
             [organizationId, vaultId, revision, JSON.stringify(envelope), expectedRevision, hash],
           );
     if (!saved.rowCount) throw new AccountFailure('sync-conflict');
+    const vault = await client.query<{ name: string }>(
+      'SELECT name FROM organization_vault_catalog WHERE organization_id = $1 AND id = $2',
+      [organizationId, vaultId],
+    );
+    await recordAdministrativeEvent(client, organizationId, account, {
+      kind: 'vault-published',
+      vaultId,
+      vaultName: vault.rows[0]!.name,
+      revision,
+    });
     return { revision };
   }
   const data = await client.query<Pick<OrganizationVaultSnapshot, 'revision' | 'envelope'>>(

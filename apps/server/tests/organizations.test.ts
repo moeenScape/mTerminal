@@ -6,6 +6,12 @@ import { test } from 'node:test';
 import { Pool } from 'pg';
 import { accountRoutes } from '../../../packages/shared/accounts.ts';
 import {
+  ADMINISTRATIVE_EVENTS_ROUTE,
+  ADMINISTRATIVE_EVENT_PAGE,
+  parseAdministrativePage,
+  parseAdministrativeQuery,
+} from '../../../packages/shared/administrative-events.ts';
+import {
   ORGANIZATION_ROUTE,
   type OrganizationAction,
   type OrganizationView,
@@ -23,6 +29,33 @@ import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts
 import { createAccounts } from '../src/accounts.ts';
 import { migrateAccounts } from '../src/database.ts';
 import { createAccountServer } from '../src/http.ts';
+
+test('validates administrative event cursors and strips unknown response fields', () => {
+  const organizationId = randomUUID();
+  const before = '9223372036854775807';
+  assert.deepEqual(parseAdministrativeQuery({ organizationId, before }), {
+    organizationId,
+    before,
+  });
+  for (const invalid of ['0', '-1', '01', '9223372036854775808', 1, null]) {
+    assert.equal(parseAdministrativeQuery({ organizationId, before: invalid }), undefined);
+  }
+  assert.equal(parseAdministrativeQuery({ organizationId, limit: 1 }), undefined);
+  const event = {
+    id: before,
+    actorEmail: 'owner@example.com',
+    occurredAt: '2026-11-24T00:00:00.000Z',
+    change: { kind: 'organization-created' },
+  };
+  assert.deepEqual(
+    parseAdministrativePage({
+      events: [{ ...event, change: { ...event.change, privateField: 'discarded' } }],
+      nextBefore: before,
+    }),
+    { events: [event], nextBefore: before },
+  );
+  assert.equal(parseAdministrativePage({ events: [event], nextBefore: '1' }), undefined);
+});
 
 test(
   'enforces organization ownership, verified-email invitations, and immediate offboarding',
@@ -116,6 +149,25 @@ test(
       const organizationId = created.organizations[0]?.id;
       const ownerId = created.roster?.members[0]?.id;
       assert.ok(organizationId && ownerId && created.roster?.members[0]?.owner);
+      const eventsRequest = (token?: string, before?: string, orgId = organizationId) =>
+        call(ADMINISTRATIVE_EVENTS_ROUTE, 'POST', token, {
+          organizationId: orgId,
+          ...(before ? { before } : {}),
+        });
+      const eventsPage = async (token: string, before?: string, orgId = organizationId) => {
+        const response = await eventsRequest(token, before, orgId);
+        assert.equal(response.status, 200);
+        const page = parseAdministrativePage(await response.json());
+        assert.ok(page);
+        return page;
+      };
+      assert.equal((await eventsRequest()).status, 401);
+      assert.equal((await eventsRequest(outsider)).status, 403);
+      const createdPage = await eventsPage(owner);
+      assert.deepEqual(
+        createdPage.events.map(({ actorEmail, change }) => ({ actorEmail, change })),
+        [{ actorEmail: 'owner@example.com', change: { kind: 'organization-created' } }],
+      );
       const vault = organizationVaultRoute(organizationId);
       const initial = {
         expectedRevision: 0,
@@ -203,18 +255,41 @@ test(
         { id: organizationId, name: 'Ops', owner: false },
       ]);
       assert.equal((await request(teammate, manage)).status, 403);
+      assert.equal((await eventsRequest(teammate)).status, 403);
       assert.equal((await request(owner, invite)).status, 409);
 
       const listVaults = { kind: 'list', organizationId } as const;
       assert.equal((await accessRequest(outsider, listVaults)).status, 403);
       assert.deepEqual((await accessView(teammate, listVaults)).vaults, []);
       assert.equal((await call(vault, 'GET', teammate)).status, 403);
-      await accessView(owner, {
+      const visibility = {
         kind: 'visibility',
         organizationId,
         vaultId: organizationId,
         allMembers: true,
+      } as const;
+      await accessView(owner, visibility);
+      const changedVisibility = await eventsPage(owner);
+      assert.equal(changedVisibility.events[0]?.change.kind, 'vault-visibility');
+      await accessView(owner, visibility);
+      assert.deepEqual(await eventsPage(owner), changedVisibility);
+
+      await pool.query(
+        `ALTER TABLE organization_administrative_events ADD CONSTRAINT reject_audit_probe
+         CHECK (change->>'vaultName' IS DISTINCT FROM 'Rollback probe')`,
+      );
+      const rejected = await accessRequest(owner, {
+        kind: 'create',
+        organizationId,
+        name: 'Rollback probe',
       });
+      assert.equal(rejected.status, 503);
+      assert.ok(
+        !(await accessView(owner, listVaults)).vaults.some(({ name }) => name === 'Rollback probe'),
+      );
+      await pool.query(
+        'ALTER TABLE organization_administrative_events DROP CONSTRAINT reject_audit_probe',
+      );
       const privateVaults = await accessView(owner, {
         kind: 'create',
         organizationId,
@@ -247,6 +322,27 @@ test(
       const editorWrite = await call(privateRoute, 'PUT', teammate, initial);
       assert.equal(editorWrite.status, 200);
       assert.deepEqual(await editorWrite.json(), { revision: 1 });
+      const auditResponse = await eventsRequest(owner);
+      assert.equal(auditResponse.status, 200);
+      const rawAudit = await auditResponse.text();
+      assert.ok(
+        !rawAudit.includes(initial.writeProof) && !rawAudit.includes(initial.envelope.ciphertext),
+      );
+      const audit = parseAdministrativePage(JSON.parse(rawAudit));
+      assert.ok(audit);
+      assert.equal(audit.events[0]?.actorEmail, 'teammate@example.com');
+      assert.deepEqual(audit.events[0]?.change, {
+        kind: 'vault-published',
+        vaultId: privateVaultId,
+        vaultName: 'Private operations',
+        revision: 1,
+      });
+      assert.equal(audit.events[1]?.change.kind, 'vault-grant');
+      assert.equal(
+        audit.events.filter(({ change }) => change.kind === 'invitation-accepted').length,
+        1,
+      );
+      assert.equal((await eventsPage(outsider, undefined, otherOrg)).events.length, 1);
       const logTarget = { organizationId, vaultId: privateVaultId, logId: randomUUID() };
       const share = {
         ...logTarget,
@@ -426,6 +522,13 @@ test(
       const transfer = { kind: 'transfer', organizationId, memberId } as const;
       assert.equal((await request(teammate, transfer)).status, 403);
       const transferred = await view(owner, transfer);
+      assert.equal((await eventsRequest(owner)).status, 403);
+      const transferredEvent = (await eventsPage(teammate)).events[0];
+      assert.equal(transferredEvent?.actorEmail, 'owner@example.com');
+      assert.deepEqual(transferredEvent?.change, {
+        kind: 'ownership-transferred',
+        email: 'teammate@example.com',
+      });
       assert.equal(transferred.organizations[0]?.owner, false);
       assert.equal(transferred.roster, undefined);
       assert.equal((await request(owner, manage)).status, 403);
@@ -453,6 +556,18 @@ test(
       await view(owner, { kind: 'accept', invitationId: rejoin });
       assert.equal((await call(privateRoute, 'GET', owner)).status, 403);
       assert.deepEqual((await view(owner, leave)).organizations, []);
+      await pool.query(
+        `INSERT INTO organization_administrative_events (organization_id, actor_id, actor_email, change)
+         SELECT $1::uuid, $2::uuid, $3::text, '{"kind":"organization-created"}'::jsonb
+         FROM generate_series(1, $4::int)`,
+        [organizationId, memberId, 'teammate@example.com', ADMINISTRATIVE_EVENT_PAGE],
+      );
+      const newest = await eventsPage(teammate);
+      assert.equal(newest.events.length, ADMINISTRATIVE_EVENT_PAGE);
+      assert.ok(newest.nextBefore);
+      const older = await eventsPage(teammate, newest.nextBefore);
+      assert.equal(older.events[0]?.change.kind, 'member-left');
+      assert.ok(older.events.every(({ id }) => BigInt(id) < BigInt(newest.nextBefore!)));
       assert.equal((await call(accountRoutes.session, 'DELETE', teammate)).status, 200);
       assert.equal((await call(vault, 'GET', teammate)).status, 401);
       assert.equal((await request(teammate, manage)).status, 401);
