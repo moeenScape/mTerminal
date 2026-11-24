@@ -5,11 +5,27 @@ when the corresponding inheritance flags are enabled. Choose **Connect** to open
 a terminal tab. An available saved login can connect directly; otherwise provide the SSH
 username and authentication details. The
 expected fingerprint field is optional; supplying it requires an exact match even for a saved key.
-Choose Password, Private key or Keyboard-interactive. Private key mode reads a
+Choose **Password**, **Private key**, **Keyboard-interactive**, or **SSH agent**. Private key mode reads a
 file you explicitly select (at most 256 KiB); enter its passphrase if encrypted.
 The key is not copied into application storage. Supported key formats depend on
 ssh2; invalid keys or incorrect passphrases fail with a fixed connection error.
-Agents and hardware-backed keys are not yet supported.
+See [SSH agents](SSH_AGENT.md) for system agent setup and forwarding. Hardware-backed
+key support remains deferred.
+
+## Organize saved hosts
+
+1. In **Hosts**, select **New group**. Choose a group path such as `Work`. To add a nested group
+   such as `Work/Production`, create its parent first.
+2. Optionally set the group's default port, username, or SSH identity. To change defaults later,
+   open the group and select **Edit group defaults**. Nested groups can inherit defaults from a parent.
+3. In **New host** or the host editor, select the **Group** and enter comma-separated **Tags**.
+   For the port and username, choose whether the host uses the group defaults or its own values.
+4. Browse groups from **All hosts**. Use **Search hosts** to search by name, address, user, group,
+   or tag, and click a tag chip to filter the list.
+
+Deleting a group moves hosts in that group and its subgroups to Ungrouped and preserves their
+effective connection settings. See [Workspace backup](LOCAL_STORAGE.md#workspace-backup)
+to export hosts and groups.
 
 ## Remember a login on this device
 
@@ -224,10 +240,8 @@ new saved-credential reads and hides the workspace, but existing SSH sessions re
 There is no passphrase recovery yet: forgetting it makes saved credentials unrecoverable.
 Host and identity metadata is not encrypted by the vault passphrase.
 
-Workspace JSON backups contain host profiles, groups, identity metadata, and trusted host
-fingerprints. They never contain saved passwords or private-key material. Imports require
-confirmation, add only non-conflicting records, and apply as one SQLite transaction; conflicts
-leave the workspace unchanged.
+See [Workspace backup](LOCAL_STORAGE.md#workspace-backup) for export and import steps and
+which records are included.
 
 
 ## Remembered-login regression coverage — F26-B
