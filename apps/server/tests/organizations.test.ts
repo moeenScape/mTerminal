@@ -344,7 +344,53 @@ test(
       assert.equal((await relay(owner, push)).status, 409);
       const seen = await relay(teammate, watch);
       assert.equal(seen.status, 200);
-      assert.deepEqual(await seen.json(), { frames: [{ sequence: 1, frame: initial.envelope }] });
+      assert.deepEqual(await seen.json(), {
+        frames: [{ sequence: 1, frame: initial.envelope }],
+        typing: null,
+      });
+      const lease = randomUUID();
+      const handoff = { kind: 'control', room, revision: 1, lease };
+      const input = { kind: 'input', room, lease, sequence: 1, frame: initial.envelope };
+      assert.equal((await relay(teammate, input)).status, 409);
+      assert.equal((await relay(teammate, handoff)).status, 404);
+      assert.equal((await relay(owner, handoff)).status, 200);
+      const otherSignIn = await call(accountRoutes.signIn, 'POST', undefined, {
+        email: 'teammate@example.com',
+        password: 'a suitable test password',
+        deviceId: randomUUID(),
+        deviceName: 'Second desktop',
+      });
+      assert.equal(otherSignIn.status, 200);
+      const otherDevice = ((await otherSignIn.json()) as { token: string }).token;
+      const secondDeviceView = await relay(otherDevice, watch);
+      assert.equal(((await secondDeviceView.json()) as { typing: unknown }).typing, null);
+      assert.equal((await relay(otherDevice, input)).status, 409);
+      assert.equal((await relay(teammate, { ...input, text: 'plaintext' })).status, 400);
+      assert.equal((await relay(teammate, input)).status, 200);
+      assert.equal((await relay(teammate, { ...input, sequence: 2 })).status, 409);
+      const drained = await relay(owner, { kind: 'push', room });
+      assert.equal(drained.status, 200);
+      assert.deepEqual(await drained.json(), {
+        sequence: 1,
+        revision: 1,
+        lease,
+        guestReady: true,
+        input: { sequence: 1, frame: initial.envelope },
+      });
+      const emptyInput = await relay(owner, { kind: 'push', room });
+      assert.equal(((await emptyInput.json()) as { input: unknown }).input, null);
+      assert.equal((await relay(teammate, input)).status, 409);
+      assert.equal((await relay(teammate, { ...input, sequence: 2 })).status, 200);
+      assert.equal((await relay(owner, { ...handoff, revision: 2, lease: null })).status, 200);
+      assert.equal((await relay(owner, handoff)).status, 409);
+      const reclaimed = await relay(owner, { kind: 'push', room });
+      assert.equal(((await reclaimed.json()) as { input: unknown }).input, null);
+      assert.equal((await relay(teammate, { ...input, sequence: 3 })).status, 409);
+      await relay(teammate, watch);
+      const nextLease = randomUUID();
+      assert.equal((await relay(owner, { ...handoff, revision: 3, lease: nextLease })).status, 200);
+      assert.equal((await relay(teammate, { kind: 'yield', room, lease: nextLease })).status, 200);
+      assert.equal((await relay(teammate, { ...input, lease: nextLease })).status, 409);
       assert.equal((await relay(teammate, { kind: 'stop', room })).status, 404);
       assert.equal((await relay(owner, { kind: 'stop', room })).status, 200);
       assert.equal((await relay(teammate, watch)).status, 404);

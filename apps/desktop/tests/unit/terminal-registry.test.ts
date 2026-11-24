@@ -101,6 +101,28 @@ describe('owned terminal registry', () => {
     registry.dispose();
     expect(two.destroy).toHaveBeenCalledOnce();
   });
+  it('allows only the current guest writer and restores local input after release', async () => {
+    const registry = new TerminalRegistry(() => {});
+    const source = fakePty();
+    const other = fakePty();
+    try {
+      await registry.open('source', size, async () => source.pty);
+      await registry.open('other', size, async () => other.pty);
+      const guest = registry.acquireGuestWriter('source');
+      expect(guest).toBeDefined();
+      expect(registry.acquireGuestWriter('source')).toBeUndefined();
+      registry.write('source', { kind: 'text', data: 'blocked local' });
+      registry.write('other', { kind: 'text', data: 'unshared local' });
+      guest!.write({ kind: 'text', data: 'guest line' });
+      guest!.release();
+      registry.write('source', { kind: 'text', data: 'restored local' });
+      expect(() => guest!.write({ kind: 'text', data: 'stale guest' })).toThrow();
+      expect(vi.mocked(source.pty.write).mock.calls).toEqual([['guest line'], ['restored local']]);
+      expect(other.pty.write).toHaveBeenCalledWith('unshared local');
+    } finally {
+      registry.dispose();
+    }
+  });
   it('rejects duplicate IDs and releases slots on exit', async () => {
     const process = fakePty();
     const send = vi.fn();

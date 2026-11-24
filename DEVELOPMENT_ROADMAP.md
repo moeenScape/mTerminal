@@ -24,8 +24,8 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M5 — Shared vaults and collaboration |
-| Active feature | F70 in progress — invite-only live viewing implemented |
-| Next step | F70 typing ownership and hand-back. Phase 7 verification and security review remain open |
+| Active feature | F70 implemented — invite-only live terminal viewing and typing control |
+| Next step | F71 Administrative events. Phase 7 verification and security review remain open |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
@@ -242,7 +242,7 @@ Dependencies: Phase 7 with reviewed authorization and encryption boundaries.
 - [x] **F67 — Shared vaults (implementation):** One revisioned encrypted vault per organization. Owners publish host and identity profiles, snippets, and portable settings. Members with the key can preview and explicitly import categories. Regressions written for the Phase 8 gate. See `docs/SHARED_VAULTS.md`.
 - [x] **F68 — Permissions (implementation):** Create multiple named vaults and manage restricted or organization-wide Reader access and per-member Reader or Editor grants. Existing F67 vaults keep their key and data. Server authorization applies to current and legacy routes. Regressions written for the Phase 8 gate. See `docs/SHARED_VAULTS.md`.
 - [x] **F69 — Shared logs (implementation):** Share completed recordings into a vault with encrypted output and annotations, Reader and Editor access, owner removal, and automatic 30-day expiry. Regressions written for the Phase 8 gate. See `docs/SHARED_LOGS.md`.
-- [ ] **F70 — Multiplayer (in progress):** Invite-only read-only viewing, encrypted relay, and host revocation are implemented. Typing ownership and hand-back remain. Tests written for the Phase 8 gate. See `docs/LIVE_TERMINAL.md`.
+- [x] **F70 — Multiplayer (implementation):** Invite-only live viewing, encrypted output and input, one-device typing grants, host take-back, viewer hand-back, and revocation. Tests written for the Phase 8 gate. See `docs/LIVE_TERMINAL.md`.
 - [ ] **F71 — Administrative events:** Membership, permissions, and vault-management records.
 
 Completion criteria: Verify authorization through both UI and API. Revocation stops future sync and live-session access. Server-side credential revocation remains a separate offboarding responsibility.
@@ -1899,3 +1899,16 @@ in-memory window and expires idle shares. Viewer input is outside this step.
 Static checks, the desktop build, and built main and preload syntax checks
 passed. Server and desktop regressions were written and deferred. Live
 two-account verification and F70 typing ownership and hand-back remain open.
+
+### 2026-11-24 — F70 Typing control
+
+The host can grant typing to one active device of the invited viewer. The
+shared terminal accepts guest input only while that grant is current and
+pauses local input during the handoff. Guest input is encrypted and bounded
+to one pending line. The host can take back control immediately. Guest
+hand-back and inactivity also release control. Queued or stale input is
+discarded after a hand-back.
+
+Static checks, desktop build, and generated main and preload syntax checks
+passed. Relay and desktop regressions were written and deferred. Live
+two-account verification remains pending. Next is F71 — Administrative events.

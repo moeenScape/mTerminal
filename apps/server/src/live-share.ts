@@ -8,6 +8,14 @@ import { requireVaultAccess } from './vault-access.ts';
 const TIMEOUT = 15_000;
 const DURATION = 30 * 60_000;
 const BUFFERED_FRAMES = 32;
+const VIEWER_TIMEOUT = 5_000;
+type Viewer = { sessionId: string; seenAt: number };
+type Control = {
+  viewer: Viewer;
+  lease: string;
+  latest: number;
+  pending: { sequence: number; frame: SyncEnvelope } | null;
+};
 interface Room {
   organizationId: string;
   vaultId: string;
@@ -17,6 +25,9 @@ interface Room {
   deadline: number;
   lastHost: number;
   latest: number;
+  controlRevision: number;
+  viewer: Viewer | null;
+  control: Control | null;
   timer?: ReturnType<typeof setTimeout>;
   frames: { sequence: number; frame: SyncEnvelope }[];
 }
@@ -65,6 +76,9 @@ export class LiveRelay {
         deadline: now + DURATION,
         lastHost: now,
         latest: 0,
+        controlRevision: 0,
+        viewer: null,
+        control: null,
         frames: [],
       };
       this.rooms.set(id, room);
@@ -80,7 +94,7 @@ export class LiveRelay {
       this.close(action.room);
       return {};
     }
-    if (action.kind === 'push' ? !hosting : room.guest !== accountId)
+    if (action.kind === 'push' || action.kind === 'control' ? !hosting : room.guest !== accountId)
       throw new AccountFailure('live-unavailable');
 
     try {
@@ -106,6 +120,34 @@ export class LiveRelay {
     )
       throw new AccountFailure('live-unavailable');
 
+    if (room.viewer && room.viewer.seenAt + VIEWER_TIMEOUT <= Date.now()) room.viewer = null;
+    if (room.control && room.control.viewer.seenAt + VIEWER_TIMEOUT <= Date.now())
+      room.control = null;
+    if (action.kind === 'control') {
+      if (action.revision <= room.controlRevision) throw new AccountFailure('live-control');
+      room.controlRevision = action.revision;
+      room.control = null;
+      if (action.lease) {
+        if (!room.viewer) throw new AccountFailure('live-control');
+        room.control = { viewer: room.viewer, lease: action.lease, latest: 0, pending: null };
+      }
+      return { revision: room.controlRevision, lease: room.control?.lease ?? null };
+    }
+    if (action.kind === 'input' || action.kind === 'yield') {
+      const control = room.control;
+      if (!control || control.viewer.sessionId !== sessionId || control.lease !== action.lease)
+        throw new AccountFailure('live-control');
+      if (action.kind === 'yield') {
+        room.viewer = null;
+        room.control = null;
+        return {};
+      }
+      if (control.pending) throw new AccountFailure('live-input-pending');
+      if (action.sequence !== control.latest + 1) throw new AccountFailure('live-control');
+      control.pending = { sequence: action.sequence, frame: action.frame };
+      control.latest = action.sequence;
+      return {};
+    }
     if (action.kind === 'push') {
       if (action.frame) {
         if (action.sequence !== room.latest + 1) throw new AccountFailure('live-gap');
@@ -113,12 +155,39 @@ export class LiveRelay {
         if (room.frames.length > BUFFERED_FRAMES) room.frames.shift();
       }
       this.heartbeat(action.room, room);
-      return { sequence: room.latest };
+      const control = room.control;
+      if (control) {
+        const activeGuest = await client.query(
+          'SELECT 1 FROM account_sessions WHERE id = $1 AND account_id = $2 AND expires_at > clock_timestamp()',
+          [control.viewer.sessionId, room.guest],
+        );
+        if (this.rooms.get(action.room) !== room) throw new AccountFailure('live-unavailable');
+        if (!activeGuest.rowCount || control.viewer.seenAt + VIEWER_TIMEOUT <= Date.now()) {
+          room.control = null;
+          room.viewer = null;
+        }
+      }
+      const input = room.control?.pending ?? null;
+      if (room.control) room.control.pending = null;
+      return {
+        sequence: room.latest,
+        guestReady: room.viewer !== null,
+        revision: room.controlRevision,
+        lease: room.control?.lease ?? null,
+        input,
+      };
     }
+    const control = room.control;
+    const typing = control?.viewer.sessionId === sessionId ? control : null;
+    if (typing) typing.viewer.seenAt = Date.now();
+    else if (!control) room.viewer = { sessionId, seenAt: Date.now() };
     const first = room.frames[0]?.sequence ?? 1;
     if (action.after > room.latest || (action.after !== 0 && action.after < first - 1))
       throw new AccountFailure('live-gap');
     return {
+      typing: typing
+        ? { lease: typing.lease, next: typing.latest + 1, ready: typing.pending === null }
+        : null,
       frames: room.frames.filter(({ sequence }) => sequence > action.after).slice(0, LIVE_BATCH),
     };
   }

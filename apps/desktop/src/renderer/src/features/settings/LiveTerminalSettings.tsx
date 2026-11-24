@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { VaultDescriptor } from '../../../../shared/organization-vault.js';
 import { errorMessage } from '../../components/ConfirmDialog';
 
+import { LIVE_INPUT_CHARS, type LiveTypingGrant } from '../../../../shared/live-share.js';
+
 export function LiveTerminalSettings({
   organizationId,
   vault,
@@ -16,6 +18,8 @@ export function LiveTerminalSettings({
   const [input, setInput] = useState('');
   const [watching, setWatching] = useState('');
   const [output, setOutput] = useState('');
+  const [typing, setTyping] = useState<LiveTypingGrant | null>(null);
+  const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -32,6 +36,7 @@ export function LiveTerminalSettings({
     if (!watching) return;
     let active = true;
     let cursor = 0;
+    let lease: string | undefined;
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
@@ -42,12 +47,18 @@ export function LiveTerminalSettings({
         });
         if (!active) return;
         cursor = next.cursor ?? cursor;
+        const previousLease = lease;
+        lease = next.typing?.lease;
+        setTyping(next.typing ?? null);
+        if (lease !== previousLease) setDraft('');
         if (next.output) setOutput((previous) => (previous + next.output).slice(-65536));
         timer = setTimeout(() => void poll(), 750);
       } catch (cause) {
         if (!active) return;
         setWatching('');
         setOutput('');
+        setTyping(null);
+        setDraft('');
         setError(errorMessage(cause, 'Live viewing ended.'));
       }
     }
@@ -55,6 +66,10 @@ export function LiveTerminalSettings({
     return () => {
       active = false;
       clearTimeout(timer);
+      if (lease)
+        void window.mterminal
+          .liveTerminal({ kind: 'yield', invitation: watching, lease })
+          .catch(() => {});
     };
   }, [watching]);
 
@@ -171,11 +186,75 @@ export function LiveTerminalSettings({
             onClick={() => {
               setWatching('');
               setOutput('');
+              setTyping(null);
+              setDraft('');
             }}
           >
             Leave live view
           </button>
-          <p role="status">Live view · Read only</p>
+          <p role="status">{typing ? 'You have typing control' : 'Live view · Read only'}</p>
+          {typing && (
+            <>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const { lease, next, ready } = typing;
+                  if (busy || !ready) return;
+                  void run(async () => {
+                    await window.mterminal.liveTerminal({
+                      kind: 'input',
+                      invitation: watching,
+                      lease,
+                      sequence: next,
+                      text: draft,
+                    });
+                    setDraft('');
+                    setTyping((previous) =>
+                      previous?.lease === lease && previous.next === next
+                        ? { ...previous, ready: false }
+                        : previous,
+                    );
+                  });
+                }}
+              >
+                <label>
+                  Terminal input
+                  <input
+                    maxLength={LIVE_INPUT_CHARS}
+                    value={draft}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(event) => setDraft(event.target.value)}
+                    disabled={busy || !typing.ready}
+                  />
+                </label>
+                <p className="field-hint">
+                  Sending a line also presses Enter in the host’s terminal.
+                </p>
+                <button className="primary-button" type="submit" disabled={busy || !typing.ready}>
+                  Send line
+                </button>
+              </form>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await window.mterminal.liveTerminal({
+                      kind: 'yield',
+                      invitation: watching,
+                      lease: typing.lease,
+                    });
+                    setTyping(null);
+                    setDraft('');
+                  })
+                }
+              >
+                Give control back
+              </button>
+            </>
+          )}
           <pre className="shared-log-output" aria-label="Live output" tabIndex={0}>
             {output || 'Waiting for terminal output…'}
           </pre>

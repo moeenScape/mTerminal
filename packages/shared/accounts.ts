@@ -107,6 +107,8 @@ export const accountErrors = {
   'live-unavailable': 'This live share is unavailable or access has ended.',
   'live-limit': 'There is already an active share or the relay is busy.',
   'live-gap': 'The viewer fell behind. Open the invitation again for recent output.',
+  'live-control': 'Typing control changed or the viewer is no longer active.',
+  'live-input-pending': 'Wait for the previous input to be delivered.',
   'live-output': 'The live share stopped because the terminal was producing output too quickly.',
   'shared-log-missing': 'This shared recording has expired or been removed.',
   'shared-log-limit': 'The vault has reached its shared recording or annotation limit.',

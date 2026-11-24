@@ -213,7 +213,37 @@ export function App() {
         />
         {liveShare.active && (
           <div className="live-share-banner">
-            <span role="status">Sharing live terminal output</span>
+            <span role="status">
+              {liveShare.typing === 'guest'
+                ? 'Guest has typing control. Local typing is paused.'
+                : liveShare.typing === 'granting'
+                  ? 'Handing off typing control…'
+                  : 'Sharing live terminal output'}
+            </span>
+            {(liveShare.typing === 'guest' ||
+              liveShare.typing === 'granting' ||
+              liveShare.guestReady) && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setLiveError('');
+                  const kind =
+                    liveShare.typing === 'guest' || liveShare.typing === 'granting'
+                      ? 'reclaim'
+                      : 'grant';
+                  void window.mterminal.liveTerminal({ kind }).catch((cause: unknown) => {
+                    setLiveError(
+                      cause instanceof Error ? cause.message : 'Could not change typing control.',
+                    );
+                  });
+                }}
+              >
+                {liveShare.typing === 'guest' || liveShare.typing === 'granting'
+                  ? 'Take back control'
+                  : 'Give typing control'}
+              </button>
+            )}
             <button
               type="button"
               className="secondary-button"

@@ -82,10 +82,19 @@ import {
 } from '../shared/shared-logs.js';
 import { sharedLogs } from './storage/shared-logs.js';
 
-import { LIVE_SHARE_ROUTE, type LiveRelayAction } from '../../../../packages/shared/live-share.ts';
+import {
+  LIVE_SHARE_ROUTE,
+  validLiveInput,
+  type LiveRelayAction,
+} from '../../../../packages/shared/live-share.ts';
 import { LIVE_CHANGED, LIVE_REQUEST, type LiveReply } from '../shared/live-share.js';
 import { validTerminalId } from '../shared/terminal.js';
-import { TerminalLiveShare, viewLiveShare } from './terminal/live-share.js';
+import {
+  TerminalLiveShare,
+  viewLiveShare,
+  sendLiveInput,
+  yieldLiveInput,
+} from './terminal/live-share.js';
 import type { TerminalRegistry } from './terminal/registry.js';
 
 class AccountFailure extends Error {
@@ -1019,6 +1028,10 @@ export function attachAccounts(
       live.stop();
       return { ok: true, view: { state: live.status } };
     }
+    if (action.kind === 'reclaim' && count === 1) {
+      live.reclaim();
+      return { ok: true, view: { state: live.status } };
+    }
     try {
       const view = await queueAccountOperation(async () => {
         if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
@@ -1029,6 +1042,20 @@ export function attachAccounts(
           if (token !== expectedToken) throw new AccountFailure('sign-in-required');
           return request(LIVE_SHARE_ROUTE, 'POST', payload, 512 * 1024);
         };
+        if (action.kind === 'grant' && count === 1) {
+          const email = live.guestEmail;
+          if (!email) throw new AccountFailure('live-control');
+          if (
+            await confirmAccountAction(
+              `Give ${email} typing control?`,
+              'The invited viewer can submit commands to the shared terminal with your current shell permissions. Use Take back control to return typing to this device.',
+              'Give typing control',
+              'Live terminal',
+            )
+          )
+            await live.grant();
+          return { state: live.status };
+        }
         if (action.kind === 'sessions' && count === 1)
           return { sessions: terminals.liveSessions() };
         if (action.kind === 'start' && count === 5) {
@@ -1064,6 +1091,33 @@ export function attachAccounts(
           action.after >= 0
         )
           return viewLiveShare(action.invitation, action.after, relay);
+        if (
+          typeof action.invitation === 'string' &&
+          action.invitation.length <= 120 &&
+          validAccountId(action.lease)
+        ) {
+          if (
+            action.kind === 'input' &&
+            count === 5 &&
+            typeof action.sequence === 'number' &&
+            Number.isSafeInteger(action.sequence) &&
+            action.sequence > 0 &&
+            validLiveInput(action.text)
+          ) {
+            await sendLiveInput(
+              action.invitation,
+              action.lease,
+              action.sequence,
+              action.text,
+              relay,
+            );
+            return {};
+          }
+          if (action.kind === 'yield' && count === 3) {
+            await yieldLiveInput(action.invitation, action.lease, relay);
+            return {};
+          }
+        }
         throw new AccountFailure('invalid-input');
       });
       return { ok: true, view };

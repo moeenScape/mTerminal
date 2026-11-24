@@ -116,6 +116,8 @@ const statuses = {
   'live-limit': 409,
   'live-gap': 409,
   'live-output': 409,
+  'live-control': 409,
+  'live-input-pending': 409,
   'shared-log-missing': 404,
   'shared-log-limit': 409,
   'shared-log-line': 400,
