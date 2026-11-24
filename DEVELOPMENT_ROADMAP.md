@@ -24,13 +24,13 @@ This is a proposed development plan based on public capabilities, not a claim of
 | Field | Value |
 | --- | --- |
 | Current milestone | M5 — Shared vaults and collaboration |
-| Active feature | F69 implemented — encrypted shared session logs and annotations |
-| Next step | F70 Multiplayer. Phase 7 verification and security review remain open |
+| Active feature | F70 in progress — invite-only live viewing implemented |
+| Next step | F70 typing ownership and hand-back. Phase 7 verification and security review remain open |
 | Implementation status | F01–F31 implemented: desktop foundation, restricted bridge, navigation, Hosts/Workspace/Settings views, preferences, SQLite foundation, actionable failures, safe diagnostics, owned local PTY sessions, platform shell defaults, Unicode/text/binary terminal input/output, synchronized resizing, independent terminal tabs, clipboard controls, search, appearance, lifecycle cleanup, bounded output batching, saved SSH profiles, nested groups, defaults, tags, SSH terminal sessions, password/key/interactive authentication, saved host-key trust, explicit SSH connection states, keepalive, explicit reconnect, in-place SSH cancellation, reusable identities, encrypted password/private-key vault storage, confirmed SFTP public-key installation, passphrase-protected vault lock/unlock, versioned workspace backup/import, and vault/database recovery guidance; Phase 3 unit gate passed, E2E launch blocked |
 | Runtime evidence | The desktop smoke test passed with Chromium sandboxing enabled; real serial hardware and live server acceptance remain pending |
 | Current blocker | Phase 6 verification remains open. See the verification run below for automated results |
 | Phase 0 verification | 37/37 unit tests passed on Linux/Node 24.12.0; static/build checks pass. Sandbox-enabled E2E: first launch blocked, remaining 9 not run (fail-fast). Visual and Windows/macOS verification pending |
-| Last roadmap update | 2026-11-23 |
+| Last roadmap update | 2026-11-24 |
 
 ## Selected technology stack
 
@@ -242,7 +242,7 @@ Dependencies: Phase 7 with reviewed authorization and encryption boundaries.
 - [x] **F67 — Shared vaults (implementation):** One revisioned encrypted vault per organization. Owners publish host and identity profiles, snippets, and portable settings. Members with the key can preview and explicitly import categories. Regressions written for the Phase 8 gate. See `docs/SHARED_VAULTS.md`.
 - [x] **F68 — Permissions (implementation):** Create multiple named vaults and manage restricted or organization-wide Reader access and per-member Reader or Editor grants. Existing F67 vaults keep their key and data. Server authorization applies to current and legacy routes. Regressions written for the Phase 8 gate. See `docs/SHARED_VAULTS.md`.
 - [x] **F69 — Shared logs (implementation):** Share completed recordings into a vault with encrypted output and annotations, Reader and Editor access, owner removal, and automatic 30-day expiry. Regressions written for the Phase 8 gate. See `docs/SHARED_LOGS.md`.
-- [ ] **F70 — Multiplayer:** Authorized invitations, encrypted relay, typing ownership, and revocation.
+- [ ] **F70 — Multiplayer (in progress):** Invite-only read-only viewing, encrypted relay, and host revocation are implemented. Typing ownership and hand-back remain. Tests written for the Phase 8 gate. See `docs/LIVE_TERMINAL.md`.
 - [ ] **F71 — Administrative events:** Membership, permissions, and vault-management records.
 
 Completion criteria: Verify authorization through both UI and API. Revocation stops future sync and live-session access. Server-side credential revocation remains a separate offboarding responsibility.
@@ -1887,3 +1887,15 @@ earlier. Sharing and removal preserve local recordings.
 `npm run check`, `npm run build`, and the built main and preload syntax checks passed.
 Server, unit, and desktop regressions were written and deferred. Live migration and
 cross-account verification remain pending. Next is F70 — Multiplayer.
+
+### 2026-11-24 — F70 Invite-only live terminal viewing
+
+A vault owner or editor can invite one authorized teammate to view a terminal's
+new output. The desktop strips terminal controls, encrypts the output, and
+displays a persistent sharing indicator with a stop control. The relay checks
+the host session and both vault grants on each request. It holds a bounded
+in-memory window and expires idle shares. Viewer input is outside this step.
+
+Static checks, the desktop build, and built main and preload syntax checks
+passed. Server and desktop regressions were written and deferred. Live
+two-account verification and F70 typing ownership and hand-back remain open.

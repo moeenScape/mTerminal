@@ -24,6 +24,20 @@ export class TerminalRegistry {
   isReady(id: string) {
     return !this.disposed && !this.suspended && this.sessions.get(id)?.ready === true;
   }
+  liveSessions(): { id: string; label: string }[] {
+    return [...this.sessions].flatMap(([id, session], index) =>
+      this.isReady(id)
+        ? [
+            {
+              id,
+              label: [`Terminal ${index + 1}`, session.transferPeer?.address]
+                .filter(Boolean)
+                .join(' · '),
+            },
+          ]
+        : [],
+    );
+  }
   private readonly closedListeners = new Set<(id: string) => void>();
   onSessionClosed(listener: (id: string) => void): () => void {
     this.closedListeners.add(listener);

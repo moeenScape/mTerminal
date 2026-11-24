@@ -6,6 +6,7 @@ import type {
   VaultGrant,
 } from '../../../../shared/organization-vault.js';
 import { ConfirmDialog, errorMessage } from '../../components/ConfirmDialog';
+import { LiveTerminalSettings } from './LiveTerminalSettings';
 import { SharedVaultSettings } from './SharedVaultSettings';
 
 type VaultChange = Extract<VaultAccessAction, { kind: 'grant' | 'visibility' }>;
@@ -204,12 +205,10 @@ export function OrganizationVaults({
         </section>
       )}
       {opened && (
-        <SharedVaultSettings
-          key={opened.id}
-          organizationId={organizationId}
-          vault={opened}
-          busy={disabled}
-        />
+        <>
+          <LiveTerminalSettings key={opened.id} organizationId={organizationId} vault={opened} />
+          <SharedVaultSettings organizationId={organizationId} vault={opened} busy={disabled} />
+        </>
       )}
       {confirmation && (
         <ConfirmDialog

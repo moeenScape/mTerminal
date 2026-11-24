@@ -104,6 +104,10 @@ export const accountErrors = {
   'sync-queue-storage': 'The saved workspace publication could not be read or written.',
   'sync-account-unverified':
     'Connect to the account service once to enable offline workspace publication.',
+  'live-unavailable': 'This live share is unavailable or access has ended.',
+  'live-limit': 'There is already an active share or the relay is busy.',
+  'live-gap': 'The viewer fell behind. Open the invitation again for recent output.',
+  'live-output': 'The live share stopped because the terminal was producing output too quickly.',
   'shared-log-missing': 'This shared recording has expired or been removed.',
   'shared-log-limit': 'The vault has reached its shared recording or annotation limit.',
   'shared-log-line': 'Choose a line that exists in this recording.',

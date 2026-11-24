@@ -82,6 +82,12 @@ import {
 } from '../shared/shared-logs.js';
 import { sharedLogs } from './storage/shared-logs.js';
 
+import { LIVE_SHARE_ROUTE, type LiveRelayAction } from '../../../../packages/shared/live-share.ts';
+import { LIVE_CHANGED, LIVE_REQUEST, type LiveReply } from '../shared/live-share.js';
+import { validTerminalId } from '../shared/terminal.js';
+import { TerminalLiveShare, viewLiveShare } from './terminal/live-share.js';
+import type { TerminalRegistry } from './terminal/registry.js';
+
 class AccountFailure extends Error {
   readonly code: AccountErrorCode;
 
@@ -311,6 +317,7 @@ export function attachAccounts(
   database: LocalDatabase,
   secrets: SshSecretStore,
   preferences: PreferencesStore,
+  terminals: TerminalRegistry,
 ): void {
   const deviceId = database.workspaceId;
   const origin = accountOrigin(process.env.MTERMINAL_ACCOUNT_URL);
@@ -327,6 +334,10 @@ export function attachAccounts(
   let retained = false;
   let accountId: string | undefined;
   let publication: WorkspacePublicationRunner | undefined;
+  const live = new TerminalLiveShare(terminals, (state) => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed())
+      window.webContents.send(LIVE_CHANGED, state);
+  });
   const review = new WorkspaceReview(database, syncRequest, (id) =>
     secrets.hasStoredCredential(id),
   );
@@ -423,6 +434,7 @@ export function attachAccounts(
   }
 
   async function clearToken(): Promise<void> {
+    live.stop();
     token = undefined;
     accountId = undefined;
     retained = false;
@@ -997,7 +1009,75 @@ export function attachAccounts(
       }
     },
   );
+  ipcMain.handle(LIVE_REQUEST, async (event, ...args: unknown[]): Promise<LiveReply> => {
+    validateAppInfoRequest(event, window.webContents, rendererUrl, []);
+    const action = args.length === 1 ? record(args[0]) : undefined;
+    if (!action) return { ok: false, code: 'invalid-input' };
+    const count = Object.keys(action).length;
+    if (action.kind === 'status' && count === 1) return { ok: true, view: { state: live.status } };
+    if (action.kind === 'stop' && count === 1) {
+      live.stop();
+      return { ok: true, view: { state: live.status } };
+    }
+    try {
+      const view = await queueAccountOperation(async () => {
+        if (!origin || window.isDestroyed()) throw new AccountFailure('unavailable');
+        await loadToken();
+        const expectedToken = token;
+        if (!expectedToken) throw new AccountFailure('sign-in-required');
+        const relay = async (payload: LiveRelayAction) => {
+          if (token !== expectedToken) throw new AccountFailure('sign-in-required');
+          return request(LIVE_SHARE_ROUTE, 'POST', payload, 512 * 1024);
+        };
+        if (action.kind === 'sessions' && count === 1)
+          return { sessions: terminals.liveSessions() };
+        if (action.kind === 'start' && count === 5) {
+          const { organizationId, vaultId, terminalId } = action;
+          const email = normalizeAccountEmail(action.email);
+          if (
+            !validAccountId(organizationId) ||
+            !validAccountId(vaultId) ||
+            !validTerminalId(terminalId) ||
+            !email
+          )
+            throw new AccountFailure('invalid-input');
+          const source = terminals.liveSessions().find((item) => item.id === terminalId);
+          if (!source) throw new AccountFailure('live-unavailable');
+          if (
+            !(await confirmAccountAction(
+              `Share live terminal output with ${email}?`,
+              `${source.label} will send new terminal output. Only the invited account can use the code. Review the terminal for sensitive output and stop sharing before entering secrets.`,
+              'Start live share',
+              'Live terminal',
+            ))
+          )
+            return { state: live.status };
+          return live.start(terminalId, { kind: 'start', organizationId, vaultId, email }, relay);
+        }
+        if (
+          action.kind === 'view' &&
+          count === 3 &&
+          typeof action.invitation === 'string' &&
+          action.invitation.length <= 120 &&
+          typeof action.after === 'number' &&
+          Number.isSafeInteger(action.after) &&
+          action.after >= 0
+        )
+          return viewLiveShare(action.invitation, action.after, relay);
+        throw new AccountFailure('invalid-input');
+      });
+      return { ok: true, view };
+    } catch (error) {
+      const code =
+        error instanceof AccountFailure || error instanceof WorkspaceSyncFailure
+          ? error.code
+          : 'unavailable';
+      return { ok: false, code };
+    }
+  });
   window.once('closed', () => {
+    live.dispose();
+    ipcMain.removeHandler(LIVE_REQUEST);
     review.clear();
     publication?.dispose();
     ipcMain.removeHandler(ACCOUNT_REQUEST);

@@ -17,9 +17,31 @@ import { HostsView } from './features/hosts/HostsView';
 import { SettingsView } from './features/settings/SettingsView';
 import { WorkspaceView } from './features/workspace/WorkspaceView';
 
+import type { LiveState } from '../../shared/live-share.js';
+
 type AppState = { status: 'loading' } | { status: 'ready'; info: AppInfo } | { status: 'error' };
 
 export function App() {
+  const [liveShare, setLiveShare] = useState<LiveState>({ active: false });
+  const [liveError, setLiveError] = useState('');
+  useEffect(() => {
+    let current = true;
+    let updated = false;
+    const off = window.mterminal.onLiveTerminalChanged((state) => {
+      updated = true;
+      setLiveShare(state);
+    });
+    void window.mterminal
+      .liveTerminal({ kind: 'status' })
+      .then(({ state }) => {
+        if (state && current && !updated) setLiveShare(state);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+      off();
+    };
+  }, []);
   const [state, setState] = useState<AppState>({ status: 'loading' });
   const [activeView, setActiveView] = useState<ViewId>('hosts');
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
@@ -189,6 +211,31 @@ export function App() {
           ref={setSessionBar}
           data-dimmed={activeView === 'workspace' ? undefined : ''}
         />
+        {liveShare.active && (
+          <div className="live-share-banner">
+            <span role="status">Sharing live terminal output</span>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setLiveError('');
+                void window.mterminal.liveTerminal({ kind: 'stop' }).catch(() => {
+                  setLiveError('Could not stop the share. Close the shared terminal to end it.');
+                });
+              }}
+            >
+              Stop live share
+            </button>
+            {liveError && <span role="alert">{liveError}</span>}
+          </div>
+        )}
+        {!liveShare.active && liveShare.reason && (
+          <div className="live-share-banner" role="status">
+            {liveShare.reason === 'live-output'
+              ? 'Live share stopped because terminal output was too fast.'
+              : 'Live share ended.'}
+          </div>
+        )}
         <section id="view-panel" aria-label={activeLabel} tabIndex={-1} className="view-panel">
           {activeView === 'hosts' && (
             <HostsView

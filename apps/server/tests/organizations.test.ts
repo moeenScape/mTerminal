@@ -16,6 +16,7 @@ import {
   type VaultAccessAction,
   type VaultAccessView,
 } from '../../../packages/shared/organization-vault.ts';
+import { LIVE_SHARE_ROUTE } from '../../../packages/shared/live-share.ts';
 import { SHARED_LOGS_ROUTE } from '../../../packages/shared/shared-logs.ts';
 import { purgeSharedLogs } from '../src/shared-logs.ts';
 import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts';
@@ -319,7 +320,40 @@ test(
         (await logRequest(owner, { ...logTarget, logId: secondLog.logId, kind: 'read' })).status,
         404,
       );
+      const relay = (token: string | undefined, action: object) =>
+        call(LIVE_SHARE_ROUTE, 'POST', token, action);
+      const start = {
+        kind: 'start',
+        organizationId,
+        vaultId: privateVaultId,
+        email: 'teammate@example.com',
+      };
+      assert.equal((await relay(undefined, start)).status, 401);
+      assert.equal((await relay(owner, { ...start, email: 'outsider@example.com' })).status, 404);
+      assert.equal((await relay(teammate, { ...start, email: 'owner@example.com' })).status, 403);
+      const started = await relay(owner, start);
+      assert.equal(started.status, 200);
+      const { room } = (await started.json()) as { room: string };
+      const watch = { kind: 'view', room, after: 0 };
+      assert.equal((await relay(outsider, watch)).status, 404);
+      const push = { kind: 'push', room, sequence: 1, frame: initial.envelope };
+      assert.equal((await relay(teammate, push)).status, 404);
+      assert.equal((await relay(owner, { ...push, text: 'unexpected plaintext' })).status, 400);
+      assert.equal((await relay(owner, { ...push, sequence: 2 })).status, 409);
+      assert.equal((await relay(owner, push)).status, 200);
+      assert.equal((await relay(owner, push)).status, 409);
+      const seen = await relay(teammate, watch);
+      assert.equal(seen.status, 200);
+      assert.deepEqual(await seen.json(), { frames: [{ sequence: 1, frame: initial.envelope }] });
+      assert.equal((await relay(teammate, { kind: 'stop', room })).status, 404);
+      assert.equal((await relay(owner, { kind: 'stop', room })).status, 200);
+      assert.equal((await relay(teammate, watch)).status, 404);
+      const again = await relay(owner, start);
+      assert.equal(again.status, 200);
+      const secondRoom = ((await again.json()) as { room: string }).room;
       await accessView(owner, { ...grant, grant: null });
+      assert.equal((await relay(teammate, { ...watch, room: secondRoom })).status, 403);
+      assert.equal((await relay(owner, { kind: 'push', room: secondRoom })).status, 404);
       assert.equal((await logRequest(teammate, listLogs)).status, 403);
       assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
       assert.equal(

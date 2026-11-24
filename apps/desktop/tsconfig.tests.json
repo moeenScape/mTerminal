@@ -40,6 +40,7 @@
     "src/main/snippets.ts",
     "src/main/session-logs.ts",
     "src/main/terminal/session-logs.ts",
+    "src/main/terminal/live-share.ts",
     "src/renderer/src/features/workspace/terminal-search.ts",
     "src/renderer/src/features/workspace/appearance.ts",
     "src/renderer/src/features/workspace/autocomplete.ts",

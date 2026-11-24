@@ -127,7 +127,26 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
 
 import { SHARED_LOGS_REQUEST, type SharedLogsReply } from '../shared/shared-logs.js';
 
+import {
+  LIVE_CHANGED,
+  LIVE_REQUEST,
+  type LiveReply,
+  type LiveState,
+} from '../shared/live-share.js';
+
 const api: DesktopApi = {
+  liveTerminal: async (action) => {
+    const reply: LiveReply = await ipcRenderer.invoke(LIVE_REQUEST, action);
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.view;
+  },
+  onLiveTerminalChanged: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, state: LiveState) => listener(state);
+    ipcRenderer.on(LIVE_CHANGED, receive);
+    return () => {
+      ipcRenderer.removeListener(LIVE_CHANGED, receive);
+    };
+  },
   sharedLogs: async (action) => {
     const reply: SharedLogsReply = await ipcRenderer.invoke(SHARED_LOGS_REQUEST, action);
     if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);

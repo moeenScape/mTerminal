@@ -31,6 +31,12 @@ import {
 
 import { SHARED_LOGS_ROUTE, parseSharedLogRequest } from '../../../packages/shared/shared-logs.ts';
 
+import {
+  LIVE_SHARE_ROUTE,
+  LIVE_FRAME_LIMIT,
+  parseLiveRelayAction,
+} from '../../../packages/shared/live-share.ts';
+
 const MAX_BODY = 4096;
 
 function reply(response: ServerResponse, status: number, value: object): void {
@@ -42,11 +48,14 @@ function reply(response: ServerResponse, status: number, value: object): void {
   response.end(JSON.stringify(value));
 }
 
-async function body(request: IncomingMessage, sync = false): Promise<Record<string, unknown>> {
+async function body(
+  request: IncomingMessage,
+  sync = false,
+  limit = sync ? SYNC_HTTP_LIMIT : MAX_BODY,
+): Promise<Record<string, unknown>> {
   if (request.headers['content-type']?.split(';', 1)[0]?.trim() !== 'application/json')
     throw new AccountFailure('invalid-input');
   const chunks: Buffer[] = [];
-  const limit = sync ? SYNC_HTTP_LIMIT : MAX_BODY;
   const sizeError = sync ? 'sync-size' : 'invalid-input';
   if (Number(request.headers['content-length']) > limit) throw new AccountFailure(sizeError);
   let size = 0;
@@ -103,6 +112,10 @@ const statuses = {
   'sync-credential-key-exists': 409,
   'sync-vault-locked': 409,
   'sync-vault-unavailable': 503,
+  'live-unavailable': 404,
+  'live-limit': 409,
+  'live-gap': 409,
+  'live-output': 409,
   'shared-log-missing': 404,
   'shared-log-limit': 409,
   'shared-log-line': 400,
@@ -278,6 +291,16 @@ export function createAccountServer(
               writeProof,
             }),
           );
+        }
+        if (request.url === LIVE_SHARE_ROUTE && request.method === 'POST') {
+          if (active >= 4) throw new AccountFailure('rate-limited');
+          active++;
+          admitted = true;
+          const token = bearer(request);
+          const action = parseLiveRelayAction(await body(request, false, LIVE_FRAME_LIMIT + 1024));
+          if (!action) throw new AccountFailure('invalid-input');
+          await accounts.rateLimit('live-peer', peerAddress(request, trustProxy), 600);
+          return reply(response, 200, await accounts.liveTerminal(token, action));
         }
         if (request.url === SHARED_LOGS_ROUTE && request.method === 'POST') {
           if (active >= 4) throw new AccountFailure('rate-limited');

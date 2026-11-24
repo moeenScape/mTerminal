@@ -32,6 +32,9 @@ export { AccountFailure } from './account-failure.ts';
 import type { SharedLogRequest } from '../../../packages/shared/shared-logs.ts';
 import { sharedLogs } from './shared-logs.ts';
 
+import { LiveRelay } from './live-share.ts';
+import type { LiveRelayAction } from '../../../packages/shared/live-share.ts';
+
 const scryptOptions = { N: 32_768, r: 8, p: 3, maxmem: 48 * 1024 * 1024 };
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const makeToken = () => randomBytes(32).toString('base64url');
@@ -233,6 +236,7 @@ export function createAccounts(
 ) {
   if (mfaKey.length !== 32) throw new Error('Invalid account protection key.');
   let nextCleanup = 0;
+  const live = new LiveRelay();
 
   async function consumeFactor(
     client: PoolClient,
@@ -528,6 +532,13 @@ export function createAccounts(
       return transaction(pool, async (client) => {
         const { account } = await accountForSession(client, token);
         return sharedLogs(client, account, action);
+      });
+    },
+
+    async liveTerminal(token: string, action: LiveRelayAction) {
+      return transaction(pool, async (client) => {
+        const { account, sessionId } = await accountForSession(client, token);
+        return live.handle(client, account.id, sessionId, action);
       });
     },
 
