@@ -1,4 +1,4 @@
 interface:
   display_name: "mTerminal UI Design"
-  short_description: "Design Termius-style desktop terminal interfaces"
+  short_description: "Design mTerminal desktop interfaces"
   default_prompt: "Use $mterminal-ui-design to design and implement the requested mTerminal desktop interface."

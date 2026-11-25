@@ -447,7 +447,6 @@ export function TerminalPane({
       if (!term || session.current || lookingUp.current) return;
       let usingSaved = false;
       if (hostId && !credentials) {
-        // One click: connect with saved credentials when there are any, as in Termius.
         lookingUp.current = true;
         setStatus('Connecting SSH…');
         setConnection(null);

@@ -1718,7 +1718,6 @@ p.field-hint {
   gap: 8px;
   color: var(--muted);
 }
-/* Quiet, text-like selects, as in Termius ("Enabled ▾"). */
 .tool-setting select {
   max-width: 60%;
   padding: 4px 2px;

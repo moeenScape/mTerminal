@@ -134,9 +134,8 @@ ordinary records and diagnostic logs.
 ## Interface direction
 
 Give terminal sessions priority. Keep navigation, tabs, context menus, settings, and forms
-compact and consistent, using Termius Desktop as a workflow reference and original mTerminal
-branding and assets. Preserve keyboard access, visible focus, readable terminal text, usable
-window sizes, and platform-appropriate controls.
+compact and consistent. Use original mTerminal branding and assets. Preserve keyboard access,
+visible focus, readable terminal text, usable window sizes, and platform-appropriate controls.
 
 See the [development skill](.agents/skills/mterminal-development/SKILL.md) and
 [UI design skill](.agents/skills/mterminal-ui-design/SKILL.md) for contributor guidance.

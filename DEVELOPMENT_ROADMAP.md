@@ -2,7 +2,7 @@
 
 Created: 2026-10-28  
 Target platforms: Ubuntu/Linux, Windows, and macOS  
-Scope: A Termius-style desktop terminal and infrastructure client  
+Scope: A desktop terminal and infrastructure client\
 Excluded: Mobile applications
 
 This roadmap tracks mTerminal features and release verification.
@@ -53,14 +53,14 @@ Dependencies: None.
 
 - [x] **F01 — Desktop window:** Application lifecycle, menus, window controls, and single-instance behavior. Implementation complete; user reported Ubuntu launch succeeds. Lifecycle tests and other platforms remain pending.
 - [x] **F02 — Secure process boundaries:** Isolated renderer, narrow preload API, validated IPC, and sender checks. Implementation complete with a read-only app-info bridge; security tests remain pending.
-- [x] **F03 — Application layout:** Termius-style dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
+- [x] **F03 — Application layout:** Dark shell, navigation, Hosts/Workspace/Settings views, host-search empty states, keyboard-accessible view tabs, and application/session status. Implementation complete; visual and phase tests pending. Actual session tabs belong to F11 and saved-host management to F17. Follow the [interface direction](README.md#interface-direction).
 - [x] **F04 — Preferences:** Persisted dark/light appearance, navigation shortcut toggle, default-shell path, and window size/maximized state. Shell selection is consumed by F07; platform defaults and save-time validation are implemented in F08. Runtime and phase tests pending.
 - [x] **F05 — Local database:** Main-process SQLite, ordered transactional schema migrations, persistent workspace UUID, integrity/version checks, startup snapshot, pre-upgrade backups, exclusive ownership, and offline backup/restore maintenance. Build/static checks passed; runtime and phase tests pending.
 - [x] **F06 — Error handling:** Fixed failure codes and recovery messages, sanitized preference-save results, bounded local diagnostic logs, fatal-process and renderer-crash handling. Unit/static/build checks pass; sandbox-enabled desktop verification blocked by the environment.
 
 Completion criteria: The application opens reliably, persists preferences, handles failures, and rejects invalid IPC requests. Keep process execution, filesystem access, and credentials outside the renderer.
 
-UI acceptance: Compare the application shell and host view visually with Termius Desktop. Verify consistent dark styling, compact spacing, accessible contrast, keyboard focus, resizing, and platform-appropriate window controls. Use mTerminal branding. Terminal tabs, split panes, and SFTP follow their respective feature phases.
+UI acceptance: Verify consistent dark styling, compact spacing, accessible contrast, keyboard focus, resizing, and platform-appropriate window controls in the application shell and host view. Use mTerminal branding. Terminal tabs, split panes, and SFTP follow their respective feature phases.
 
 Document source layout, runtime versions, entry points, dependency installation, development, build, lint, and test commands in `README.md`. Configure formatting/linting and a suitable test framework with the first implementation, and commit the dependency lockfile.
 
@@ -248,8 +248,6 @@ Dependencies: Relevant desktop capabilities and online services. Schedule indivi
 
 Completion criteria: Retries cannot duplicate inventory or incorrectly grant entitlements. Define AI data boundaries. SSO must not bypass vault encryption. Compliance claims and SLAs require operational evidence.
 
-Termius integration names do not provide implementation specifications for this application. Define actual behavior before development. Its cloud-integration plan descriptions conflict between pricing and implementation guides; do not carry this ambiguity into this application's feature policy.
-
 ## Release engineering
 
 Use this checklist for each platform and feature included in a release.
@@ -302,8 +300,6 @@ Per-feature implementation logs and earlier verification details remain in Git h
 
 These references informed the plan. Check current dependency versions and behavior when implementing a feature.
 
-- [Termius features](https://www.termius.com/pricing)
-- [Termius documentation](https://docs.termius.com/)
 - [Electron](https://www.electronjs.org/docs/latest/)
 - [Electron security](https://www.electronjs.org/docs/latest/tutorial/security)
 - [xterm.js](https://xtermjs.org/)

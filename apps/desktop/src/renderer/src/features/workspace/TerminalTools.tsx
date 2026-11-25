@@ -32,7 +32,6 @@ export interface ToolsPreferences {
   autocomplete: boolean;
 }
 
-/** Right-hand terminal tools panel, modelled on Termius: autocomplete, history and themes. */
 export function TerminalTools({
   id,
   title,
