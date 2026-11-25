@@ -4,6 +4,21 @@ New local **Bash 5.1 or newer** sessions with `base64` and `tr` report shell sta
 line above each terminal. Select an installed Bash executable in Settings and open a new tab
 to use it. History recording and vault unlock are not required for this metadata.
 
+## Preview recursive deletion
+
+In new local Bash sessions on Linux, submitting a command such as `rm -rf -- ./build`
+pauses before deletion. The terminal shows the absolute paths Bash passed to `rm`, including
+expanded wildcards, and up to five immediate entries per directory. Type the displayed
+confirmation code to proceed. Press Enter with an empty response to cancel. A wrong response
+or a 60-second timeout also cancels. For more than ten targets, split the operation into
+smaller groups and review each separately.
+
+This preview protects direct interactive calls to GNU `rm` with recursive and force flags.
+It leaves an existing `rm` alias or function in place. Invocations through `sudo`, `command rm`,
+an explicit executable path, another shell, or a separately executed script bypass the
+preview. Files can change after the preview. Shell expansions and redirections happen before
+the preview, and cancellation applies to the `rm` invocation.
+
 ## What the status means
 
 - **At shell prompt**: the integrated primary prompt has finished rendering. The displayed

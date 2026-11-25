@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { bashRemovalPreview } from './bash-removal-preview.js';
 
 export async function bashHistoryRc() {
   const directory = await mkdtemp(join(tmpdir(), 'mterminal-bash-'));
@@ -50,7 +51,8 @@ fi
 `;
   try {
     // Shell expansions stay in Bash; only the generated UUID is substituted here.
-    await writeFile(path, script.replaceAll('\\${', '${').replaceAll('TOKEN', token), {
+    const shellRc = script.replaceAll('\\${', '${').replaceAll('TOKEN', token);
+    await writeFile(path, shellRc + bashRemovalPreview, {
       mode: 0o600,
     });
   } catch (error) {

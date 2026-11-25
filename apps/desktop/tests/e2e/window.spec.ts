@@ -1,4 +1,4 @@
-import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -3561,6 +3561,52 @@ test('edits SSH environment rows, persists overrides and rejects malformed IPC s
     };
   });
   expect(result).toEqual({ rejected: true, unchanged: true, environment: [] });
+});
+
+test('previews recursive Bash deletion and requires a fresh confirmation before changing files', async () => {
+  test.skip(process.platform !== 'linux', 'Requires interactive Bash 5.1+ on Linux.');
+  const directory = join(userData, 'delete-preview-fixture');
+  const file = join(directory, 'discard-me.txt');
+  await mkdir(directory);
+  await writeFile(file, 'temporary test file');
+  await page.evaluate(async () => {
+    const preferences = await window.mterminal.getPreferences();
+    await window.mterminal.savePreferences({ ...preferences, defaultShell: '/bin/bash' });
+  });
+  await navButton('Workspace').click();
+  await page.getByRole('button', { name: 'Start local shell', exact: true }).click();
+  const pane = page.locator('.terminal-pane[data-active="true"]');
+  const state = pane.getByRole('group', { name: 'Shell integration status' });
+  await expect(state).toContainText('At shell prompt');
+  await pane.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type("cd '" + userData.replaceAll("'", "'\\''") + "'");
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText(userData);
+
+  const rows = pane.locator('.xterm-rows');
+  const challengePattern = /Type ([0-9a-f]{8}) to delete/;
+  await page.keyboard.type("rm -rf -- 'delete-preview-fixture'");
+  await page.keyboard.press('Enter');
+  await expect(rows).toContainText(challengePattern);
+  await expect(rows).toContainText('discard-me.txt');
+  await expect(readFile(file, 'utf8')).resolves.toBe('temporary test file');
+
+  await page.keyboard.press('Enter');
+  await expect(rows).toContainText('Deletion cancelled.');
+  await expect(state).toContainText('At shell prompt');
+  await expect(readFile(file, 'utf8')).resolves.toBe('temporary test file');
+
+  await page.keyboard.press('Control+l');
+  await expect(rows).not.toContainText(challengePattern);
+  await page.keyboard.type("rm --recursive --force -- 'delete-preview-fixture'");
+  await page.keyboard.press('Enter');
+  await expect(rows).toContainText(challengePattern);
+  const challenge = (await rows.textContent())?.match(challengePattern)?.[1];
+  expect(challenge).toBeTruthy();
+  await page.keyboard.type(challenge!);
+  await page.keyboard.press('Enter');
+  await expect(state).toContainText('At shell prompt');
+  await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test('shows per-pane Bash directory, running state and completion status independently of history recording', async () => {
