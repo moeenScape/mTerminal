@@ -135,3 +135,12 @@ visible focus, readable terminal text, usable window sizes, and platform-appropr
 
 See the [development skill](.agents/skills/mterminal-development/SKILL.md) and
 [UI design skill](.agents/skills/mterminal-ui-design/SKILL.md) for contributor guidance.
+
+## Contributing
+
+See the [contribution guide](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), and
+[security policy](SECURITY.md).
+
+## License
+
+mTerminal is licensed under the [MIT License](LICENSE).
