@@ -1,8 +1,19 @@
 # mTerminal
 
 mTerminal is a desktop terminal and SSH/SFTP client with saved hosts, an encrypted local vault,
-and a workspace with tabs and split panes. Accounts, encrypted synchronization, and team
-collaboration use an optional account service.
+and a workspace with tabs and split panes. The desktop app uses local SQLite. PostgreSQL is
+only needed by the optional account server for sign-in, sync, and team collaboration.
+
+## Screenshots
+
+_Project screenshots will appear here._
+
+<!--
+Save images under docs/screenshots/ and replace the placeholder above with these lines:
+![mTerminal workspace with split panes](docs/screenshots/workspace.png)
+![Saved SSH hosts and groups](docs/screenshots/hosts.png)
+![Local and remote files in the SFTP browser](docs/screenshots/sftp.png)
+-->
 
 ## Install mTerminal
 
@@ -53,16 +64,6 @@ Close mTerminal, then install the newer `.deb` with the same `sudo apt install .
 command. To uninstall the package, run `sudo apt remove mterminal`. Your local workspace data is
 stored separately under `~/.config/mTerminal` on Linux. See the
 [local storage guide](docs/LOCAL_STORAGE.md) for backups and recovery.
-
-## Screenshots
-
-Project screenshots will appear here.
-
-<!-- Add screenshots to docs/screenshots/ and place these links outside the comment:
-![mTerminal workspace with split panes](docs/screenshots/workspace.png)
-![Saved SSH hosts and groups](docs/screenshots/hosts.png)
-![Local and remote files in the SFTP browser](docs/screenshots/sftp.png)
--->
 
 ## Get started
 
