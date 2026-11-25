@@ -1,19 +1,14 @@
+<img src="apps/desktop/build/icon.png" alt="mTerminal icon" width="96" height="96">
+
 # mTerminal
 
-mTerminal is a desktop terminal and SSH/SFTP client with saved hosts, an encrypted local vault,
-and a workspace with tabs and split panes. The desktop app uses local SQLite. PostgreSQL is
-only needed by the optional account server for sign-in, sync, and team collaboration.
+mTerminal is a desktop terminal and SSH/SFTP client for managing local shells and remote
+systems from one workspace. Run sessions side by side with tabs and split panes, organize
+saved hosts with groups and tags, and transfer files over SFTP. An encrypted local vault
+stores saved SSH credentials.
 
-## Screenshots
-
-_Project screenshots will appear here._
-
-<!--
-Save images under docs/screenshots/ and replace the placeholder above with these lines:
-![mTerminal workspace with split panes](docs/screenshots/workspace.png)
-![Saved SSH hosts and groups](docs/screenshots/hosts.png)
-![Local and remote files in the SFTP browser](docs/screenshots/sftp.png)
--->
+The desktop app runs independently with local SQLite storage. An optional PostgreSQL-backed
+account service adds sign-in, encrypted sync, shared vaults, and live terminal collaboration.
 
 ## Install mTerminal
 
