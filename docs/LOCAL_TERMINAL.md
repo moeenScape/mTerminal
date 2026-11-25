@@ -1,20 +1,41 @@
-# Local terminal: F07–F12
+# Local terminal and workspace
 
 ## Run and use
 
-From the repository root:
-
-```bash
-npm install
-npm run dev
-```
-
-Open Workspace and click **Start local shell**. Type commands normally. The shell
+Install or run mTerminal from source using the [README](../README.md#install-mterminal).
+Open **Workspace** and choose **Start local shell** or **New terminal**. The shell
 starts in your home directory and inherits the application's environment except
 internal Electron/test variables and `NODE_OPTIONS`. It runs with your user
 permissions. Switching Hosts/Workspace/Settings preserves the session and output.
 Closing a tab stops its PTY; reloading or destroying the window stops all owned PTYs.
 Closing a session can interrupt foreground work; it never replays commands.
+
+## Split panes
+
+1. Open a terminal. In its **More actions** menu, choose **Split right** or **Split down**.
+   The same actions are available from the session tab's right-click menu.
+2. Click inside a pane to focus it. A split opens an independent session. Splitting an SSH
+   pane starts a new connection to the same saved host. Splitting a serial pane opens a local shell.
+3. Drag the divider to resize the panes. Double-click the divider or focus it and press Enter
+   to balance them. When the divider has focus, use the arrow keys to resize it or Home/End to
+   move it to its limits.
+4. With **Enable workspace and pane navigation shortcuts** on, use Alt+Shift+Arrow to focus a pane
+   in that direction and Ctrl+Alt+Shift+Arrow to move the nearest divider.
+
+To reuse a layout, see [Workspace templates](WORKSPACE_TEMPLATES.md).
+
+## Desktop preferences
+
+Open **Settings → Preferences**, choose your options, then select **Save preferences**.
+
+| Setting | Effect |
+| --- | --- |
+| **Appearance** | Set the app theme to dark or light. Individual tabs can use their own [terminal appearance](#terminal-appearance-f14). |
+| **Default shell executable** | Choose an absolute executable path for new local sessions, or leave it blank for [automatic selection](#platform-defaults-f08). |
+| **Enable workspace and pane navigation shortcuts** | Enable Ctrl+Alt+1/2/3 to switch views and the [pane shortcuts](#split-panes). |
+| **Remember window size and maximized state** | Restore the saved window size and maximized state when the app reopens. |
+| **Copy terminal text when selected with the mouse** | Copy the selected text to the clipboard when you release the mouse button. On Linux, also copy to the primary selection. |
+| **Suggest commands from history while typing** and **Save new commands to the encrypted vault history** | Configure local Bash suggestions and recording. See [Command history](COMMAND_HISTORY.md) for setup and privacy. |
 
 ## Platform defaults (F08)
 
@@ -73,8 +94,8 @@ npm run rebuild:native
 
 Ubuntu builds may need Python 3, make and a C++ compiler (`build-essential`). macOS
 needs Xcode command-line tools; Windows needs a supported MSVC C++ toolchain and
-Windows SDK. Perform builds on each target OS/architecture; a Linux build does not
-provide Windows/macOS artifacts. Packaging/unpacking native binaries is later work.
+Windows SDK. The [Linux package build](../README.md#build-and-install-the-linux-package-from-source)
+includes the native modules. Windows and macOS installer packaging is pending.
 
 On startup failure, verify the shell path in Settings and rebuild native modules.
 A stopped/overflowed session shows an explicit status and can be started again.
@@ -82,18 +103,10 @@ Logs contain fixed terminal failure codes, never commands, shell paths, or outpu
 
 ## Verification and remaining scope
 
-Static checks and production compilation pass. node-pty loads under the installed
-Electron on Linux x64 (Node 24.22.1, ABI 150). This is a native-load check only,
-not an interactive PTY compatibility pass. The new tests cover batching, pause/
-resume, ownership, resize, exit ordering, cancellation, overflow, request limits,
-and a real-shell desktop workflow. They are written but deferred until Phase 1
-completion. Sandbox-enabled desktop verification remains blocked by the host
-configuration documented in [diagnostics](DIAGNOSTICS.md).
-
-Full-screen programs, Unicode/IME, Windows ConPTY, macOS, clipboard/multiline-paste
-policy, process-tree/orphan behavior, many sessions, performance tuning and
-packaging still need their later roadmap steps and compatibility checks. Tabs,
-splits, SSH, and host management are not part of F07.
+The Linux x64 package has launched and run a local shell. See the
+[release verification status](../DEVELOPMENT_ROADMAP.md#verification-status) for test results
+and remaining platform checks. Closing a pane stops its owned session. Detached processes
+or processes that ignore hangup signals may survive.
 
 References: [node-pty](https://github.com/microsoft/node-pty),
 [xterm flow control](https://xtermjs.org/docs/guides/flowcontrol/),

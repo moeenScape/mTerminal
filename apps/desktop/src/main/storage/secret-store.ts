@@ -15,10 +15,11 @@ import {
   type Snippet,
 } from '../../shared/snippets.js';
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto';
-import { lstat, mkdir, open, readFile, rename, rm, chmod, readdir } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, rename, rm, chmod, readdir, link } from 'node:fs/promises';
 import { join } from 'node:path';
 import { utils } from '../ssh2-module.js';
 import { validHostId } from '../../shared/hosts.js';
+import { WorkspaceSyncFailure } from '../../shared/workspace-sync.js';
 import { AppFailure } from '../failures.js';
 import type { SshPasswordStatus } from '../../shared/vault.js';
 import { validateSshCredentials, formatSshPublicKey } from '../../shared/ssh.js';
@@ -31,11 +32,52 @@ import {
 
 type StoredHistoryEntry = Omit<CommandHistoryEntry, 'source'>;
 
+export type SyncCredentialValue =
+  | { kind: 'password'; password: string; username?: string }
+  | { kind: 'key'; privateKey: string; passphrase: string };
+
+async function credentialFileExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function validatePrivateKey(privateKey: string, passphrase: string): void {
+  if (
+    typeof privateKey !== 'string' ||
+    privateKey.length < 1 ||
+    privateKey.length > 256 * 1024 ||
+    typeof passphrase !== 'string' ||
+    passphrase.length > 4096
+  )
+    throw new Error('Private key is too large or invalid.');
+  const parsed = utils.parseKey(privateKey, passphrase);
+  if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey())
+    throw new Error('Invalid private key or passphrase.');
+}
+
 export interface SafeStorageProvider {
   isAsyncEncryptionAvailable(): Promise<boolean>;
   encryptStringAsync(value: string): Promise<Buffer>;
   decryptStringAsync(value: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }>;
   getSelectedStorageBackend(): string;
+}
+
+export async function secureStorageAvailable(
+  storage: SafeStorageProvider,
+  platform: NodeJS.Platform,
+): Promise<boolean> {
+  return (
+    (platform !== 'linux' ||
+      ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
+        storage.getSelectedStorageBackend(),
+      )) &&
+    (await storage.isAsyncEncryptionAvailable())
+  );
 }
 
 export class SshSecretStore {
@@ -520,6 +562,33 @@ export class SshSecretStore {
   listSnippets(): Promise<Snippet[]> {
     return this.serialize(async () => (await this.readSnippetCatalog()).snippets);
   }
+  mergeSharedSnippets(value: unknown): Promise<number> {
+    const { snippets } = validateSnippetCatalog({ version: 1, snippets: value });
+    return this.serialize(async () => {
+      const catalog = await this.readSnippetCatalog();
+      const ids = new Map(catalog.snippets.map((snippet) => [snippet.id, snippet]));
+      const nameKey = (snippet: Snippet) =>
+        JSON.stringify([snippet.folder, snippet.name.toLowerCase()]);
+      const names = new Set(catalog.snippets.map(nameKey));
+      const additions: Snippet[] = [];
+      for (const snippet of snippets) {
+        const prior = ids.get(snippet.id);
+        if (prior && JSON.stringify(prior) === JSON.stringify(snippet)) continue;
+        if (prior || names.has(nameKey(snippet)))
+          throw new WorkspaceSyncFailure('organization-snippet-conflict');
+        additions.push(snippet);
+        names.add(nameKey(snippet));
+      }
+      if (catalog.snippets.length + additions.length > MAX_SNIPPETS)
+        throw new AppFailure('snippet-limit');
+      if (additions.length)
+        await this.writeSnippetCatalog({
+          ...catalog,
+          snippets: [...catalog.snippets, ...additions],
+        });
+      return additions.length;
+    });
+  }
   saveSnippet(value: unknown, id?: string): Promise<Snippet> {
     const draft = validateSnippet(value);
     if (id !== undefined && !validHostId(id)) throw new Error('Invalid snippet ID.');
@@ -584,13 +653,7 @@ export class SshSecretStore {
   }
 
   private async requireSecureStorage(): Promise<void> {
-    if (
-      (this.platform === 'linux' &&
-        !['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
-          this.storage.getSelectedStorageBackend(),
-        )) ||
-      !(await this.storage.isAsyncEncryptionAvailable())
-    )
+    if (!(await secureStorageAvailable(this.storage, this.platform)))
       throw new AppFailure('vault-unavailable');
   }
 
@@ -622,7 +685,11 @@ export class SshSecretStore {
     return result;
   }
 
-  private async writeEncrypted(path: string, encrypted: Buffer): Promise<void> {
+  private async writeEncrypted(
+    path: string,
+    encrypted: Buffer,
+    createOnly?: () => void,
+  ): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     await chmod(this.directory, 0o700);
     const temporary = join(this.directory, `.secret-${randomUUID()}.tmp`);
@@ -634,8 +701,13 @@ export class SshSecretStore {
       } finally {
         await file.close();
       }
-      await rename(temporary, path);
-      await chmod(path, 0o600);
+      if (createOnly) {
+        createOnly();
+        await link(temporary, path);
+      } else {
+        await rename(temporary, path);
+        await chmod(path, 0o600);
+      }
     } finally {
       await rm(temporary, { force: true });
     }
@@ -654,6 +726,13 @@ export class SshSecretStore {
       saved: !!login,
       ...(login?.username ? { username: login.username } : {}),
     };
+  }
+
+  async hasStoredCredential(id: string): Promise<boolean> {
+    for (const path of [this.loginPath(id), this.path(id), this.keyPath(id)]) {
+      if (await credentialFileExists(path)) return true;
+    }
+    return false;
   }
 
   private loginPath(id: string): string {
@@ -698,13 +777,29 @@ export class SshSecretStore {
       throw new AppFailure('vault-corrupt');
     }
   }
-  private async writeLogin(id: string, username: string, password: string): Promise<void> {
+  private async writeLogin(
+    id: string,
+    username: string,
+    password: string,
+    createOnly?: () => void,
+  ): Promise<void> {
     const encrypted = await this.storage.encryptStringAsync(
       await this.protect(JSON.stringify({ version: 1, username, password })),
     );
     if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 64 * 1024)
       throw new AppFailure('vault-unavailable');
-    await this.writeEncrypted(this.loginPath(id), encrypted);
+    await this.writeEncrypted(this.loginPath(id), encrypted, createOnly);
+  }
+
+  private async writePassword(
+    path: string,
+    password: string,
+    createOnly?: () => void,
+  ): Promise<void> {
+    const encrypted = await this.storage.encryptStringAsync(await this.protect(password));
+    if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 16 * 1024)
+      throw new AppFailure('vault-unavailable');
+    await this.writeEncrypted(path, encrypted, createOnly);
   }
   saveLogin(id: string, username: string, password: string): Promise<void> {
     this.loginPath(id);
@@ -729,10 +824,7 @@ export class SshSecretStore {
         await this.writeLogin(identityId, login.username, password);
         return;
       }
-      const encrypted = await this.storage.encryptStringAsync(await this.protect(password));
-      if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 16 * 1024)
-        throw new AppFailure('vault-unavailable');
-      await this.writeEncrypted(path, encrypted);
+      await this.writePassword(path, password);
     });
   }
 
@@ -812,28 +904,66 @@ export class SshSecretStore {
     }
   }
 
-  savePrivateKey(identityId: string, privateKey: string, passphrase = ''): Promise<void> {
+  async savePrivateKey(identityId: string, privateKey: string, passphrase = ''): Promise<void> {
     const path = this.keyPath(identityId);
-    if (
-      typeof privateKey !== 'string' ||
-      privateKey.length < 1 ||
-      privateKey.length > 256 * 1024 ||
-      typeof passphrase !== 'string' ||
-      passphrase.length > 4096
-    )
-      return Promise.reject(new Error('Private key is too large or invalid.'));
-    const parsed = utils.parseKey(privateKey, passphrase);
-    if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey())
-      return Promise.reject(new Error('Invalid private key or passphrase.'));
+    validatePrivateKey(privateKey, passphrase);
     return this.serialize(async () => {
       this.requireUnlocked();
       await this.requireSecureStorage();
-      const encrypted = await this.storage.encryptStringAsync(
-        await this.protect(JSON.stringify({ privateKey, passphrase })),
-      );
-      if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 512 * 1024)
-        throw new AppFailure('vault-unavailable');
-      await this.writeEncrypted(path, encrypted);
+      await this.writePrivateKey(path, privateKey, passphrase);
+    });
+  }
+
+  private async writePrivateKey(
+    path: string,
+    privateKey: string,
+    passphrase: string,
+    createOnly?: () => void,
+  ): Promise<void> {
+    const encrypted = await this.storage.encryptStringAsync(
+      await this.protect(JSON.stringify({ privateKey, passphrase })),
+    );
+    if (!Buffer.isBuffer(encrypted) || encrypted.length < 1 || encrypted.length > 512 * 1024)
+      throw new AppFailure('vault-unavailable');
+    await this.writeEncrypted(path, encrypted, createOnly);
+  }
+
+  restoreSyncedCredential(
+    id: string,
+    value: SyncCredentialValue,
+    verifyOwner: () => void,
+  ): Promise<boolean> {
+    return this.serialize(async () => {
+      this.requireUnlocked();
+      await this.requireSecureStorage();
+      try {
+        if (value.kind === 'key') {
+          const path = this.keyPath(id);
+          if (await credentialFileExists(path)) return false;
+          validatePrivateKey(value.privateKey, value.passphrase);
+          await this.writePrivateKey(path, value.privateKey, value.passphrase, verifyOwner);
+        } else {
+          const path = this.path(id);
+          if (
+            (await credentialFileExists(path)) ||
+            (await credentialFileExists(this.loginPath(id)))
+          )
+            return false;
+          if (!value.password || value.password.length > 4096) throw new Error('Invalid password.');
+          if (value.username !== undefined) {
+            validateSshCredentials({
+              username: value.username,
+              password: value.password,
+              fingerprint: '',
+            });
+            await this.writeLogin(id, value.username, value.password, verifyOwner);
+          } else await this.writePassword(path, value.password, verifyOwner);
+        }
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw error;
+      }
     });
   }
 

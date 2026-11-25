@@ -23,10 +23,6 @@ const steps: {
   { label: 'Open shell', states: ['opening-shell', 'connected'], icon: 'terminal' },
 ];
 
-/**
- * Full-pane connection screen shown while an SSH session starts, as in Termius: host,
- * a three-step progress bar, the current step, logs, and Cancel or Retry.
- */
 export function ConnectionProgress({
   hostId,
   title,

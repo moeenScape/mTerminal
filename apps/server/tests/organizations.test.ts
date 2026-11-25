@@ -1,0 +1,662 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { once } from 'node:events';
+import { test } from 'node:test';
+import { Pool } from 'pg';
+import { accountRoutes } from '../../../packages/shared/accounts.ts';
+import {
+  ADMINISTRATIVE_EVENTS_ROUTE,
+  ADMINISTRATIVE_EVENT_PAGE,
+  parseAdministrativePage,
+  parseAdministrativeQuery,
+} from '../../../packages/shared/administrative-events.ts';
+import {
+  ORGANIZATION_ROUTE,
+  type OrganizationAction,
+  type OrganizationView,
+} from '../../../packages/shared/organizations.ts';
+import {
+  ORGANIZATION_VAULTS_ROUTE,
+  organizationVaultRoute,
+  type VaultAccessAction,
+  type VaultAccessView,
+} from '../../../packages/shared/organization-vault.ts';
+import { LIVE_SHARE_ROUTE } from '../../../packages/shared/live-share.ts';
+import { SHARED_LOGS_ROUTE } from '../../../packages/shared/shared-logs.ts';
+import { purgeSharedLogs } from '../src/shared-logs.ts';
+import { WORKSPACE_SYNC_ROUTE } from '../../../packages/shared/workspace-sync.ts';
+import { createAccounts } from '../src/accounts.ts';
+import { migrateAccounts } from '../src/database.ts';
+import { createAccountServer } from '../src/http.ts';
+
+test('validates administrative event cursors and strips unknown response fields', () => {
+  const organizationId = randomUUID();
+  const before = '9223372036854775807';
+  assert.deepEqual(parseAdministrativeQuery({ organizationId, before }), {
+    organizationId,
+    before,
+  });
+  for (const invalid of ['0', '-1', '01', '9223372036854775808', 1, null]) {
+    assert.equal(parseAdministrativeQuery({ organizationId, before: invalid }), undefined);
+  }
+  assert.equal(parseAdministrativeQuery({ organizationId, limit: 1 }), undefined);
+  const event = {
+    id: before,
+    actorEmail: 'owner@example.com',
+    occurredAt: '2026-11-24T00:00:00.000Z',
+    change: { kind: 'organization-created' },
+  };
+  assert.deepEqual(
+    parseAdministrativePage({
+      events: [{ ...event, change: { ...event.change, privateField: 'discarded' } }],
+      nextBefore: before,
+    }),
+    { events: [event], nextBefore: before },
+  );
+  assert.equal(parseAdministrativePage({ events: [event], nextBefore: '1' }), undefined);
+});
+
+test(
+  'enforces organization ownership, verified-email invitations, and immediate offboarding',
+  { skip: !process.env.MTERMINAL_TEST_DATABASE_URL && 'Set MTERMINAL_TEST_DATABASE_URL.' },
+  async () => {
+    const connectionString = process.env.MTERMINAL_TEST_DATABASE_URL;
+    assert.ok(connectionString);
+    const schema = 'org_test_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString });
+    const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+    const mail = new Map<string, string>();
+    const server = createAccountServer(
+      createAccounts(
+        pool,
+        async (email, code) => {
+          mail.set(email, code);
+        },
+        Buffer.alloc(32, 17),
+      ),
+    );
+    try {
+      await admin.query(`CREATE SCHEMA ${schema}`);
+      await migrateAccounts(pool);
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const base = `http://127.0.0.1:${address.port}`;
+      const call = (path: string, method: string, token?: string, body?: object) =>
+        fetch(base + path, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+      const signUp = async (email: string): Promise<string> => {
+        assert.equal(
+          (await call(accountRoutes.register, 'POST', undefined, { email })).status,
+          202,
+        );
+        const code = mail.get(email);
+        assert.ok(code);
+        const response = await call(accountRoutes.verify, 'POST', undefined, {
+          email,
+          code,
+          password: 'a suitable test password',
+          deviceId: randomUUID(),
+          deviceName: 'Test desktop',
+        });
+        assert.equal(response.status, 200);
+        return ((await response.json()) as { token: string }).token;
+      };
+      const request = (token: string | undefined, body: OrganizationAction) =>
+        call(ORGANIZATION_ROUTE, 'POST', token, body);
+      const view = async (
+        token: string,
+        body: OrganizationAction = { kind: 'status' },
+      ): Promise<OrganizationView> => {
+        const response = await request(token, body);
+        assert.equal(response.status, 200);
+        return (await response.json()) as OrganizationView;
+      };
+      const accessRequest = (token: string, action: VaultAccessAction) =>
+        call(ORGANIZATION_VAULTS_ROUTE, 'POST', token, action);
+      const accessView = async (
+        token: string,
+        action: VaultAccessAction,
+      ): Promise<VaultAccessView> => {
+        const response = await accessRequest(token, action);
+        assert.equal(response.status, 200);
+        return (await response.json()) as VaultAccessView;
+      };
+      const owner = await signUp('owner@example.com');
+      const teammate = await signUp('teammate@example.com');
+      const outsider = await signUp('outsider@example.com');
+
+      assert.equal((await request(undefined, { kind: 'status' })).status, 401);
+      assert.equal(
+        (
+          await call(ORGANIZATION_ROUTE, 'POST', owner, {
+            kind: 'create',
+            name: 'Ops',
+            owner: false,
+          })
+        ).status,
+        400,
+      );
+      const created = await view(owner, { kind: 'create', name: 'Ops' });
+      const organizationId = created.organizations[0]?.id;
+      const ownerId = created.roster?.members[0]?.id;
+      assert.ok(organizationId && ownerId && created.roster?.members[0]?.owner);
+      const eventsRequest = (token?: string, before?: string, orgId = organizationId) =>
+        call(ADMINISTRATIVE_EVENTS_ROUTE, 'POST', token, {
+          organizationId: orgId,
+          ...(before ? { before } : {}),
+        });
+      const eventsPage = async (token: string, before?: string, orgId = organizationId) => {
+        const response = await eventsRequest(token, before, orgId);
+        assert.equal(response.status, 200);
+        const page = parseAdministrativePage(await response.json());
+        assert.ok(page);
+        return page;
+      };
+      assert.equal((await eventsRequest()).status, 401);
+      assert.equal((await eventsRequest(outsider)).status, 403);
+      const createdPage = await eventsPage(owner);
+      assert.deepEqual(
+        createdPage.events.map(({ actorEmail, change }) => ({ actorEmail, change })),
+        [{ actorEmail: 'owner@example.com', change: { kind: 'organization-created' } }],
+      );
+      const vault = organizationVaultRoute(organizationId);
+      const initial = {
+        expectedRevision: 0,
+        envelope: {
+          version: 1,
+          nonce: 'n'.repeat(16),
+          tag: 't'.repeat(22),
+          ciphertext: 'Y2lwaGVy',
+        },
+        writeProof: 'p'.repeat(43),
+      };
+      const empty = await call(vault, 'GET', owner);
+      assert.equal(empty.status, 200);
+      assert.deepEqual(await empty.json(), { organizationId, revision: 0, envelope: null });
+      assert.equal((await call(vault, 'GET')).status, 401);
+      assert.equal((await call(vault, 'GET', outsider)).status, 403);
+      assert.equal((await call(vault, 'PUT', outsider, initial)).status, 403);
+      assert.equal(
+        (await call(vault, 'PUT', owner, { ...initial, plaintext: 'rejected' })).status,
+        400,
+      );
+      const saved = await call(vault, 'PUT', owner, initial);
+      assert.equal(saved.status, 200);
+      assert.deepEqual(await saved.json(), { revision: 1 });
+      assert.equal((await call(vault, 'PUT', owner, initial)).status, 409);
+      assert.equal(
+        (
+          await call(vault, 'PUT', owner, {
+            ...initial,
+            expectedRevision: 1,
+            writeProof: 'q'.repeat(43),
+          })
+        ).status,
+        409,
+      );
+      const manage = { kind: 'manage', organizationId } as const;
+      const leave = { kind: 'leave', organizationId } as const;
+      assert.equal((await request(owner, leave)).status, 409);
+      assert.equal((await request(outsider, manage)).status, 403);
+
+      const invite = { kind: 'invite', organizationId, email: 'TEAMMATE@example.com' } as const;
+      assert.equal((await request(outsider, invite)).status, 403);
+      await view(owner, invite);
+      const firstInvite = (await view(teammate)).invitations[0]?.id;
+      assert.ok(firstInvite);
+      const accept = { kind: 'accept', invitationId: firstInvite } as const;
+      assert.deepEqual(await view(outsider), { organizations: [], invitations: [] });
+      assert.equal((await request(outsider, accept)).status, 404);
+      const otherOrg = (await view(outsider, { kind: 'create', name: 'Other team' }))
+        .organizations[0]?.id;
+      assert.ok(otherOrg);
+      const isolatedVault = await call(organizationVaultRoute(otherOrg), 'GET', outsider);
+      assert.equal(isolatedVault.status, 200);
+      assert.deepEqual(await isolatedVault.json(), {
+        organizationId: otherOrg,
+        revision: 0,
+        envelope: null,
+      });
+      assert.equal((await call(vault, 'GET', outsider)).status, 403);
+
+      await view(owner, { kind: 'cancel-invite', organizationId, invitationId: firstInvite });
+      assert.equal((await request(teammate, accept)).status, 404);
+
+      await view(owner, invite);
+      const expired = (await view(teammate)).invitations[0]?.id;
+      assert.ok(expired);
+      await pool.query(
+        "UPDATE organization_invitations SET expires_at = now() - interval '1 second' WHERE id = $1",
+        [expired],
+      );
+      assert.equal(
+        (await request(teammate, { kind: 'accept', invitationId: expired })).status,
+        404,
+      );
+
+      await view(owner, invite);
+      const invitationId = (await view(teammate)).invitations[0]?.id;
+      assert.ok(invitationId);
+      const accepted = await Promise.all([
+        request(teammate, { kind: 'accept', invitationId }),
+        request(teammate, { kind: 'accept', invitationId }),
+      ]);
+      assert.deepEqual(accepted.map(({ status }) => status).sort(), [200, 404]);
+      assert.deepEqual((await view(teammate)).organizations, [
+        { id: organizationId, name: 'Ops', owner: false },
+      ]);
+      assert.equal((await request(teammate, manage)).status, 403);
+      assert.equal((await eventsRequest(teammate)).status, 403);
+      assert.equal((await request(owner, invite)).status, 409);
+
+      const listVaults = { kind: 'list', organizationId } as const;
+      assert.equal((await accessRequest(outsider, listVaults)).status, 403);
+      assert.deepEqual((await accessView(teammate, listVaults)).vaults, []);
+      assert.equal((await call(vault, 'GET', teammate)).status, 403);
+      const visibility = {
+        kind: 'visibility',
+        organizationId,
+        vaultId: organizationId,
+        allMembers: true,
+      } as const;
+      await accessView(owner, visibility);
+      const changedVisibility = await eventsPage(owner);
+      assert.equal(changedVisibility.events[0]?.change.kind, 'vault-visibility');
+      await accessView(owner, visibility);
+      assert.deepEqual(await eventsPage(owner), changedVisibility);
+
+      await pool.query(
+        `ALTER TABLE organization_administrative_events ADD CONSTRAINT reject_audit_probe
+         CHECK (change->>'vaultName' IS DISTINCT FROM 'Rollback probe')`,
+      );
+      const rejected = await accessRequest(owner, {
+        kind: 'create',
+        organizationId,
+        name: 'Rollback probe',
+      });
+      assert.equal(rejected.status, 503);
+      assert.ok(
+        !(await accessView(owner, listVaults)).vaults.some(({ name }) => name === 'Rollback probe'),
+      );
+      await pool.query(
+        'ALTER TABLE organization_administrative_events DROP CONSTRAINT reject_audit_probe',
+      );
+      const privateVaults = await accessView(owner, {
+        kind: 'create',
+        organizationId,
+        name: 'Private operations',
+      });
+      const privateVaultId = privateVaults.administration?.vaultId;
+      const teammateId = privateVaults.administration?.members[0]?.id;
+      assert.ok(privateVaultId && teammateId);
+      const privateRoute = organizationVaultRoute(organizationId, privateVaultId);
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
+      assert.equal(
+        (await call(organizationVaultRoute(otherOrg, privateVaultId), 'GET', outsider)).status,
+        403,
+      );
+      assert.deepEqual(
+        (await accessView(teammate, listVaults)).vaults.map((item) => item.id),
+        [organizationId],
+      );
+      const grant = {
+        kind: 'grant',
+        organizationId,
+        vaultId: privateVaultId,
+        memberId: teammateId,
+      } as const;
+      assert.equal((await accessRequest(teammate, { ...grant, grant: 'editor' })).status, 403);
+      await accessView(owner, { ...grant, grant: 'reader' });
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 200);
+      assert.equal((await call(privateRoute, 'PUT', teammate, initial)).status, 403);
+      await accessView(owner, { ...grant, grant: 'editor' });
+      const editorWrite = await call(privateRoute, 'PUT', teammate, initial);
+      assert.equal(editorWrite.status, 200);
+      assert.deepEqual(await editorWrite.json(), { revision: 1 });
+      const auditResponse = await eventsRequest(owner);
+      assert.equal(auditResponse.status, 200);
+      const rawAudit = await auditResponse.text();
+      assert.ok(
+        !rawAudit.includes(initial.writeProof) && !rawAudit.includes(initial.envelope.ciphertext),
+      );
+      const audit = parseAdministrativePage(JSON.parse(rawAudit));
+      assert.ok(audit);
+      assert.equal(audit.events[0]?.actorEmail, 'teammate@example.com');
+      assert.deepEqual(audit.events[0]?.change, {
+        kind: 'vault-published',
+        vaultId: privateVaultId,
+        vaultName: 'Private operations',
+        revision: 1,
+      });
+      assert.equal(audit.events[1]?.change.kind, 'vault-grant');
+      assert.equal(
+        audit.events.filter(({ change }) => change.kind === 'invitation-accepted').length,
+        1,
+      );
+      assert.equal((await eventsPage(outsider, undefined, otherOrg)).events.length, 1);
+      const logTarget = { organizationId, vaultId: privateVaultId, logId: randomUUID() };
+      const share = {
+        ...logTarget,
+        kind: 'share',
+        label: initial.envelope,
+        transcript: initial.envelope,
+        writeProof: initial.writeProof,
+      };
+      const logRequest = (bearer: string | undefined, body: object) =>
+        call(SHARED_LOGS_ROUTE, 'POST', bearer, body);
+      const sharedLog = (kind: 'read' | 'remove') => ({ ...logTarget, kind });
+      const listLogs = { kind: 'list', organizationId, vaultId: privateVaultId };
+      assert.equal((await logRequest(undefined, listLogs)).status, 401);
+      assert.equal((await logRequest(outsider, listLogs)).status, 403);
+      assert.equal((await logRequest(owner, { ...share, plaintext: 'do not store' })).status, 400);
+      assert.equal((await logRequest(owner, { ...share, writeProof: 'q'.repeat(43) })).status, 409);
+      assert.equal((await logRequest(teammate, share)).status, 200);
+      assert.equal((await logRequest(owner, share)).status, 200);
+      const listed = await logRequest(owner, listLogs);
+      assert.equal(listed.status, 200);
+      const { logs } = (await listed.json()) as {
+        logs: { id: string; sharedAt: string; expiresAt: string }[];
+      };
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0]?.id, logTarget.logId);
+      assert.equal(Date.parse(logs[0]!.expiresAt) - Date.parse(logs[0]!.sharedAt), 30 * 86400000);
+      const annotate = {
+        ...logTarget,
+        kind: 'annotate',
+        annotationId: randomUUID(),
+        envelope: initial.envelope,
+        writeProof: initial.writeProof,
+      };
+      assert.equal(
+        (await logRequest(teammate, { ...annotate, author: 'spoof@example.com' })).status,
+        400,
+      );
+      assert.equal((await logRequest(teammate, annotate)).status, 200);
+      const retried = await logRequest(teammate, annotate);
+      const annotated = (await retried.json()) as {
+        log: { annotations: { author: string; id: string }[] };
+      };
+      assert.equal(annotated.log.annotations.length, 1);
+      assert.equal(annotated.log.annotations[0]?.id, annotate.annotationId);
+      assert.equal(annotated.log.annotations[0]?.author, 'teammate@example.com');
+      assert.equal((await logRequest(teammate, sharedLog('remove'))).status, 403);
+      await accessView(owner, { ...grant, grant: 'reader' });
+      assert.equal((await logRequest(teammate, sharedLog('read'))).status, 200);
+      assert.equal((await logRequest(teammate, annotate)).status, 403);
+      assert.equal((await logRequest(teammate, share)).status, 403);
+      await pool.query(
+        'UPDATE organization_shared_logs SET expires_at = now() WHERE organization_id = $1 AND vault_id = $2 AND id = $3',
+        [organizationId, privateVaultId, logTarget.logId],
+      );
+      assert.equal((await logRequest(owner, sharedLog('read'))).status, 404);
+      const expiredList = await logRequest(owner, listLogs);
+      assert.deepEqual(await expiredList.json(), { logs: [] });
+      await purgeSharedLogs(pool);
+      const purged = await pool.query(
+        'SELECT 1 FROM organization_log_annotations WHERE log_id = $1',
+        [logTarget.logId],
+      );
+      assert.equal(purged.rowCount, 0);
+      const secondLog = { ...share, logId: randomUUID() };
+      assert.equal((await logRequest(owner, secondLog)).status, 200);
+      assert.equal(
+        (await logRequest(owner, { ...logTarget, logId: secondLog.logId, kind: 'remove' })).status,
+        200,
+      );
+      assert.equal(
+        (await logRequest(owner, { ...logTarget, logId: secondLog.logId, kind: 'read' })).status,
+        404,
+      );
+      const relay = (token: string | undefined, action: object) =>
+        call(LIVE_SHARE_ROUTE, 'POST', token, action);
+      const start = {
+        kind: 'start',
+        organizationId,
+        vaultId: privateVaultId,
+        email: 'teammate@example.com',
+      };
+      assert.equal((await relay(undefined, start)).status, 401);
+      assert.equal((await relay(owner, { ...start, email: 'outsider@example.com' })).status, 404);
+      assert.equal((await relay(teammate, { ...start, email: 'owner@example.com' })).status, 403);
+      const started = await relay(owner, start);
+      assert.equal(started.status, 200);
+      const { room } = (await started.json()) as { room: string };
+      const watch = { kind: 'view', room, after: 0 };
+      assert.equal((await relay(outsider, watch)).status, 404);
+      const push = { kind: 'push', room, sequence: 1, frame: initial.envelope };
+      assert.equal((await relay(teammate, push)).status, 404);
+      assert.equal((await relay(owner, { ...push, text: 'unexpected plaintext' })).status, 400);
+      assert.equal((await relay(owner, { ...push, sequence: 2 })).status, 409);
+      assert.equal((await relay(owner, push)).status, 200);
+      assert.equal((await relay(owner, push)).status, 409);
+      const seen = await relay(teammate, watch);
+      assert.equal(seen.status, 200);
+      assert.deepEqual(await seen.json(), {
+        frames: [{ sequence: 1, frame: initial.envelope }],
+        typing: null,
+      });
+      const lease = randomUUID();
+      const handoff = { kind: 'control', room, revision: 1, lease };
+      const input = { kind: 'input', room, lease, sequence: 1, frame: initial.envelope };
+      assert.equal((await relay(teammate, input)).status, 409);
+      assert.equal((await relay(teammate, handoff)).status, 404);
+      assert.equal((await relay(owner, handoff)).status, 200);
+      const otherSignIn = await call(accountRoutes.signIn, 'POST', undefined, {
+        email: 'teammate@example.com',
+        password: 'a suitable test password',
+        deviceId: randomUUID(),
+        deviceName: 'Second desktop',
+      });
+      assert.equal(otherSignIn.status, 200);
+      const otherDevice = ((await otherSignIn.json()) as { token: string }).token;
+      const secondDeviceView = await relay(otherDevice, watch);
+      assert.equal(((await secondDeviceView.json()) as { typing: unknown }).typing, null);
+      assert.equal((await relay(otherDevice, input)).status, 409);
+      assert.equal((await relay(teammate, { ...input, text: 'plaintext' })).status, 400);
+      assert.equal((await relay(teammate, input)).status, 200);
+      assert.equal((await relay(teammate, { ...input, sequence: 2 })).status, 409);
+      const drained = await relay(owner, { kind: 'push', room });
+      assert.equal(drained.status, 200);
+      assert.deepEqual(await drained.json(), {
+        sequence: 1,
+        revision: 1,
+        lease,
+        guestReady: true,
+        input: { sequence: 1, frame: initial.envelope },
+      });
+      const emptyInput = await relay(owner, { kind: 'push', room });
+      assert.equal(((await emptyInput.json()) as { input: unknown }).input, null);
+      assert.equal((await relay(teammate, input)).status, 409);
+      assert.equal((await relay(teammate, { ...input, sequence: 2 })).status, 200);
+      assert.equal((await relay(owner, { ...handoff, revision: 2, lease: null })).status, 200);
+      assert.equal((await relay(owner, handoff)).status, 409);
+      const reclaimed = await relay(owner, { kind: 'push', room });
+      assert.equal(((await reclaimed.json()) as { input: unknown }).input, null);
+      assert.equal((await relay(teammate, { ...input, sequence: 3 })).status, 409);
+      await relay(teammate, watch);
+      const nextLease = randomUUID();
+      assert.equal((await relay(owner, { ...handoff, revision: 3, lease: nextLease })).status, 200);
+      assert.equal((await relay(teammate, { kind: 'yield', room, lease: nextLease })).status, 200);
+      assert.equal((await relay(teammate, { ...input, lease: nextLease })).status, 409);
+      assert.equal((await relay(teammate, { kind: 'stop', room })).status, 404);
+      assert.equal((await relay(owner, { kind: 'stop', room })).status, 200);
+      assert.equal((await relay(teammate, watch)).status, 404);
+      const again = await relay(owner, start);
+      assert.equal(again.status, 200);
+      const secondRoom = ((await again.json()) as { room: string }).room;
+      await accessView(owner, { ...grant, grant: null });
+      assert.equal((await relay(teammate, { ...watch, room: secondRoom })).status, 403);
+      assert.equal((await relay(owner, { kind: 'push', room: secondRoom })).status, 404);
+      assert.equal((await logRequest(teammate, listLogs)).status, 403);
+      assert.equal((await call(privateRoute, 'GET', teammate)).status, 403);
+      assert.equal(
+        (await call(privateRoute, 'PUT', teammate, { ...initial, expectedRevision: 1 })).status,
+        403,
+      );
+      assert.equal(
+        (await call(organizationVaultRoute(organizationId, organizationId), 'GET', owner)).status,
+        200,
+      );
+      const shared = await call(vault, 'GET', teammate);
+      assert.equal(shared.status, 200);
+      assert.deepEqual(await shared.json(), {
+        organizationId,
+        revision: 1,
+        envelope: initial.envelope,
+      });
+      const update = { ...initial, expectedRevision: 1 };
+      assert.equal((await call(vault, 'PUT', teammate, update)).status, 403);
+      const memberId = (await view(owner, manage)).roster?.members.find(
+        (member) => !member.owner,
+      )?.id;
+      assert.ok(memberId);
+      const transfer = { kind: 'transfer', organizationId, memberId } as const;
+      assert.equal((await request(teammate, transfer)).status, 403);
+      const transferred = await view(owner, transfer);
+      assert.equal((await eventsRequest(owner)).status, 403);
+      const transferredEvent = (await eventsPage(teammate)).events[0];
+      assert.equal(transferredEvent?.actorEmail, 'owner@example.com');
+      assert.deepEqual(transferredEvent?.change, {
+        kind: 'ownership-transferred',
+        email: 'teammate@example.com',
+      });
+      assert.equal(transferred.organizations[0]?.owner, false);
+      assert.equal(transferred.roster, undefined);
+      assert.equal((await request(owner, manage)).status, 403);
+      assert.equal((await request(teammate, leave)).status, 409);
+      assert.equal((await call(vault, 'PUT', owner, update)).status, 403);
+      const ownUpdate = await call(vault, 'PUT', teammate, update);
+      assert.equal(ownUpdate.status, 200);
+      assert.deepEqual(await ownUpdate.json(), { revision: 2 });
+      await accessView(teammate, { ...grant, memberId: ownerId, grant: 'editor' });
+      const removed = await view(teammate, { kind: 'remove', organizationId, memberId: ownerId });
+      assert.equal(removed.roster?.members.length, 1);
+      assert.deepEqual((await view(owner)).organizations, []);
+      assert.equal((await request(owner, manage)).status, 403);
+      assert.equal((await call(vault, 'GET', owner)).status, 403);
+      assert.equal((await call(WORKSPACE_SYNC_ROUTE, 'GET', owner)).status, 200);
+
+      await view(teammate, { ...invite, email: 'owner@example.com' });
+      const returningInvite = (await view(owner)).invitations[0]?.id;
+      assert.ok(returningInvite);
+      await view(owner, { kind: 'decline', invitationId: returningInvite });
+      assert.deepEqual((await view(owner)).invitations, []);
+      await view(teammate, { ...invite, email: 'owner@example.com' });
+      const rejoin = (await view(owner)).invitations[0]?.id;
+      assert.ok(rejoin);
+      await view(owner, { kind: 'accept', invitationId: rejoin });
+      assert.equal((await call(privateRoute, 'GET', owner)).status, 403);
+      assert.deepEqual((await view(owner, leave)).organizations, []);
+      await pool.query(
+        `INSERT INTO organization_administrative_events (organization_id, actor_id, actor_email, change)
+         SELECT $1::uuid, $2::uuid, $3::text, '{"kind":"organization-created"}'::jsonb
+         FROM generate_series(1, $4::int)`,
+        [organizationId, memberId, 'teammate@example.com', ADMINISTRATIVE_EVENT_PAGE],
+      );
+      const newest = await eventsPage(teammate);
+      assert.equal(newest.events.length, ADMINISTRATIVE_EVENT_PAGE);
+      assert.ok(newest.nextBefore);
+      const older = await eventsPage(teammate, newest.nextBefore);
+      assert.equal(older.events[0]?.change.kind, 'member-left');
+      assert.ok(older.events.every(({ id }) => BigInt(id) < BigInt(newest.nextBefore!)));
+      assert.equal((await call(accountRoutes.session, 'DELETE', teammate)).status, 200);
+      assert.equal((await call(vault, 'GET', teammate)).status, 401);
+      assert.equal((await request(teammate, manage)).status, 401);
+    } finally {
+      if (server.listening)
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      await pool.end();
+      try {
+        await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      } finally {
+        await admin.end();
+      }
+    }
+  },
+);
+
+test(
+  'migrates a 007 vault without changing its ciphertext, revision, proof or legacy access',
+  { skip: !process.env.MTERMINAL_TEST_DATABASE_URL && 'Set MTERMINAL_TEST_DATABASE_URL.' },
+  async () => {
+    const connectionString = process.env.MTERMINAL_TEST_DATABASE_URL;
+    assert.ok(connectionString);
+    const schema = 'vault_upgrade_' + randomUUID().replaceAll('-', '');
+    const admin = new Pool({ connectionString });
+    const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+    try {
+      await admin.query(`CREATE SCHEMA ${schema}`);
+      const directory = new URL('../migrations/', import.meta.url);
+      const original = (await readdir(directory))
+        .filter((file) => /^00[1-7]_.*\.sql$/.test(file))
+        .sort();
+      assert.equal(original.length, 7);
+      await pool.query('CREATE TABLE mterminal_migrations (version integer PRIMARY KEY)');
+      for (const [index, file] of original.entries()) {
+        await pool.query(await readFile(new URL(file, directory), 'utf8'));
+        await pool.query('INSERT INTO mterminal_migrations VALUES ($1)', [index + 1]);
+      }
+      const owner = randomUUID();
+      const organizationId = randomUUID();
+      await pool.query('INSERT INTO accounts (id,email,password_hash) VALUES ($1,$2,$3)', [
+        owner,
+        'owner@example.com',
+        'fixture',
+      ]);
+      const envelope = { version: 1, ciphertext: 'existing-encrypted-bytes' };
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          'INSERT INTO organizations (id,name,owner_account_id) VALUES ($1,$2,$3)',
+          [organizationId, 'Legacy team', owner],
+        );
+        await client.query(
+          'INSERT INTO organization_members (organization_id,account_id) VALUES ($1,$2)',
+          [organizationId, owner],
+        );
+        await client.query(
+          'INSERT INTO organization_vaults (organization_id,revision,write_hash,envelope) VALUES ($1,4,$2,$3)',
+          [organizationId, 'a'.repeat(64), JSON.stringify(envelope)],
+        );
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      await migrateAccounts(pool);
+      await migrateAccounts(pool);
+      const migrated = await pool.query(
+        `SELECT v.id, v.all_members, d.revision, d.write_hash, d.envelope
+         FROM organization_vault_catalog v JOIN organization_vaults d
+         ON d.organization_id = v.organization_id AND d.vault_id = v.id`,
+      );
+      assert.deepEqual(migrated.rows, [
+        {
+          id: organizationId,
+          all_members: true,
+          revision: 4,
+          write_hash: 'a'.repeat(64),
+          envelope,
+        },
+      ]);
+    } finally {
+      await pool.end();
+      try {
+        await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      } finally {
+        await admin.end();
+      }
+    }
+  },
+);

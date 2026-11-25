@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Preferences } from '../../../../shared/preferences';
 import type { AppInfo } from '../../../../shared/app-info';
 import { ProxySettings } from './ProxySettings';
+import { AccountSettings } from './AccountSettings';
 
 export function SettingsView({
   info,
@@ -17,6 +18,13 @@ export function SettingsView({
   onSave: (value: Preferences) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(preferences);
+  useEffect(
+    () =>
+      window.mterminal.onPortablePreferencesChanged((values) =>
+        setDraft((current) => ({ ...current, ...values })),
+      ),
+    [],
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
@@ -205,6 +213,7 @@ export function SettingsView({
             {backupBusy ? 'Working…' : backupMessage}
           </p>
         </section>
+        <AccountSettings />
         <ProxySettings />
         <section aria-labelledby="application-heading">
           <h2 id="application-heading">About</h2>

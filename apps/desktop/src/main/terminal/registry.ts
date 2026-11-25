@@ -13,6 +13,7 @@ import { FileBrowserError } from '../files/listing.js';
 export class TerminalRegistry {
   private readonly sessions = new Map<string, TerminalSession>();
   private disposed = false;
+  private readonly guestWriters = new Map<string, symbol>();
   private suspended = false;
   private readonly outputListeners = new Set<(id: string, data: string) => void>();
   onOutput(listener: (id: string, data: string) => void) {
@@ -24,6 +25,20 @@ export class TerminalRegistry {
   isReady(id: string) {
     return !this.disposed && !this.suspended && this.sessions.get(id)?.ready === true;
   }
+  liveSessions(): { id: string; label: string }[] {
+    return [...this.sessions].flatMap(([id, session], index) =>
+      this.isReady(id)
+        ? [
+            {
+              id,
+              label: [`Terminal ${index + 1}`, session.transferPeer?.address]
+                .filter(Boolean)
+                .join(' · '),
+            },
+          ]
+        : [],
+    );
+  }
   private readonly closedListeners = new Set<(id: string) => void>();
   onSessionClosed(listener: (id: string) => void): () => void {
     this.closedListeners.add(listener);
@@ -32,23 +47,26 @@ export class TerminalRegistry {
     };
   }
   private notifyClosed(id: string): void {
+    this.guestWriters.delete(id);
     for (const listener of this.closedListeners) listener(id);
   }
   executionTargets(): import('../../shared/batch.js').BatchTarget[] {
     if (this.disposed || this.suspended) return [];
     return [...this.sessions.entries()].flatMap(([sessionId, session]) =>
-      session.canExecute && session.transferPeer ? [{ sessionId, ...session.transferPeer }] : [],
+      !this.guestWriters.has(sessionId) && session.canExecute && session.transferPeer
+        ? [{ sessionId, ...session.transferPeer }]
+        : [],
     );
   }
   executeCommand(id: string, command: string, signal: AbortSignal) {
     const session = this.sessions.get(id);
-    if (this.disposed || this.suspended || !session?.canExecute)
+    if (this.disposed || this.suspended || this.guestWriters.has(id) || !session?.canExecute)
       throw new Error('SSH session unavailable.');
     return session.executeCommand(command, signal);
   }
   sendBreak(id: string): Promise<void> {
     const session = this.sessions.get(id);
-    if (this.disposed || this.suspended || !session)
+    if (this.disposed || this.suspended || this.guestWriters.has(id) || !session)
       return Promise.reject(new Error('Serial session unavailable.'));
     return session.sendBreak();
   }
@@ -161,8 +179,23 @@ export class TerminalRegistry {
     const result = await session.completePaths(prefix);
     return !this.disposed && !this.suspended && this.sessions.get(id) === session ? result : [];
   }
+  acquireGuestWriter(id: string) {
+    if (!this.isReady(id) || this.guestWriters.has(id)) return undefined;
+    const lease = Symbol();
+    this.guestWriters.set(id, lease);
+    return {
+      write: (input: TerminalInput) => {
+        if (!this.isReady(id) || this.guestWriters.get(id) !== lease)
+          throw new Error('Guest input is no longer available.');
+        this.sessions.get(id)!.write(id, input);
+      },
+      release: () => {
+        if (this.guestWriters.get(id) === lease) this.guestWriters.delete(id);
+      },
+    };
+  }
   write(id: string, input: TerminalInput): void {
-    this.sessions.get(id)?.write(id, input);
+    if (!this.guestWriters.has(id)) this.sessions.get(id)?.write(id, input);
   }
   async listDirectory(id: string, path: string) {
     const session = this.sessions.get(id);

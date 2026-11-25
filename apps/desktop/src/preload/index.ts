@@ -39,7 +39,11 @@ import {
   type TerminalOpenResult,
 } from '../shared/terminal.js';
 import { failureMessages, type PreferenceSaveResult } from '../shared/failures.js';
-import { PREFERENCES_GET, PREFERENCES_SAVE } from '../shared/preferences.js';
+import {
+  PREFERENCES_GET,
+  PREFERENCES_SAVE,
+  PORTABLE_PREFERENCES_CHANGED,
+} from '../shared/preferences.js';
 import {
   vaultChannels,
   vaultEvents,
@@ -50,6 +54,31 @@ import {
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, type AppInfo, type DesktopApi } from '../shared/app-info.js';
 import { backupChannels } from '../shared/backup.js';
+import {
+  ACCOUNT_REQUEST,
+  ADMINISTRATIVE_EVENTS_REQUEST,
+  type AdministrativeReply,
+  DEVICE_DIRECTORY_REQUEST,
+  type AccountResult,
+  type DeviceDirectoryResult,
+  ORGANIZATION_REQUEST,
+  type OrganizationResult,
+} from '../shared/accounts.js';
+import {
+  ORGANIZATION_VAULT_REQUEST,
+  VAULT_ACCESS_REQUEST,
+  type VaultAccessReply,
+  sharedVaultErrors,
+  type SharedVaultReply,
+  type SharedVaultSettings,
+} from '../shared/organization-vault.js';
+import { SYNC_PREFERENCES_REQUEST, type SyncPreferenceReply } from '../shared/sync-preferences.js';
+import {
+  SYNC_QUEUE_CHANGED,
+  SYNC_WORKSPACE_REQUEST,
+  type WorkspaceSyncReply,
+} from '../shared/workspace-sync.js';
+import { accountErrors } from '../../../../packages/shared/accounts.ts';
 import { historyChannels, historyEvents, type CommandHistoryEntry } from '../shared/history.js';
 import {
   transferChannels,
@@ -98,7 +127,94 @@ async function transferRequest<T>(channel: string, ...args: unknown[]): Promise<
   return result.value;
 }
 
+import { SHARED_LOGS_REQUEST, type SharedLogsReply } from '../shared/shared-logs.js';
+
+import {
+  LIVE_CHANGED,
+  LIVE_REQUEST,
+  type LiveReply,
+  type LiveState,
+} from '../shared/live-share.js';
+
 const api: DesktopApi = {
+  liveTerminal: async (action) => {
+    const reply: LiveReply = await ipcRenderer.invoke(LIVE_REQUEST, action);
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.view;
+  },
+  onLiveTerminalChanged: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, state: LiveState) => listener(state);
+    ipcRenderer.on(LIVE_CHANGED, receive);
+    return () => {
+      ipcRenderer.removeListener(LIVE_CHANGED, receive);
+    };
+  },
+  sharedLogs: async (action) => {
+    const reply: SharedLogsReply = await ipcRenderer.invoke(SHARED_LOGS_REQUEST, action);
+    if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);
+    return reply.view;
+  },
+  organizationEvents: async (query) => {
+    const reply: AdministrativeReply = await ipcRenderer.invoke(
+      ADMINISTRATIVE_EVENTS_REQUEST,
+      query,
+    );
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.page;
+  },
+  organizationVaultAccess: async (action) => {
+    const reply: VaultAccessReply = await ipcRenderer.invoke(VAULT_ACCESS_REQUEST, action);
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.view;
+  },
+  organizationVault: async (action) => {
+    const reply: SharedVaultReply = await ipcRenderer.invoke(ORGANIZATION_VAULT_REQUEST, action);
+    if (!reply.ok) throw new Error(sharedVaultErrors[reply.code] ?? accountErrors[reply.code]);
+    return reply.view;
+  },
+  onPortablePreferencesChanged: (listener) => {
+    const notify = (_event: Electron.IpcRendererEvent, settings: SharedVaultSettings) =>
+      listener(settings);
+    ipcRenderer.on(PORTABLE_PREFERENCES_CHANGED, notify);
+    return () => {
+      ipcRenderer.removeListener(PORTABLE_PREFERENCES_CHANGED, notify);
+    };
+  },
+  syncPreferences: async (action) => {
+    const result: SyncPreferenceReply = await ipcRenderer.invoke(SYNC_PREFERENCES_REQUEST, action);
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.result;
+  },
+  syncWorkspace: async (action) => {
+    const reply: WorkspaceSyncReply = await ipcRenderer.invoke(SYNC_WORKSPACE_REQUEST, action);
+    if (!reply.ok) throw new Error(accountErrors[reply.code]);
+    return reply.result;
+  },
+  onWorkspaceSyncQueueChanged: (listener) => {
+    const notify = () => listener();
+    ipcRenderer.on(SYNC_QUEUE_CHANGED, notify);
+    return () => {
+      ipcRenderer.removeListener(SYNC_QUEUE_CHANGED, notify);
+    };
+  },
+  organizations: async (action) => {
+    const result: OrganizationResult = await ipcRenderer.invoke(ORGANIZATION_REQUEST, action);
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.view;
+  },
+  deviceDirectory: async (action) => {
+    const result: DeviceDirectoryResult = await ipcRenderer.invoke(
+      DEVICE_DIRECTORY_REQUEST,
+      action,
+    );
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.keys;
+  },
+  account: async (action) => {
+    const result: AccountResult = await ipcRenderer.invoke(ACCOUNT_REQUEST, action);
+    if (!result.ok) throw new Error(accountErrors[result.code]);
+    return result.state;
+  },
   listSessionLogs: () => historyRequest<SessionLogSummary[]>(sessionLogChannels.list),
   getSessionLog: (id) => historyRequest<SessionLog>(sessionLogChannels.read, id),
   getLogRecordingState: () => historyRequest<LogRecordingState>(sessionLogChannels.state),

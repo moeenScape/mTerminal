@@ -89,6 +89,18 @@ export function validateLogAnnotation(value: unknown, length: number): LogAnnota
   });
   return { notes: logLabel(a.notes, 512, true), bookmarks };
 }
+export function validSessionLogText(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= MAX_LOG_CHARACTERS &&
+    !Array.from(value).some(
+      (c) =>
+        (c.charCodeAt(0) < 32 && c !== '\t' && c !== '\n') ||
+        (c.charCodeAt(0) >= 127 && c.charCodeAt(0) <= 159),
+    )
+  );
+}
+
 export function validateSessionLog(value: unknown): SessionLog {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Invalid session log.');
@@ -96,13 +108,7 @@ export function validateSessionLog(value: unknown): SessionLog {
   if (
     !validHostId(l.id) ||
     !validHostId(l.sessionId) ||
-    typeof l.text !== 'string' ||
-    l.text.length > MAX_LOG_CHARACTERS ||
-    Array.from(l.text).some(
-      (c) =>
-        (c.charCodeAt(0) < 32 && c !== '\t' && c !== '\n') ||
-        (c.charCodeAt(0) >= 127 && c.charCodeAt(0) <= 159),
-    ) ||
+    !validSessionLogText(l.text) ||
     !Number.isSafeInteger(l.createdAt) ||
     !Number.isSafeInteger(l.updatedAt) ||
     l.createdAt < 0 ||

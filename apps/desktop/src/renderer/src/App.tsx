@@ -17,9 +17,31 @@ import { HostsView } from './features/hosts/HostsView';
 import { SettingsView } from './features/settings/SettingsView';
 import { WorkspaceView } from './features/workspace/WorkspaceView';
 
+import type { LiveState } from '../../shared/live-share.js';
+
 type AppState = { status: 'loading' } | { status: 'ready'; info: AppInfo } | { status: 'error' };
 
 export function App() {
+  const [liveShare, setLiveShare] = useState<LiveState>({ active: false });
+  const [liveError, setLiveError] = useState('');
+  useEffect(() => {
+    let current = true;
+    let updated = false;
+    const off = window.mterminal.onLiveTerminalChanged((state) => {
+      updated = true;
+      setLiveShare(state);
+    });
+    void window.mterminal
+      .liveTerminal({ kind: 'status' })
+      .then(({ state }) => {
+        if (state && current && !updated) setLiveShare(state);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+      off();
+    };
+  }, []);
   const [state, setState] = useState<AppState>({ status: 'loading' });
   const [activeView, setActiveView] = useState<ViewId>('hosts');
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
@@ -76,6 +98,14 @@ export function App() {
       off();
     };
   }, []);
+
+  useEffect(
+    () =>
+      window.mterminal.onPortablePreferencesChanged((values) =>
+        setPreferences((current) => ({ ...current, ...values })),
+      ),
+    [],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -181,6 +211,61 @@ export function App() {
           ref={setSessionBar}
           data-dimmed={activeView === 'workspace' ? undefined : ''}
         />
+        {liveShare.active && (
+          <div className="live-share-banner">
+            <span role="status">
+              {liveShare.typing === 'guest'
+                ? 'Guest has typing control. Local typing is paused.'
+                : liveShare.typing === 'granting'
+                  ? 'Handing off typing control…'
+                  : 'Sharing live terminal output'}
+            </span>
+            {(liveShare.typing === 'guest' ||
+              liveShare.typing === 'granting' ||
+              liveShare.guestReady) && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setLiveError('');
+                  const kind =
+                    liveShare.typing === 'guest' || liveShare.typing === 'granting'
+                      ? 'reclaim'
+                      : 'grant';
+                  void window.mterminal.liveTerminal({ kind }).catch((cause: unknown) => {
+                    setLiveError(
+                      cause instanceof Error ? cause.message : 'Could not change typing control.',
+                    );
+                  });
+                }}
+              >
+                {liveShare.typing === 'guest' || liveShare.typing === 'granting'
+                  ? 'Take back control'
+                  : 'Give typing control'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setLiveError('');
+                void window.mterminal.liveTerminal({ kind: 'stop' }).catch(() => {
+                  setLiveError('Could not stop the share. Close the shared terminal to end it.');
+                });
+              }}
+            >
+              Stop live share
+            </button>
+            {liveError && <span role="alert">{liveError}</span>}
+          </div>
+        )}
+        {!liveShare.active && liveShare.reason && (
+          <div className="live-share-banner" role="status">
+            {liveShare.reason === 'live-output'
+              ? 'Live share stopped because terminal output was too fast.'
+              : 'Live share ended.'}
+          </div>
+        )}
         <section id="view-panel" aria-label={activeLabel} tabIndex={-1} className="view-panel">
           {activeView === 'hosts' && (
             <HostsView

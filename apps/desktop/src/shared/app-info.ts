@@ -15,6 +15,12 @@ import type { HistoryApi } from './history.js';
 import type { FilesApi } from './files.js';
 import type { TransfersApi } from './transfers.js';
 import type { RemoteEditApi } from './remote-edit.js';
+import type { AccountApi } from './accounts.js';
+import type { WorkspaceSyncApi } from './workspace-sync.js';
+import type { SyncPreferencesApi } from './sync-preferences.js';
+import type { SharedVaultApi, SharedVaultSettings } from './organization-vault.js';
+import type { SharedLogsApi } from './shared-logs.js';
+import type { LiveApi } from './live-share.js';
 export const APP_INFO_CHANNEL = 'app:get-info';
 
 export interface AppInfo {
@@ -41,11 +47,18 @@ export interface DesktopApi
     AgentApi,
     SerialApi,
     BroadcastApi,
-    SessionLogsApi {
+    SessionLogsApi,
+    AccountApi,
+    WorkspaceSyncApi,
+    SyncPreferencesApi,
+    SharedVaultApi,
+    SharedLogsApi,
+    LiveApi {
   readClipboardText: () => Promise<string>;
   /** `primary` also fills the Linux middle-click selection. */
   writeClipboardText: (text: string, options?: { primary?: boolean }) => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
+  onPortablePreferencesChanged: (listener: (settings: SharedVaultSettings) => void) => () => void;
   getPreferences: () => Promise<import('./preferences.js').Preferences>;
   savePreferences: (
     preferences: import('./preferences.js').Preferences,

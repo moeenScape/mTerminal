@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0d16" />
+    <meta
+      name="description"
+      content="Install mTerminal, connect to an SSH host, transfer files using SFTP, and manage your saved SSH keys."
+    />
+    <title>Documentation — mTerminal</title>
+    <link rel="icon" href="../assets/mterminal.png" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="wordmark" href="../" aria-label="mTerminal home"
+          ><img src="../assets/mterminal.png" width="36" height="36" alt="" />mTerminal<span
+            class="brand-period"
+            >.</span
+          ></a
+        >
+        <nav class="site-nav" aria-label="Main navigation">
+          <a href="../#features">Features</a><a href="./" aria-current="page">Docs</a>
+          <a class="nav-download" href="../#download">Downloads</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" class="wrap section guide-layout">
+      <nav class="guide-nav" aria-label="On this page">
+        <p>On this page</p>
+        <a href="#install">Install mTerminal</a>
+        <a href="#local">Open a local shell</a>
+        <a href="#ssh">Connect over SSH</a>
+        <a href="#sftp">Transfer files</a>
+        <a href="#vault">Manage credentials</a>
+        <a href="#reference">More documentation</a>
+      </nav>
+      <article class="guide-content">
+        <p class="eyebrow section-kicker">Documentation</p>
+        <h1>Get started with mTerminal.</h1>
+        <p class="section-description">
+          Install the app, start a local shell or SSH session, and open a remote folder.
+        </p>
+        <section id="install" aria-labelledby="install-title">
+          <h2 id="install-title">Install mTerminal</h2>
+          <h3 id="linux">Linux</h3>
+          <p>
+            On Debian or Ubuntu, install the <code>.deb</code> package from the
+            <a href="../#download">Downloads page</a> when one is published. Run this from the
+            directory containing the installer, using its exact filename.
+          </p>
+          <pre tabindex="0"><code>sudo apt install ./mterminal_0.1.0_amd64.deb</code></pre>
+          <p>
+            To build the Debian package from a source checkout, use Node.js 24.12 or later within
+            Node 24 and npm 11. Install the native build tools required by the project, then run
+            these commands from the repository root.
+          </p>
+          <pre tabindex="0"><code>npm ci
+npm run dist</code></pre>
+          <p>
+            Open mTerminal from the application menu after installing the package from
+            <code>apps/desktop/dist/</code>. The
+            <a href="https://github.com/moeenScape/mTerminal/blob/main/README.md#install-mterminal"
+              >full installation guide</a
+            >
+            covers prerequisites, architecture, upgrades, and uninstalling.
+          </p>
+          <h3 id="macos">macOS</h3>
+          <p>
+            Check <a href="../#download">Downloads</a> for a published installer for Apple Silicon
+            or Intel. macOS packaging and signing are pending in the current project. Platform
+            support is tracked in the
+            <a href="https://github.com/moeenScape/mTerminal/blob/main/DEVELOPMENT_ROADMAP.md"
+              >development roadmap</a
+            >.
+          </p>
+          <h3 id="windows">Windows</h3>
+          <p>
+            Check <a href="../#download">Downloads</a> for a published Windows installer. Windows
+            packaging and verification are pending in the current project.
+          </p>
+        </section>
+        <section id="local" aria-labelledby="local-title">
+          <h2 id="local-title">Open a local shell</h2>
+          <p>
+            Open <strong>Workspace</strong> and choose <strong>New local terminal</strong>. Select a
+            shell available on your machine, then open additional tabs or split the current
+            workspace to keep sessions in view.
+          </p>
+        </section>
+        <section id="ssh" aria-labelledby="ssh-title">
+          <h2 id="ssh-title">Connect over SSH</h2>
+          <ol>
+            <li>
+              Open <strong>Hosts</strong>, add a host, and enter its name, server address, SSH port,
+              and username.
+            </li>
+            <li>
+              Choose <strong>Connect</strong>. Enter your credentials or select an available saved
+              identity.
+            </li>
+            <li>
+              Verify the server’s host-key fingerprint through a trusted source before accepting it.
+              A successful connection opens a tab in <strong>Workspace</strong>.
+            </li>
+          </ol>
+          <p>Use groups to organize saved hosts and apply shared defaults where needed.</p>
+        </section>
+        <section id="sftp" aria-labelledby="sftp-title">
+          <h2 id="sftp-title">Browse and transfer files</h2>
+          <ol>
+            <li>
+              Open <strong>Files</strong> from a connected SSH terminal tab. The left pane is your
+              computer. The right pane is the remote host.
+            </li>
+            <li>
+              Select a file and choose <strong>Upload</strong> or <strong>Download</strong>. Review
+              the destination before confirming the transfer.
+            </li>
+            <li>Use <strong>Back to terminal</strong> to return to the same shell.</li>
+          </ol>
+          <p>The remote server must allow both a shell and SFTP for this workflow.</p>
+        </section>
+        <section id="vault" aria-labelledby="vault-title">
+          <h2 id="vault-title">Manage saved credentials</h2>
+          <p>
+            Set up and unlock the local vault to save supported SSH passwords or managed private
+            keys. Create a reusable identity in <strong>Hosts</strong> to use the same
+            authentication settings with multiple hosts.
+          </p>
+          <p>
+            Keep a separate copy of credentials you need for recovery. Workspace exports contain
+            profile data and exclude saved credentials.
+          </p>
+        </section>
+        <section id="reference" aria-labelledby="reference-title">
+          <h2 id="reference-title">More documentation</h2>
+          <ul>
+            <li>
+              <a href="https://github.com/moeenScape/mTerminal/blob/main/docs/LOCAL_TERMINAL.md"
+                >Local terminal shortcuts and settings</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/moeenScape/mTerminal/blob/main/docs/SSH_SESSIONS.md"
+                >SSH sessions, host keys, and reconnect</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/moeenScape/mTerminal/blob/main/docs/FILE_BROWSER.md"
+                >SFTP browser and transfer queue</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/moeenScape/mTerminal/blob/main/docs/LOCAL_STORAGE.md"
+                >Local storage, backups, and recovery</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/moeenScape/mTerminal/blob/main/README.md#feature-guides"
+                >All feature guides on GitHub</a
+              >
+            </li>
+          </ul>
+        </section>
+      </article>
+    </main>
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <a class="wordmark" href="../"
+          ><img src="../assets/mterminal.png" width="32" height="32" alt="" />mTerminal<span
+            class="brand-period"
+            >.</span
+          ></a
+        >
+        <nav aria-label="Footer navigation">
+          <a href="../#download">Downloads</a
+          ><a href="https://github.com/moeenScape/mTerminal">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

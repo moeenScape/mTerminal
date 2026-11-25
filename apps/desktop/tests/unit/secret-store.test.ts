@@ -29,6 +29,40 @@ function fakeStorage(backend = 'gnome_libsecret'): SafeStorageProvider {
 }
 
 describe('OS-encrypted SSH password storage', () => {
+  it('restores a synced credential once and guards the final encrypted file write', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-'));
+    try {
+      const store = new SshSecretStore(directory, fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
+      const guard = () => {
+        throw new Error('changed owner');
+      };
+      const login = { kind: 'password' as const, username: 'synced', password: 'credential' };
+      await expect(store.restoreSyncedCredential(identityId, login, guard)).rejects.toThrow(
+        'changed owner',
+      );
+      expect(await store.getLogin(identityId)).toBeUndefined();
+      expect(await store.restoreSyncedCredential(identityId, login, () => {})).toBe(true);
+      expect(
+        await store.restoreSyncedCredential(
+          identityId,
+          { kind: 'password', password: 'replacement' },
+          () => {},
+        ),
+      ).toBe(false);
+      expect(await store.getLogin(identityId)).toEqual({
+        username: 'synced',
+        password: 'credential',
+      });
+      const pair = utils.generateKeyPairSync('ed25519');
+      const key = { kind: 'key' as const, privateKey: pair.private, passphrase: '' };
+      expect(await store.restoreSyncedCredential(identityId, key, () => {})).toBe(true);
+      expect(await store.restoreSyncedCredential(identityId, key, () => {})).toBe(false);
+      expect((await store.getPrivateKey(identityId))?.privateKey).toBe(pair.private);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('stores ciphertext separately, retrieves it and removes it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-vault-'));
     try {
@@ -349,6 +383,32 @@ describe('encrypted snippet storage', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('merges shared snippets once and keeps existing snippets and startup assignments on conflict', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
+    try {
+      const store = new SshSecretStore(directory, fakeStorage(), 'linux');
+      await store.setupVault(vaultPassphrase);
+      const local = await store.saveSnippet({
+        name: 'Local',
+        command: 'echo local',
+        folder: '',
+        tags: [],
+      });
+      await store.setStartupSnippet('local', local.id);
+      const shared = { ...local, id: identityId, name: 'Shared', command: 'echo shared' };
+      await expect(store.mergeSharedSnippets([shared])).resolves.toBe(1);
+      await expect(store.mergeSharedSnippets([shared])).resolves.toBe(0);
+      const addition = { ...shared, name: 'New', id: 'a4e9f162-d3cd-4c8f-a70a-2323a1751a9b' };
+      await expect(
+        store.mergeSharedSnippets([addition, { ...shared, command: 'echo conflict' }]),
+      ).rejects.toMatchObject({ code: 'organization-snippet-conflict' });
+      expect(await store.listSnippets()).toEqual([local, shared]);
+      expect(await store.getStartupSnippet('local')).toEqual(local);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('enforces the snippet count and refuses insecure keychain fallback without replacing data', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mterminal-snippets-'));
     try {

@@ -1,15 +1,15 @@
 ---
 name: mterminal-ui-design
-description: "Design, implement, or review mTerminal React interfaces against its Termius-style desktop direction, including terminal layouts, host management, SFTP, and accessibility. Use for visual or interaction changes in apps/desktop."
+description: "Design, implement, or review mTerminal React interfaces for its desktop terminal workflows, including terminal layouts, host management, SFTP, and accessibility. Use for visual or interaction changes in apps/desktop."
 ---
 
 # mTerminal UI Design
 
-## Establish the screen and reference
+## Establish the screen and workflow
 
 Read the repository [README](../../../README.md#interface-direction), the relevant feature in [the roadmap](../../../DEVELOPMENT_ROADMAP.md), and existing renderer components/styles before editing. Treat current files as authoritative; the application may still be an empty scaffold. Keep future server and shared packages empty unless the requested work needs them.
 
-Termius Desktop is the visual and workflow reference. Use supplied references first, then the existing material under `docs/termius/` or official product screenshots when needed. Inspect a relevant screen rather than inventing a generic dashboard. Use mTerminal branding and original assets.
+Use supplied mTerminal references or inspect the current interface to understand the workflow. Use mTerminal branding and original assets.
 
 ## Compose a working desktop interface
 
@@ -30,6 +30,6 @@ Check small and large window sizes and increased display/text scaling. Keep pane
 
 ## Validate the result
 
-Run available renderer checks appropriate to the change. If the app can run, inspect the actual screen or screenshots, compare its hierarchy with the reference, and exercise the requested interaction, keyboard focus, resizing, and relevant failure state. A passing build does not prove visual quality.
+Run available renderer checks appropriate to the change. If the app can run, inspect the actual screen or screenshots, check its hierarchy against the workflow, and exercise the requested interaction, keyboard focus, resizing, and relevant failure state. A passing build does not prove visual quality.
 
 If the toolchain or target platform is unavailable, state what could not be inspected rather than claiming a visual or cross-platform pass. Update only the roadmap items actually completed. Report the screen behavior changed and any remaining limitations.

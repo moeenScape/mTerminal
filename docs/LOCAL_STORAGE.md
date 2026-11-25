@@ -73,6 +73,22 @@ failed integrity checks stop startup without replacing the database. Future
 schema upgrades first snapshot the existing supported database. Startup creates
 one initial snapshot per schema version if absent; it is not a rolling backup.
 
+## Workspace backup
+
+Open **Settings → Workspace backup** to move saved connection profiles between installations
+or keep a copy of their configuration.
+
+1. Select **Export backup** and save the JSON file. Keep it somewhere private because it
+   contains host addresses and usernames.
+2. To restore those records in mTerminal, select **Import backup**, choose the JSON file, and
+   select **Import records** in the confirmation dialog.
+3. The app merges incoming records with your current workspace. A conflict cancels the entire
+   import and preserves your current records.
+
+The JSON includes SSH host profiles, groups, identity metadata, and trusted host fingerprints.
+Saved passwords, private keys, and vault files are excluded. Use the SQLite maintenance
+commands below for a database snapshot.
+
 ## Offline maintenance
 
 Quit mTerminal before running these commands from the repository root, using Node
