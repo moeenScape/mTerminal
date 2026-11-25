@@ -14,6 +14,7 @@ asarUnpack:
   - '**/node_modules/@serialport/bindings-cpp/**'
 # Native modules are already compiled for this Electron version by `npm install` (scripts/rebuild.mjs).
 npmRebuild: false
+afterPack: ./scripts/after-pack.mjs
 linux:
   target: deb
   category: System

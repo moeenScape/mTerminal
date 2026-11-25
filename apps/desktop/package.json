@@ -13,7 +13,7 @@
     "dev": "electron-vite dev --watch",
     "start": "electron-vite preview",
     "build": "electron-vite build",
-    "dist": "electron-vite build && electron-builder --linux deb",
+    "dist": "electron-vite build && umask 022 && electron-builder --linux deb",
     "typecheck": "tsc --build",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config playwright.config.ts",
